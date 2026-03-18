@@ -1,0 +1,31 @@
+---
+source: src/parser.rs
+expression: parse_expr_str(input)
+---
+Spanned {
+    node: BinOp {
+        op: Div,
+        left: Spanned {
+            node: Var(
+                "a",
+            ),
+            span: Span {
+                start: 0,
+                end: 1,
+            },
+        },
+        right: Spanned {
+            node: Var(
+                "b",
+            ),
+            span: Span {
+                start: 4,
+                end: 5,
+            },
+        },
+    },
+    span: Span {
+        start: 0,
+        end: 5,
+    },
+}

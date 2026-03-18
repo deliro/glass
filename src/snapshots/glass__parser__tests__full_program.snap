@@ -1,0 +1,247 @@
+---
+source: src/parser.rs
+expression: parse(source)
+---
+Module {
+    definitions: [
+        Type(
+            TypeDef {
+                is_pub: true,
+                name: "Msg",
+                type_params: [],
+                constructors: [
+                    Constructor {
+                        name: "Tick",
+                        fields: [],
+                        span: Span {
+                            start: 20,
+                            end: 24,
+                        },
+                    },
+                    Constructor {
+                        name: "UnitDied",
+                        fields: [
+                            Field {
+                                name: "killer",
+                                type_expr: Named {
+                                    name: "Player",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 40,
+                                    end: 54,
+                                },
+                            },
+                            Field {
+                                name: "bounty",
+                                type_expr: Named {
+                                    name: "Int",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 56,
+                                    end: 67,
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: 29,
+                            end: 69,
+                        },
+                    },
+                ],
+                span: Span {
+                    start: 5,
+                    end: 71,
+                },
+            },
+        ),
+        Function(
+            FnDef {
+                is_pub: true,
+                is_local: false,
+                name: "update",
+                params: [
+                    Param {
+                        name: "model",
+                        type_expr: Named {
+                            name: "Model",
+                            args: [],
+                        },
+                        span: Span {
+                            start: 87,
+                            end: 99,
+                        },
+                    },
+                    Param {
+                        name: "msg",
+                        type_expr: Named {
+                            name: "Msg",
+                            args: [],
+                        },
+                        span: Span {
+                            start: 101,
+                            end: 109,
+                        },
+                    },
+                ],
+                return_type: Some(
+                    Tuple(
+                        [
+                            Named {
+                                name: "Model",
+                                args: [],
+                            },
+                            Named {
+                                name: "List",
+                                args: [
+                                    Named {
+                                        name: "Effect",
+                                        args: [
+                                            Named {
+                                                name: "Msg",
+                                                args: [],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    ),
+                ),
+                body: Spanned {
+                    node: Case {
+                        subject: Spanned {
+                            node: Var(
+                                "msg",
+                            ),
+                            span: Span {
+                                start: 153,
+                                end: 156,
+                            },
+                        },
+                        arms: [
+                            CaseArm {
+                                pattern: Spanned {
+                                    node: Constructor {
+                                        name: "Tick",
+                                        args: [],
+                                    },
+                                    span: Span {
+                                        start: 167,
+                                        end: 171,
+                                    },
+                                },
+                                guard: None,
+                                body: Spanned {
+                                    node: Tuple(
+                                        [
+                                            Spanned {
+                                                node: Var(
+                                                    "model",
+                                                ),
+                                                span: Span {
+                                                    start: 177,
+                                                    end: 182,
+                                                },
+                                            },
+                                            Spanned {
+                                                node: List(
+                                                    [],
+                                                ),
+                                                span: Span {
+                                                    start: 184,
+                                                    end: 186,
+                                                },
+                                            },
+                                        ],
+                                    ),
+                                    span: Span {
+                                        start: 175,
+                                        end: 187,
+                                    },
+                                },
+                                span: Span {
+                                    start: 167,
+                                    end: 187,
+                                },
+                            },
+                            CaseArm {
+                                pattern: Spanned {
+                                    node: Constructor {
+                                        name: "UnitDied",
+                                        args: [
+                                            Spanned {
+                                                node: Var(
+                                                    "killer",
+                                                ),
+                                                span: Span {
+                                                    start: 205,
+                                                    end: 211,
+                                                },
+                                            },
+                                            Spanned {
+                                                node: Var(
+                                                    "bounty",
+                                                ),
+                                                span: Span {
+                                                    start: 213,
+                                                    end: 219,
+                                                },
+                                            },
+                                        ],
+                                    },
+                                    span: Span {
+                                        start: 196,
+                                        end: 220,
+                                    },
+                                },
+                                guard: None,
+                                body: Spanned {
+                                    node: Tuple(
+                                        [
+                                            Spanned {
+                                                node: Var(
+                                                    "model",
+                                                ),
+                                                span: Span {
+                                                    start: 226,
+                                                    end: 231,
+                                                },
+                                            },
+                                            Spanned {
+                                                node: List(
+                                                    [],
+                                                ),
+                                                span: Span {
+                                                    start: 233,
+                                                    end: 235,
+                                                },
+                                            },
+                                        ],
+                                    ),
+                                    span: Span {
+                                        start: 224,
+                                        end: 236,
+                                    },
+                                },
+                                span: Span {
+                                    start: 196,
+                                    end: 236,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start: 142,
+                        end: 244,
+                    },
+                },
+                span: Span {
+                    start: 77,
+                    end: 244,
+                },
+            },
+        ),
+    ],
+}

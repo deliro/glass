@@ -1,0 +1,25 @@
+// Glass standard library: String functions
+
+@external("jass", "StringLength")
+pub fn length(s: String) -> Int
+
+@external("jass", "SubString")
+pub fn slice(s: String, start: Int, end: Int) -> String
+
+@external("jass", "StringHash")
+pub fn hash(s: String) -> Int
+
+@external("jass", "StringCase")
+fn case_convert(s: String, upper: Bool) -> String
+
+pub fn to_upper(s: String) -> String {
+    case_convert(s, True)
+}
+
+pub fn to_lower(s: String) -> String {
+    case_convert(s, False)
+}
+
+pub fn is_empty(s: String) -> Bool {
+    length(s) == 0
+}

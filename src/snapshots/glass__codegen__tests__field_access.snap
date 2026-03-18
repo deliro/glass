@@ -1,0 +1,11 @@
+---
+source: src/codegen.rs
+expression: "compile(\"fn get_wave(m: Int) -> Int { m.wave }\")"
+---
+function glass_dispatch_void takes integer glass_closure returns integer
+    return 0
+endfunction
+
+function glass_get_wave takes integer m returns integer
+    return glass_get_Int_Int_wave (m)
+endfunction

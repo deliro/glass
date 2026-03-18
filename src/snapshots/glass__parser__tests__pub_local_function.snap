@@ -1,0 +1,30 @@
+---
+source: src/parser.rs
+expression: "parse(\"pub local fn cam() { True }\")"
+---
+Module {
+    definitions: [
+        Function(
+            FnDef {
+                is_pub: true,
+                is_local: true,
+                name: "cam",
+                params: [],
+                return_type: None,
+                body: Spanned {
+                    node: Bool(
+                        true,
+                    ),
+                    span: Span {
+                        start: 19,
+                        end: 27,
+                    },
+                },
+                span: Span {
+                    start: 4,
+                    end: 27,
+                },
+            },
+        ),
+    ],
+}

@@ -1,0 +1,69 @@
+---
+source: src/parser.rs
+expression: "parse(\"pub type Phase { Lobby Playing { wave: Int } Victory { winner: Player } }\")"
+---
+Module {
+    definitions: [
+        Type(
+            TypeDef {
+                is_pub: true,
+                name: "Phase",
+                type_params: [],
+                constructors: [
+                    Constructor {
+                        name: "Lobby",
+                        fields: [],
+                        span: Span {
+                            start: 17,
+                            end: 22,
+                        },
+                    },
+                    Constructor {
+                        name: "Playing",
+                        fields: [
+                            Field {
+                                name: "wave",
+                                type_expr: Named {
+                                    name: "Int",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 33,
+                                    end: 42,
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: 23,
+                            end: 44,
+                        },
+                    },
+                    Constructor {
+                        name: "Victory",
+                        fields: [
+                            Field {
+                                name: "winner",
+                                type_expr: Named {
+                                    name: "Player",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 55,
+                                    end: 69,
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: 45,
+                            end: 71,
+                        },
+                    },
+                ],
+                span: Span {
+                    start: 4,
+                    end: 73,
+                },
+            },
+        ),
+    ],
+}

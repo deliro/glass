@@ -1,0 +1,99 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case d { n if n > 100 -> 1 _ -> 0 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "d",
+            ),
+            span: Span {
+                start: 5,
+                end: 6,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: Var(
+                        "n",
+                    ),
+                    span: Span {
+                        start: 9,
+                        end: 10,
+                    },
+                },
+                guard: Some(
+                    Spanned {
+                        node: BinOp {
+                            op: Greater,
+                            left: Spanned {
+                                node: Var(
+                                    "n",
+                                ),
+                                span: Span {
+                                    start: 14,
+                                    end: 15,
+                                },
+                            },
+                            right: Spanned {
+                                node: Int(
+                                    100,
+                                ),
+                                span: Span {
+                                    start: 18,
+                                    end: 21,
+                                },
+                            },
+                        },
+                        span: Span {
+                            start: 14,
+                            end: 21,
+                        },
+                    },
+                ),
+                body: Spanned {
+                    node: Int(
+                        1,
+                    ),
+                    span: Span {
+                        start: 25,
+                        end: 26,
+                    },
+                },
+                span: Span {
+                    start: 9,
+                    end: 26,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Discard,
+                    span: Span {
+                        start: 27,
+                        end: 28,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 32,
+                        end: 33,
+                    },
+                },
+                span: Span {
+                    start: 27,
+                    end: 33,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 35,
+    },
+}

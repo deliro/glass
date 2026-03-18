@@ -1,0 +1,20 @@
+---
+source: src/mono.rs
+expression: types
+---
+{
+    MonoType {
+        base: "List",
+        args: [
+            Int,
+        ],
+        jass_name: "List_integer",
+    },
+    MonoType {
+        base: "List",
+        args: [
+            String,
+        ],
+        jass_name: "List_string",
+    },
+}

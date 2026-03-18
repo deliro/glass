@@ -1,0 +1,6 @@
+---
+source: src/jass_parser.rs
+expression: "format!(\"types: {}\\nnatives: {}\", sdk.types.len(), sdk.natives.len())"
+---
+types: 134
+natives: 1409

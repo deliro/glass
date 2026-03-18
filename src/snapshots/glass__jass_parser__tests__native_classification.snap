@@ -1,0 +1,7 @@
+---
+source: src/jass_parser.rs
+expression: "format!(\"pure: {}\\neffectful: {}\\ntotal: {}\", pure_count, effect_count,\nsdk.natives.len())"
+---
+pure: 457
+effectful: 952
+total: 1409

@@ -1,0 +1,75 @@
+// Glass standard library: Set(T)
+// Backed by JASS hashtable. Elements stored as keys, value = 1.
+
+import option { Option, Some, None }
+import dict { Dict }
+
+pub type Set(T) {
+    Set{ dict: Dict(T, Int) }
+}
+
+@external("jass", "InitHashtable")
+fn init_hashtable() -> Int
+
+@external("jass", "SaveInteger")
+fn save_integer(ht: Int, parent_key: Int, child_key: Int, value: Int) -> Int
+
+@external("jass", "HaveSavedInteger")
+fn have_saved_integer(ht: Int, parent_key: Int, child_key: Int) -> Bool
+
+@external("jass", "RemoveSavedInteger")
+fn remove_saved_integer(ht: Int, parent_key: Int, child_key: Int) -> Int
+
+pub fn new() -> Set(Int) {
+    let h = init_hashtable()
+    Set(Dict(h, 0))
+}
+
+pub fn insert(s: Set(Int), elem: Int) -> Set(Int) {
+    case s {
+        Set{ dict, .. } -> case dict {
+            Dict{ handle, size, .. } -> {
+                case have_saved_integer(handle, 0, elem) {
+                    True -> Set(Dict(handle, size))
+                    False -> {
+                        let _ = save_integer(handle, 0, elem, 1)
+                        Set(Dict(handle, size + 1))
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn contains(s: Set(Int), elem: Int) -> #(Bool, Set(Int)) {
+    case s {
+        Set{ dict, .. } -> case dict {
+            Dict{ handle, size, .. } ->
+                #(have_saved_integer(handle, 0, elem), Set(Dict(handle, size)))
+        }
+    }
+}
+
+pub fn remove(s: Set(Int), elem: Int) -> Set(Int) {
+    case s {
+        Set{ dict, .. } -> case dict {
+            Dict{ handle, size, .. } -> {
+                case have_saved_integer(handle, 0, elem) {
+                    True -> {
+                        let _ = remove_saved_integer(handle, 0, elem)
+                        Set(Dict(handle, size - 1))
+                    }
+                    False -> Set(Dict(handle, size))
+                }
+            }
+        }
+    }
+}
+
+pub fn size(s: Set(Int)) -> #(Int, Set(Int)) {
+    case s {
+        Set{ dict, .. } -> case dict {
+            Dict{ handle, size, .. } -> #(size, Set(Dict(handle, size)))
+        }
+    }
+}

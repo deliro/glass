@@ -1,0 +1,14 @@
+pub type Phase {
+    Lobby
+    Playing(wave: Int)
+    Victory(winner: Int)
+}
+
+pub type Model {
+    Model(phase: Int, wave: Int, score: Int)
+}
+
+fn test_construct() -> Model {
+    let m = Model(phase: 0, wave: 1, score: 100)
+    m
+}

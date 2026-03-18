@@ -1,0 +1,41 @@
+---
+source: src/token.rs
+expression: "token_kinds(\"pub fn add(a: Int, b: Int) -> Int { a + b }\")"
+---
+[
+    Pub,
+    Fn,
+    LowerIdent(
+        "add",
+    ),
+    LParen,
+    LowerIdent(
+        "a",
+    ),
+    Colon,
+    UpperIdent(
+        "Int",
+    ),
+    Comma,
+    LowerIdent(
+        "b",
+    ),
+    Colon,
+    UpperIdent(
+        "Int",
+    ),
+    RParen,
+    Arrow,
+    UpperIdent(
+        "Int",
+    ),
+    LBrace,
+    LowerIdent(
+        "a",
+    ),
+    Plus,
+    LowerIdent(
+        "b",
+    ),
+    RBrace,
+]

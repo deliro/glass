@@ -1,0 +1,52 @@
+---
+source: src/codegen.rs
+expression: "compile(r#\"\nfn pair(a: Int, b: Int) -> Int { #(a, b) }\n\"#)"
+---
+globals
+    // SoA arrays for type Tuple2_integer_integer
+    integer array glass_Tuple2_integer_integer_Tuple2_integer_integer__0
+    integer array glass_Tuple2_integer_integer_Tuple2_integer_integer__1
+    integer array glass_Tuple2_integer_integer_free
+    integer glass_Tuple2_integer_integer_free_top = 0
+    integer glass_Tuple2_integer_integer_count = 0
+endglobals
+
+function glass_Tuple2_integer_integer_alloc takes nothing returns integer
+    local integer id
+    if glass_Tuple2_integer_integer_free_top > 0 then
+        set glass_Tuple2_integer_integer_free_top = glass_Tuple2_integer_integer_free_top - 1
+        set id = glass_Tuple2_integer_integer_free[glass_Tuple2_integer_integer_free_top]
+    else
+        set glass_Tuple2_integer_integer_count = glass_Tuple2_integer_integer_count + 1
+        set id = glass_Tuple2_integer_integer_count
+    endif
+    return id
+endfunction
+
+function glass_Tuple2_integer_integer_dealloc takes integer id returns nothing
+    set glass_Tuple2_integer_integer_free[glass_Tuple2_integer_integer_free_top] = id
+    set glass_Tuple2_integer_integer_free_top = glass_Tuple2_integer_integer_free_top + 1
+endfunction
+
+function glass_new_Tuple2_integer_integer takes integer p__0, integer p__1 returns integer
+    local integer id = glass_Tuple2_integer_integer_alloc()
+    set glass_Tuple2_integer_integer_Tuple2_integer_integer__0 [id] = p__0
+    set glass_Tuple2_integer_integer_Tuple2_integer_integer__1 [id] = p__1
+    return id
+endfunction
+
+function glass_get_Tuple2_integer_integer_Tuple2_integer_integer__0 takes integer id returns integer
+    return glass_Tuple2_integer_integer_Tuple2_integer_integer__0 [id]
+endfunction
+
+function glass_get_Tuple2_integer_integer_Tuple2_integer_integer__1 takes integer id returns integer
+    return glass_Tuple2_integer_integer_Tuple2_integer_integer__1 [id]
+endfunction
+
+function glass_dispatch_void takes integer glass_closure returns integer
+    return 0
+endfunction
+
+function glass_pair takes integer a, integer b returns integer
+    return glass_new_Tuple2_integer_integer(a, b)
+endfunction

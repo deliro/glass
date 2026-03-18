@@ -1,0 +1,52 @@
+---
+source: src/parser.rs
+expression: "parse(\"pub type X { Y(name: Int, String) }\")"
+---
+Module {
+    definitions: [
+        Type(
+            TypeDef {
+                is_pub: true,
+                name: "X",
+                type_params: [],
+                constructors: [
+                    Constructor {
+                        name: "Y",
+                        fields: [
+                            Field {
+                                name: "name",
+                                type_expr: Named {
+                                    name: "Int",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 15,
+                                    end: 24,
+                                },
+                            },
+                            Field {
+                                name: "_0",
+                                type_expr: Named {
+                                    name: "String",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 26,
+                                    end: 32,
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: 13,
+                            end: 33,
+                        },
+                    },
+                ],
+                span: Span {
+                    start: 4,
+                    end: 35,
+                },
+            },
+        ),
+    ],
+}

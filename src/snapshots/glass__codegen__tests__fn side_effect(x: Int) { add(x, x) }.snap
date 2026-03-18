@@ -1,0 +1,10 @@
+---
+source: src/codegen.rs
+expression: compile(source)
+---
+function glass_dispatch_void takes integer glass_closure returns integer
+    return 0
+endfunction
+
+function glass_side_effect takes integer x returns nothing
+endfunction

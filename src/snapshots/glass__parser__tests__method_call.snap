@@ -1,0 +1,23 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"hero.is_alive()\")"
+---
+Spanned {
+    node: MethodCall {
+        object: Spanned {
+            node: Var(
+                "hero",
+            ),
+            span: Span {
+                start: 0,
+                end: 4,
+            },
+        },
+        method: "is_alive",
+        args: [],
+    },
+    span: Span {
+        start: 0,
+        end: 15,
+    },
+}

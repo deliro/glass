@@ -1,0 +1,45 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"let x: Int = 5 x\")"
+---
+Spanned {
+    node: Let {
+        pattern: Spanned {
+            node: Var(
+                "x",
+            ),
+            span: Span {
+                start: 4,
+                end: 5,
+            },
+        },
+        type_annotation: Some(
+            Named {
+                name: "Int",
+                args: [],
+            },
+        ),
+        value: Spanned {
+            node: Int(
+                5,
+            ),
+            span: Span {
+                start: 13,
+                end: 14,
+            },
+        },
+        body: Spanned {
+            node: Var(
+                "x",
+            ),
+            span: Span {
+                start: 15,
+                end: 16,
+            },
+        },
+    },
+    span: Span {
+        start: 0,
+        end: 16,
+    },
+}

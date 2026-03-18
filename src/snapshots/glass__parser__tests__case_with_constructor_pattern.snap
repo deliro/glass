@@ -1,0 +1,117 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case msg { Tick -> 1 UnitDied(killer, bounty) -> 2 _ -> 0 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "msg",
+            ),
+            span: Span {
+                start: 5,
+                end: 8,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: Constructor {
+                        name: "Tick",
+                        args: [],
+                    },
+                    span: Span {
+                        start: 11,
+                        end: 15,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        1,
+                    ),
+                    span: Span {
+                        start: 19,
+                        end: 20,
+                    },
+                },
+                span: Span {
+                    start: 11,
+                    end: 20,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Constructor {
+                        name: "UnitDied",
+                        args: [
+                            Spanned {
+                                node: Var(
+                                    "killer",
+                                ),
+                                span: Span {
+                                    start: 30,
+                                    end: 36,
+                                },
+                            },
+                            Spanned {
+                                node: Var(
+                                    "bounty",
+                                ),
+                                span: Span {
+                                    start: 38,
+                                    end: 44,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start: 21,
+                        end: 45,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        2,
+                    ),
+                    span: Span {
+                        start: 49,
+                        end: 50,
+                    },
+                },
+                span: Span {
+                    start: 21,
+                    end: 50,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Discard,
+                    span: Span {
+                        start: 51,
+                        end: 52,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 56,
+                        end: 57,
+                    },
+                },
+                span: Span {
+                    start: 51,
+                    end: 57,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 59,
+    },
+}

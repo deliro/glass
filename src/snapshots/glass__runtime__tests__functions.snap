@@ -1,0 +1,109 @@
+---
+source: src/runtime.rs
+expression: output
+---
+// ========== Glass Elm Runtime Functions ==========
+
+function glass_rt_tuple_0 takes integer tid returns integer
+    return glass_Tuple2_integer_integer_Tuple2_integer_integer__0[tid]
+endfunction
+
+function glass_rt_tuple_1 takes integer tid returns integer
+    return glass_Tuple2_integer_integer_Tuple2_integer_integer__1[tid]
+endfunction
+
+function glass_dispatch_update takes nothing returns integer
+    return glass_update(glass_model, glass_msg_tag)
+endfunction
+
+function glass_timer_callback takes nothing returns nothing
+    local timer t = GetExpiredTimer()
+    local integer hid = GetHandleId(t)
+    local integer closure_id = LoadInteger(glass_timer_ht, hid, 0)
+    local integer msg_result = 0
+    local integer glass_result
+    local integer glass_effects
+    local integer current
+    local integer fx_id
+    local integer fx_tag
+    local timer t2
+    set msg_result = glass_dispatch_void(closure_id)
+    call FlushChildHashtable(glass_timer_ht, hid)
+    call DestroyTimer(t)
+    set t = null
+    set glass_msg_tag = msg_result
+    set glass_msg_p0 = 0
+    set glass_msg_p1 = 0
+    set glass_result = glass_dispatch_update()
+    set glass_model = glass_rt_tuple_0(glass_result)
+    set glass_effects = glass_rt_tuple_1(glass_result)
+    set current = glass_effects
+    loop
+        exitwhen current == -1
+        set fx_id = glass_List_integer_head[current]
+        set fx_tag = glass_Effect_tag[fx_id]
+        if fx_tag == glass_TAG_After then
+            set t2 = CreateTimer()
+            call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_After_callback[fx_id])
+            call TimerStart(t2, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)
+            set t2 = null
+        elseif fx_tag == glass_TAG_DisplayText then
+            call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])
+        endif
+        call glass_Effect_dealloc(fx_id)
+        set current = glass_List_integer_tail[current]
+    endloop
+endfunction
+
+function glass_exec_effect takes integer fx_id returns nothing
+    local integer fx_tag = glass_Effect_tag[fx_id]
+    local timer t
+    if fx_tag == glass_TAG_After then
+        set t = CreateTimer()
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_After_callback[fx_id])
+        call TimerStart(t, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)
+        set t = null
+    elseif fx_tag == glass_TAG_DisplayText then
+        call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])
+    endif
+    call glass_Effect_dealloc(fx_id)
+endfunction
+
+function glass_process_effects takes integer effect_list returns nothing
+    local integer current = effect_list
+    loop
+        exitwhen current == -1
+        call glass_exec_effect(glass_List_integer_head[current])
+        set current = glass_List_integer_tail[current]
+    endloop
+endfunction
+
+function glass_send_msg takes integer tag, integer p0, integer p1 returns nothing
+    local integer glass_result
+    local integer glass_new_model
+    local integer glass_effects
+    set glass_msg_tag = tag
+    set glass_msg_p0 = p0
+    set glass_msg_p1 = p1
+    set glass_result = glass_dispatch_update()
+    set glass_new_model = glass_rt_tuple_0(glass_result)
+    set glass_effects = glass_rt_tuple_1(glass_result)
+    set glass_model = glass_new_model
+    call glass_process_effects(glass_effects)
+endfunction
+
+function glass_runtime_init takes nothing returns nothing
+    local integer glass_result
+    local integer glass_effects
+    set glass_timer_ht = InitHashtable()
+    set glass_result = glass_init()
+    set glass_model = glass_rt_tuple_0(glass_result)
+    set glass_effects = glass_rt_tuple_1(glass_result)
+    call glass_process_effects(glass_effects)
+endfunction
+
+function InitTrig_GlassInit takes nothing returns nothing
+    local trigger t = CreateTrigger()
+    call TriggerRegisterTimerEvent(t, 0.00, false)
+    call TriggerAddAction(t, function glass_runtime_init)
+endfunction

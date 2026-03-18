@@ -1,0 +1,22 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"model.wave\")"
+---
+Spanned {
+    node: FieldAccess {
+        object: Spanned {
+            node: Var(
+                "model",
+            ),
+            span: Span {
+                start: 0,
+                end: 5,
+            },
+        },
+        field: "wave",
+    },
+    span: Span {
+        start: 0,
+        end: 10,
+    },
+}

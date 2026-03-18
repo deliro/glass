@@ -1,0 +1,119 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case e { Chat(p, _) | Quit(p) -> p _ -> 0 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "e",
+            ),
+            span: Span {
+                start: 5,
+                end: 6,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: Or(
+                        [
+                            Spanned {
+                                node: Constructor {
+                                    name: "Chat",
+                                    args: [
+                                        Spanned {
+                                            node: Var(
+                                                "p",
+                                            ),
+                                            span: Span {
+                                                start: 14,
+                                                end: 15,
+                                            },
+                                        },
+                                        Spanned {
+                                            node: Discard,
+                                            span: Span {
+                                                start: 17,
+                                                end: 18,
+                                            },
+                                        },
+                                    ],
+                                },
+                                span: Span {
+                                    start: 9,
+                                    end: 19,
+                                },
+                            },
+                            Spanned {
+                                node: Constructor {
+                                    name: "Quit",
+                                    args: [
+                                        Spanned {
+                                            node: Var(
+                                                "p",
+                                            ),
+                                            span: Span {
+                                                start: 27,
+                                                end: 28,
+                                            },
+                                        },
+                                    ],
+                                },
+                                span: Span {
+                                    start: 22,
+                                    end: 29,
+                                },
+                            },
+                        ],
+                    ),
+                    span: Span {
+                        start: 9,
+                        end: 29,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Var(
+                        "p",
+                    ),
+                    span: Span {
+                        start: 33,
+                        end: 34,
+                    },
+                },
+                span: Span {
+                    start: 9,
+                    end: 34,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Discard,
+                    span: Span {
+                        start: 35,
+                        end: 36,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 40,
+                        end: 41,
+                    },
+                },
+                span: Span {
+                    start: 35,
+                    end: 41,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 43,
+    },
+}

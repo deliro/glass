@@ -1,0 +1,98 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case e { Chat(p, _) as event -> event _ -> 0 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "e",
+            ),
+            span: Span {
+                start: 5,
+                end: 6,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: As {
+                        pattern: Spanned {
+                            node: Constructor {
+                                name: "Chat",
+                                args: [
+                                    Spanned {
+                                        node: Var(
+                                            "p",
+                                        ),
+                                        span: Span {
+                                            start: 14,
+                                            end: 15,
+                                        },
+                                    },
+                                    Spanned {
+                                        node: Discard,
+                                        span: Span {
+                                            start: 17,
+                                            end: 18,
+                                        },
+                                    },
+                                ],
+                            },
+                            span: Span {
+                                start: 9,
+                                end: 19,
+                            },
+                        },
+                        name: "event",
+                    },
+                    span: Span {
+                        start: 9,
+                        end: 28,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Var(
+                        "event",
+                    ),
+                    span: Span {
+                        start: 32,
+                        end: 37,
+                    },
+                },
+                span: Span {
+                    start: 9,
+                    end: 37,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Discard,
+                    span: Span {
+                        start: 38,
+                        end: 39,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 43,
+                        end: 44,
+                    },
+                },
+                span: Span {
+                    start: 38,
+                    end: 44,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 46,
+    },
+}

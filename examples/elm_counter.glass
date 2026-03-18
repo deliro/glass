@@ -1,0 +1,21 @@
+pub type Msg {
+    Increment
+    Decrement
+    Reset
+}
+
+pub type Model {
+    Model(count: Int)
+}
+
+pub fn init() -> Int {
+    Model(count: 0)
+}
+
+pub fn update(model: Int, msg: Int) -> Int {
+    case msg {
+        0 -> Model(count: model + 1)
+        1 -> Model(count: model - 1)
+        _ -> Model(count: 0)
+    }
+}

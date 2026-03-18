@@ -1,0 +1,20 @@
+---
+source: src/jass_parser.rs
+expression: sdk.generate_glass_bindings()
+---
+// Auto-generated Glass bindings for JASS SDK (common.j)
+// Do not edit — regenerate with `glass --gen-bindings`
+
+// pure
+@external("jass", "GetUnitX") pub fn get_unit_x(which_unit: Unit) -> Float
+
+// effect
+@external("jass", "CreateUnit") pub fn create_unit(id: Player, unitid: Int, x: Float, y: Float, face: Float) -> Unit
+
+// effect
+@external("jass", "DestroyTimer") pub fn destroy_timer(which_timer: Timer)
+
+// pure
+@external("jass", "GetPlayerId") pub fn get_player_id(which_player: Player) -> Int
+
+// skipped: TimerStart (takes code param)

@@ -1,0 +1,76 @@
+---
+source: src/parser.rs
+expression: "parse(\"fn add(a: Int, b: Int) -> Int { a + b }\")"
+---
+Module {
+    definitions: [
+        Function(
+            FnDef {
+                is_pub: false,
+                is_local: false,
+                name: "add",
+                params: [
+                    Param {
+                        name: "a",
+                        type_expr: Named {
+                            name: "Int",
+                            args: [],
+                        },
+                        span: Span {
+                            start: 7,
+                            end: 13,
+                        },
+                    },
+                    Param {
+                        name: "b",
+                        type_expr: Named {
+                            name: "Int",
+                            args: [],
+                        },
+                        span: Span {
+                            start: 15,
+                            end: 21,
+                        },
+                    },
+                ],
+                return_type: Some(
+                    Named {
+                        name: "Int",
+                        args: [],
+                    },
+                ),
+                body: Spanned {
+                    node: BinOp {
+                        op: Add,
+                        left: Spanned {
+                            node: Var(
+                                "a",
+                            ),
+                            span: Span {
+                                start: 32,
+                                end: 33,
+                            },
+                        },
+                        right: Spanned {
+                            node: Var(
+                                "b",
+                            ),
+                            span: Span {
+                                start: 36,
+                                end: 37,
+                            },
+                        },
+                    },
+                    span: Span {
+                        start: 30,
+                        end: 39,
+                    },
+                },
+                span: Span {
+                    start: 0,
+                    end: 39,
+                },
+            },
+        ),
+    ],
+}

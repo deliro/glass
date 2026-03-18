@@ -1,0 +1,48 @@
+// Glass standard library: Result(T, E)
+
+pub type Result(T, E) {
+    Ok(T)
+    Err(E)
+}
+
+pub fn map(res: Result(a, e), f: fn(a) -> b) -> Result(b, e) {
+    case res {
+        Ok(val) -> Ok(f(val))
+        Err(e) -> Err(e)
+    }
+}
+
+pub fn and_then(res: Result(a, e), f: fn(a) -> Result(b, e)) -> Result(b, e) {
+    case res {
+        Ok(val) -> f(val)
+        Err(e) -> Err(e)
+    }
+}
+
+pub fn unwrap_or(res: Result(a, e), default: a) -> a {
+    case res {
+        Ok(val) -> val
+        Err(_) -> default
+    }
+}
+
+pub fn map_error(res: Result(a, e), f: fn(e) -> e2) -> Result(a, e2) {
+    case res {
+        Ok(val) -> Ok(val)
+        Err(e) -> Err(f(e))
+    }
+}
+
+pub fn is_ok(res: Result(a, e)) -> Bool {
+    case res {
+        Ok(_) -> True
+        Err(_) -> False
+    }
+}
+
+pub fn is_err(res: Result(a, e)) -> Bool {
+    case res {
+        Ok(_) -> False
+        Err(_) -> True
+    }
+}

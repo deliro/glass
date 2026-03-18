@@ -1,0 +1,66 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"a |> f |> g(x)\")"
+---
+Spanned {
+    node: Pipe {
+        left: Spanned {
+            node: Pipe {
+                left: Spanned {
+                    node: Var(
+                        "a",
+                    ),
+                    span: Span {
+                        start: 0,
+                        end: 1,
+                    },
+                },
+                right: Spanned {
+                    node: Var(
+                        "f",
+                    ),
+                    span: Span {
+                        start: 5,
+                        end: 6,
+                    },
+                },
+            },
+            span: Span {
+                start: 0,
+                end: 6,
+            },
+        },
+        right: Spanned {
+            node: Call {
+                function: Spanned {
+                    node: Var(
+                        "g",
+                    ),
+                    span: Span {
+                        start: 10,
+                        end: 11,
+                    },
+                },
+                args: [
+                    Spanned {
+                        node: Var(
+                            "x",
+                        ),
+                        span: Span {
+                            start: 12,
+                            end: 13,
+                        },
+                    },
+                ],
+            },
+            span: Span {
+                start: 10,
+                end: 14,
+            },
+        },
+    },
+    span: Span {
+        start: 0,
+        end: 14,
+    },
+}

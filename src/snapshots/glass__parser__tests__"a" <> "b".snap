@@ -1,0 +1,31 @@
+---
+source: src/parser.rs
+expression: parse_expr_str(input)
+---
+Spanned {
+    node: BinOp {
+        op: StringConcat,
+        left: Spanned {
+            node: String(
+                "a",
+            ),
+            span: Span {
+                start: 0,
+                end: 3,
+            },
+        },
+        right: Spanned {
+            node: String(
+                "b",
+            ),
+            span: Span {
+                start: 7,
+                end: 10,
+            },
+        },
+    },
+    span: Span {
+        start: 0,
+        end: 10,
+    },
+}

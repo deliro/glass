@@ -1,0 +1,178 @@
+// ============================================================
+// Glass Tower Defense — minimal playable skeleton
+// Demonstrates: Elm architecture, ADTs, pattern matching,
+// pure effects, closures, pipe operator, lists, recursion.
+// ============================================================
+
+import effect
+import list
+import int
+
+// === Types ===
+
+pub type Phase {
+    Lobby
+    Playing { wave: Int, lives: Int, gold: Int }
+    GameOver { final_wave: Int }
+}
+
+pub type Model {
+    Model {
+        phase: Phase,
+        tick: Int,
+        spawned_this_wave: Int,
+        enemies_per_wave: Int,
+    }
+}
+
+pub type Msg {
+    StartGame
+    WaveTick
+    EnemyReachedEnd
+    WaveCleared
+}
+
+// === Init ===
+
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+    let model = Model(
+        phase: Lobby,
+        tick: 0,
+        spawned_this_wave: 0,
+        enemies_per_wave: 3,
+    )
+    #(model, [
+        effect.display_text(0, "=== Glass Tower Defense ===", 10.0),
+        effect.display_text(0, "Waiting for players...", 5.0),
+        // Auto-start after 5 seconds for demo
+        effect.after(5.0, fn() { StartGame }),
+    ])
+}
+
+// === Update ===
+
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+    case msg {
+        StartGame -> handle_start(model)
+        WaveTick -> handle_wave_tick(model)
+        EnemyReachedEnd -> handle_enemy_reached_end(model)
+        WaveCleared -> handle_wave_cleared(model)
+    }
+}
+
+fn handle_start(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+    let new_model = Model(
+        phase: Playing(wave: 1, lives: 20, gold: 100),
+        tick: 0,
+        spawned_this_wave: 0,
+        enemies_per_wave: 3,
+    )
+    #(new_model, [
+        effect.display_text(0, "Wave 1 — Fight!", 5.0),
+        effect.after(2.0, fn() { WaveTick }),
+    ])
+}
+
+fn handle_wave_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+    case model.phase {
+        Playing { wave, lives, gold, .. } -> {
+            let spawned = model.spawned_this_wave + 1
+            let new_model = Model(
+                phase: Playing(wave: wave, lives: lives, gold: gold),
+                tick: model.tick + 1,
+                spawned_this_wave: spawned,
+                enemies_per_wave: model.enemies_per_wave,
+            )
+
+            // Build effects: spawn message + schedule next tick or wave clear
+            let spawn_msg = effect.display_text(
+                0,
+                "Spawning enemy " <> int.to_string(spawned) <> "/" <> int.to_string(model.enemies_per_wave),
+                2.0,
+            )
+
+            case spawned >= model.enemies_per_wave {
+                True -> {
+                    // All enemies spawned — check wave clear after delay
+                    #(new_model, [
+                        spawn_msg,
+                        effect.after(5.0, fn() { WaveCleared }),
+                    ])
+                }
+                False -> {
+                    // More enemies to spawn
+                    #(new_model, [
+                        spawn_msg,
+                        effect.after(1.5, fn() { WaveTick }),
+                    ])
+                }
+            }
+        }
+        _ -> #(model, [])
+    }
+}
+
+fn handle_enemy_reached_end(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+    case model.phase {
+        Playing { wave, lives, gold, .. } -> {
+            let new_lives = lives - 1
+            case new_lives <= 0 {
+                True -> {
+                    let game_over = Model(
+                        phase: GameOver(final_wave: wave),
+                        tick: model.tick,
+                        spawned_this_wave: 0,
+                        enemies_per_wave: model.enemies_per_wave,
+                    )
+                    #(game_over, [
+                        effect.display_text(0, "GAME OVER! Reached wave " <> int.to_string(wave), 10.0),
+                    ])
+                }
+                False -> {
+                    let new_model = Model(
+                        phase: Playing(wave: wave, lives: new_lives, gold: gold),
+                        tick: model.tick,
+                        spawned_this_wave: model.spawned_this_wave,
+                        enemies_per_wave: model.enemies_per_wave,
+                    )
+                    #(new_model, [
+                        effect.display_text(0, "Life lost! " <> int.to_string(new_lives) <> " remaining", 3.0),
+                    ])
+                }
+            }
+        }
+        _ -> #(model, [])
+    }
+}
+
+fn handle_wave_cleared(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+    case model.phase {
+        Playing { wave, lives, gold, .. } -> {
+            let next_wave = wave + 1
+            let gold_reward = wave * 25
+            let new_enemies = model.enemies_per_wave + 2
+
+            let new_model = Model(
+                phase: Playing(wave: next_wave, lives: lives, gold: gold + gold_reward),
+                tick: model.tick,
+                spawned_this_wave: 0,
+                enemies_per_wave: new_enemies,
+            )
+
+            #(new_model, [
+                effect.display_text(0,
+                    "Wave " <> int.to_string(wave) <> " cleared! +"
+                    <> int.to_string(gold_reward) <> " gold",
+                    5.0,
+                ),
+                effect.display_text(0,
+                    "Wave " <> int.to_string(next_wave) <> " incoming ("
+                    <> int.to_string(new_enemies) <> " enemies)",
+                    5.0,
+                ),
+                effect.after(3.0, fn() { WaveTick }),
+            ])
+        }
+        _ -> #(model, [])
+    }
+}

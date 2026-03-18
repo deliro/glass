@@ -1,0 +1,40 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"Model(phase: Lobby, wave: 0)\")"
+---
+Spanned {
+    node: Constructor {
+        name: "Model",
+        args: [
+            Named(
+                "phase",
+                Spanned {
+                    node: Constructor {
+                        name: "Lobby",
+                        args: [],
+                    },
+                    span: Span {
+                        start: 13,
+                        end: 18,
+                    },
+                },
+            ),
+            Named(
+                "wave",
+                Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 26,
+                        end: 27,
+                    },
+                },
+            ),
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 28,
+    },
+}

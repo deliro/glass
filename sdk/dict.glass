@@ -1,0 +1,70 @@
+// Glass standard library: Dict(K, V)
+// Backed by JASS hashtable. Fully generic — compiler picks correct
+// Save/Load natives based on concrete key/value types.
+
+import option { Option, Some, None }
+
+pub type Dict(K, V) {
+    Dict{ handle: Int, size: Int }
+}
+
+@external("jass", "InitHashtable")
+fn init_hashtable() -> Int
+
+// Compiler intrinsics: resolved to correct JASS natives based on types.
+// e.g. dict_save with v=String → SaveStr, v=Float → SaveReal, etc.
+@external("glass", "dict_save")
+fn dict_save(ht: Int, parent_key: Int, child_key: Int, value: v) -> Int
+
+@external("glass", "dict_load")
+fn dict_load(ht: Int, parent_key: Int, child_key: Int) -> v
+
+@external("glass", "dict_has")
+fn dict_has(ht: Int, parent_key: Int, child_key: Int) -> Bool
+
+@external("glass", "dict_remove")
+fn dict_remove(ht: Int, parent_key: Int, child_key: Int) -> Int
+
+@external("jass", "StringHash")
+fn string_hash(s: String) -> Int
+
+pub fn new() -> Dict(k, v) {
+    let h = init_hashtable()
+    Dict(h, 0)
+}
+
+pub fn insert(d: Dict(k, v), key: k, value: v) -> Dict(k, v) {
+    case d {
+        Dict{ handle, size, .. } -> {
+            let _ = dict_save(handle, 0, key, value)
+            case dict_has(handle, 0, key) {
+                True -> Dict(handle, size)
+                False -> Dict(handle, size + 1)
+            }
+        }
+    }
+}
+
+pub fn get(d: Dict(k, v), key: k) -> #(Option(v), Dict(k, v)) {
+    case d {
+        Dict{ handle, size, .. } -> {
+            case dict_has(handle, 0, key) {
+                True -> #(Some(dict_load(handle, 0, key)), Dict(handle, size))
+                False -> #(None, Dict(handle, size))
+            }
+        }
+    }
+}
+
+pub fn contains_key(d: Dict(k, v), key: k) -> #(Bool, Dict(k, v)) {
+    case d {
+        Dict{ handle, size, .. } ->
+            #(dict_has(handle, 0, key), Dict(handle, size))
+    }
+}
+
+pub fn size(d: Dict(k, v)) -> #(Int, Dict(k, v)) {
+    case d {
+        Dict{ handle, size, .. } -> #(size, Dict(handle, size))
+    }
+}

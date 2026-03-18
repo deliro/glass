@@ -1,0 +1,19 @@
+---
+source: src/codegen.rs
+expression: "compile(r#\"\nfn add(a: Int, b: Int) -> Int { a + b }\nfn mul(a: Int, b: Int) -> Int { a * b }\nfn combined(x: Int) -> Int { add(x, mul(x, 2)) }\n\"#)"
+---
+function glass_dispatch_void takes integer glass_closure returns integer
+    return 0
+endfunction
+
+function glass_mul takes integer a, integer b returns integer
+    return (a * b)
+endfunction
+
+function glass_add takes integer a, integer b returns integer
+    return (a + b)
+endfunction
+
+function glass_combined takes integer x returns integer
+    return glass_add(x, glass_mul(x, 2))
+endfunction

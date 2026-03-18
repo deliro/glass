@@ -1,0 +1,41 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"[1, 2, 3]\")"
+---
+Spanned {
+    node: List(
+        [
+            Spanned {
+                node: Int(
+                    1,
+                ),
+                span: Span {
+                    start: 1,
+                    end: 2,
+                },
+            },
+            Spanned {
+                node: Int(
+                    2,
+                ),
+                span: Span {
+                    start: 4,
+                    end: 5,
+                },
+            },
+            Spanned {
+                node: Int(
+                    3,
+                ),
+                span: Span {
+                    start: 7,
+                    end: 8,
+                },
+            },
+        ],
+    ),
+    span: Span {
+        start: 0,
+        end: 9,
+    },
+}

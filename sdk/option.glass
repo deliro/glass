@@ -1,0 +1,41 @@
+// Glass standard library: Option(T)
+
+pub type Option(T) {
+    Some(T)
+    None
+}
+
+pub fn map(opt: Option(a), f: fn(a) -> b) -> Option(b) {
+    case opt {
+        Some(val) -> Some(f(val))
+        None -> None
+    }
+}
+
+pub fn and_then(opt: Option(a), f: fn(a) -> Option(b)) -> Option(b) {
+    case opt {
+        Some(val) -> f(val)
+        None -> None
+    }
+}
+
+pub fn unwrap_or(opt: Option(a), default: a) -> a {
+    case opt {
+        Some(val) -> val
+        None -> default
+    }
+}
+
+pub fn is_some(opt: Option(a)) -> Bool {
+    case opt {
+        Some(_) -> True
+        None -> False
+    }
+}
+
+pub fn is_none(opt: Option(a)) -> Bool {
+    case opt {
+        Some(_) -> False
+        None -> True
+    }
+}

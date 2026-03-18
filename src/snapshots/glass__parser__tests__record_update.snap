@@ -1,0 +1,36 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"Model(..old, wave: 5)\")"
+---
+Spanned {
+    node: RecordUpdate {
+        name: "Model",
+        base: Spanned {
+            node: Var(
+                "old",
+            ),
+            span: Span {
+                start: 8,
+                end: 11,
+            },
+        },
+        updates: [
+            (
+                "wave",
+                Spanned {
+                    node: Int(
+                        5,
+                    ),
+                    span: Span {
+                        start: 19,
+                        end: 20,
+                    },
+                },
+            ),
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 21,
+    },
+}

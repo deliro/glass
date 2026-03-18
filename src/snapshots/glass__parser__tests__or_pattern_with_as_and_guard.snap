@@ -1,0 +1,148 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case c { Chat { from as p, .. } | Quit(p) as event if check(p) -> event _ -> 0 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "c",
+            ),
+            span: Span {
+                start: 5,
+                end: 6,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: As {
+                        pattern: Spanned {
+                            node: Or(
+                                [
+                                    Spanned {
+                                        node: ConstructorNamed {
+                                            name: "Chat",
+                                            fields: [
+                                                FieldPattern {
+                                                    field_name: "from",
+                                                    binding: Some(
+                                                        "p",
+                                                    ),
+                                                },
+                                            ],
+                                            rest: true,
+                                        },
+                                        span: Span {
+                                            start: 9,
+                                            end: 31,
+                                        },
+                                    },
+                                    Spanned {
+                                        node: Constructor {
+                                            name: "Quit",
+                                            args: [
+                                                Spanned {
+                                                    node: Var(
+                                                        "p",
+                                                    ),
+                                                    span: Span {
+                                                        start: 39,
+                                                        end: 40,
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                        span: Span {
+                                            start: 34,
+                                            end: 41,
+                                        },
+                                    },
+                                ],
+                            ),
+                            span: Span {
+                                start: 9,
+                                end: 41,
+                            },
+                        },
+                        name: "event",
+                    },
+                    span: Span {
+                        start: 9,
+                        end: 50,
+                    },
+                },
+                guard: Some(
+                    Spanned {
+                        node: Call {
+                            function: Spanned {
+                                node: Var(
+                                    "check",
+                                ),
+                                span: Span {
+                                    start: 54,
+                                    end: 59,
+                                },
+                            },
+                            args: [
+                                Spanned {
+                                    node: Var(
+                                        "p",
+                                    ),
+                                    span: Span {
+                                        start: 60,
+                                        end: 61,
+                                    },
+                                },
+                            ],
+                        },
+                        span: Span {
+                            start: 54,
+                            end: 62,
+                        },
+                    },
+                ),
+                body: Spanned {
+                    node: Var(
+                        "event",
+                    ),
+                    span: Span {
+                        start: 66,
+                        end: 71,
+                    },
+                },
+                span: Span {
+                    start: 9,
+                    end: 71,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Discard,
+                    span: Span {
+                        start: 72,
+                        end: 73,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 77,
+                        end: 78,
+                    },
+                },
+                span: Span {
+                    start: 72,
+                    end: 78,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 80,
+    },
+}

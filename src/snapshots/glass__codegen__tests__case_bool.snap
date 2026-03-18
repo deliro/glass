@@ -1,0 +1,17 @@
+---
+source: src/codegen.rs
+expression: "compile(\"fn check(x: Bool) -> Int { case x { True -> 1 False -> 0 } }\")"
+---
+function glass_dispatch_void takes integer glass_closure returns integer
+    return 0
+endfunction
+
+function glass_check takes boolean x returns integer
+    local integer glass_tmp_0
+    if ((x == true)) then
+        set glass_tmp_0 = 1
+    elseif ((x == false)) then
+        set glass_tmp_0 = 0
+    endif
+    return glass_tmp_0
+endfunction

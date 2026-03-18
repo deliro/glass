@@ -1,0 +1,69 @@
+---
+source: src/parser.rs
+expression: "parse(\"pub type X { Y { val: Int } Z(String) W }\")"
+---
+Module {
+    definitions: [
+        Type(
+            TypeDef {
+                is_pub: true,
+                name: "X",
+                type_params: [],
+                constructors: [
+                    Constructor {
+                        name: "Y",
+                        fields: [
+                            Field {
+                                name: "val",
+                                type_expr: Named {
+                                    name: "Int",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 17,
+                                    end: 25,
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: 13,
+                            end: 27,
+                        },
+                    },
+                    Constructor {
+                        name: "Z",
+                        fields: [
+                            Field {
+                                name: "_0",
+                                type_expr: Named {
+                                    name: "String",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 30,
+                                    end: 36,
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: 28,
+                            end: 37,
+                        },
+                    },
+                    Constructor {
+                        name: "W",
+                        fields: [],
+                        span: Span {
+                            start: 38,
+                            end: 39,
+                        },
+                    },
+                ],
+                span: Span {
+                    start: 4,
+                    end: 41,
+                },
+            },
+        ),
+    ],
+}

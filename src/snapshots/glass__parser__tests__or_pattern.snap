@@ -1,0 +1,95 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case c { Red | Green -> 1 Blue -> 2 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "c",
+            ),
+            span: Span {
+                start: 5,
+                end: 6,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: Or(
+                        [
+                            Spanned {
+                                node: Constructor {
+                                    name: "Red",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 9,
+                                    end: 12,
+                                },
+                            },
+                            Spanned {
+                                node: Constructor {
+                                    name: "Green",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 15,
+                                    end: 20,
+                                },
+                            },
+                        ],
+                    ),
+                    span: Span {
+                        start: 9,
+                        end: 20,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        1,
+                    ),
+                    span: Span {
+                        start: 24,
+                        end: 25,
+                    },
+                },
+                span: Span {
+                    start: 9,
+                    end: 25,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Constructor {
+                        name: "Blue",
+                        args: [],
+                    },
+                    span: Span {
+                        start: 26,
+                        end: 30,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        2,
+                    ),
+                    span: Span {
+                        start: 34,
+                        end: 35,
+                    },
+                },
+                span: Span {
+                    start: 26,
+                    end: 35,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 37,
+    },
+}

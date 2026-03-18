@@ -1,0 +1,125 @@
+// Glass standard library: List functions
+// Lists are a built-in type: linked list in SoA arrays.
+
+import option { Option, Some, None }
+
+pub fn map(xs: List(a), f: fn(a) -> b) -> List(b) {
+    case xs {
+        [] -> []
+        [head | tail] -> [f(head) | map(tail, f)]
+    }
+}
+
+pub fn filter(xs: List(a), f: fn(a) -> Bool) -> List(a) {
+    case xs {
+        [] -> []
+        [head | tail] -> case f(head) {
+            True -> [head | filter(tail, f)]
+            False -> filter(tail, f)
+        }
+    }
+}
+
+pub fn fold(xs: List(a), acc: b, f: fn(b, a) -> b) -> b {
+    case xs {
+        [] -> acc
+        [head | tail] -> fold(tail, f(acc, head), f)
+    }
+}
+
+pub fn head(xs: List(a)) -> Option(a) {
+    case xs {
+        [] -> None
+        [h | _] -> Some(h)
+    }
+}
+
+pub fn tail(xs: List(a)) -> Option(List(a)) {
+    case xs {
+        [] -> None
+        [_ | t] -> Some(t)
+    }
+}
+
+pub fn length(xs: List(a)) -> Int {
+    fold(xs, 0, fn(acc: Int, _: a) -> Int { acc + 1 })
+}
+
+pub fn reverse(xs: List(a)) -> List(a) {
+    fold(xs, [], fn(acc: List(a), x: a) -> List(a) { [x | acc] })
+}
+
+pub fn append(xs: List(a), ys: List(a)) -> List(a) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append(t, ys)]
+    }
+}
+
+pub fn flat_map(xs: List(a), f: fn(a) -> List(b)) -> List(b) {
+    case xs {
+        [] -> []
+        [h | t] -> append(f(h), flat_map(t, f))
+    }
+}
+
+pub fn find(xs: List(a), f: fn(a) -> Bool) -> Option(a) {
+    case xs {
+        [] -> None
+        [h | t] -> case f(h) {
+            True -> Some(h)
+            False -> find(t, f)
+        }
+    }
+}
+
+pub fn any(xs: List(a), f: fn(a) -> Bool) -> Bool {
+    case xs {
+        [] -> False
+        [h | t] -> case f(h) {
+            True -> True
+            False -> any(t, f)
+        }
+    }
+}
+
+pub fn all(xs: List(a), f: fn(a) -> Bool) -> Bool {
+    case xs {
+        [] -> True
+        [h | t] -> case f(h) {
+            True -> all(t, f)
+            False -> False
+        }
+    }
+}
+
+pub fn contains(xs: List(a), target: a, eq: fn(a, a) -> Bool) -> Bool {
+    case xs {
+        [] -> False
+        [h | t] -> case eq(h, target) {
+            True -> True
+            False -> contains(t, target, eq)
+        }
+    }
+}
+
+pub fn zip(xs: List(a), ys: List(b)) -> List(#(a, b)) {
+    case xs {
+        [] -> []
+        [xh | xt] -> case ys {
+            [] -> []
+            [yh | yt] -> [#(xh, yh) | zip(xt, yt)]
+        }
+    }
+}
+
+pub fn range(from: Int, to: Int) -> List(Int) {
+    case from > to {
+        True -> []
+        False -> [from | range(from + 1, to)]
+    }
+}
+
+pub fn each(xs: List(a), f: fn(a) -> b) -> List(b) {
+    map(xs, f)
+}

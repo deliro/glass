@@ -1,0 +1,31 @@
+pub type Msg {
+    Tick
+    GameStart
+}
+
+pub type Model {
+    Model(count: Int, started: Int)
+}
+
+pub fn init() -> Int {
+    let m = Model(count: 0, started: 0)
+    effect.display_text(0, "Glass initialized!", 5.0)
+    m
+}
+
+pub fn update(model: Int, msg: Int) -> Int {
+    case msg {
+        0 -> {
+            // Tick: increment counter, schedule next tick
+            effect.after(1.0, fn() { 0 })
+            model + 1
+        }
+        1 -> {
+            // GameStart: schedule first tick
+            effect.after(1.0, fn() { 0 })
+            effect.display_text(0, "Game started!", 3.0)
+            model
+        }
+        _ -> model
+    }
+}

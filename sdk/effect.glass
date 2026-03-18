@@ -1,0 +1,16 @@
+// Glass standard library: Effect(M)
+// Effects are pure data — returned from update, executed by the Glass runtime.
+// Use List(Effect(Msg)) for multiple effects; [] for none.
+
+pub type Effect(M) {
+    After { duration: Float, callback: fn() -> M }
+    DisplayText { player_id: Int, text: String, duration: Float }
+}
+
+pub fn after(duration: Float, callback: fn() -> m) -> Effect(m) {
+    After(duration: duration, callback: callback)
+}
+
+pub fn display_text(player_id: Int, text: String, duration: Float) -> Effect(m) {
+    DisplayText(player_id: player_id, text: text, duration: duration)
+}

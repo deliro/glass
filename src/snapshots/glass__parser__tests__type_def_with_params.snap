@@ -1,0 +1,64 @@
+---
+source: src/parser.rs
+expression: "parse(\"type Result(A, B) { Ok { value: A } Err { error: B } }\")"
+---
+Module {
+    definitions: [
+        Type(
+            TypeDef {
+                is_pub: false,
+                name: "Result",
+                type_params: [
+                    "A",
+                    "B",
+                ],
+                constructors: [
+                    Constructor {
+                        name: "Ok",
+                        fields: [
+                            Field {
+                                name: "value",
+                                type_expr: Named {
+                                    name: "A",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 25,
+                                    end: 33,
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: 20,
+                            end: 35,
+                        },
+                    },
+                    Constructor {
+                        name: "Err",
+                        fields: [
+                            Field {
+                                name: "error",
+                                type_expr: Named {
+                                    name: "B",
+                                    args: [],
+                                },
+                                span: Span {
+                                    start: 42,
+                                    end: 50,
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: 36,
+                            end: 52,
+                        },
+                    },
+                ],
+                span: Span {
+                    start: 0,
+                    end: 54,
+                },
+            },
+        ),
+    ],
+}

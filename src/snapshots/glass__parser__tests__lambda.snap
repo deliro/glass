@@ -1,0 +1,53 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"fn(x: Int) { x + 1 }\")"
+---
+Spanned {
+    node: Lambda {
+        params: [
+            Param {
+                name: "x",
+                type_expr: Named {
+                    name: "Int",
+                    args: [],
+                },
+                span: Span {
+                    start: 3,
+                    end: 9,
+                },
+            },
+        ],
+        return_type: None,
+        body: Spanned {
+            node: BinOp {
+                op: Add,
+                left: Spanned {
+                    node: Var(
+                        "x",
+                    ),
+                    span: Span {
+                        start: 13,
+                        end: 14,
+                    },
+                },
+                right: Spanned {
+                    node: Int(
+                        1,
+                    ),
+                    span: Span {
+                        start: 17,
+                        end: 18,
+                    },
+                },
+            },
+            span: Span {
+                start: 11,
+                end: 20,
+            },
+        },
+    },
+    span: Span {
+        start: 0,
+        end: 20,
+    },
+}

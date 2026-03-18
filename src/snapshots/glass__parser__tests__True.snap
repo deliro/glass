@@ -1,0 +1,13 @@
+---
+source: src/parser.rs
+expression: parse_expr_str(input)
+---
+Spanned {
+    node: Bool(
+        true,
+    ),
+    span: Span {
+        start: 0,
+        end: 4,
+    },
+}

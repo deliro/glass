@@ -1,0 +1,80 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case e { Chat { from as p, .. } -> p _ -> 0 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "e",
+            ),
+            span: Span {
+                start: 5,
+                end: 6,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: ConstructorNamed {
+                        name: "Chat",
+                        fields: [
+                            FieldPattern {
+                                field_name: "from",
+                                binding: Some(
+                                    "p",
+                                ),
+                            },
+                        ],
+                        rest: true,
+                    },
+                    span: Span {
+                        start: 9,
+                        end: 31,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Var(
+                        "p",
+                    ),
+                    span: Span {
+                        start: 35,
+                        end: 36,
+                    },
+                },
+                span: Span {
+                    start: 9,
+                    end: 36,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Discard,
+                    span: Span {
+                        start: 37,
+                        end: 38,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 42,
+                        end: 43,
+                    },
+                },
+                span: Span {
+                    start: 37,
+                    end: 43,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 45,
+    },
+}

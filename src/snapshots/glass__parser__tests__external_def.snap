@@ -1,0 +1,39 @@
+---
+source: src/parser.rs
+expression: "parse(r#\"@external(\"jass\", \"GetUnitX\") pub fn get_unit_x(u: Unit) -> Float\"#)"
+---
+Module {
+    definitions: [
+        External(
+            ExternalDef {
+                module: "jass",
+                name_in_module: "GetUnitX",
+                is_pub: true,
+                fn_name: "get_unit_x",
+                params: [
+                    Param {
+                        name: "u",
+                        type_expr: Named {
+                            name: "Unit",
+                            args: [],
+                        },
+                        span: Span {
+                            start: 48,
+                            end: 55,
+                        },
+                    },
+                ],
+                return_type: Some(
+                    Named {
+                        name: "Float",
+                        args: [],
+                    },
+                ),
+                span: Span {
+                    start: 0,
+                    end: 65,
+                },
+            },
+        ),
+    ],
+}

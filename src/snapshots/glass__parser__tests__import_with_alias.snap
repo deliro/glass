@@ -1,0 +1,24 @@
+---
+source: src/parser.rs
+expression: "parse(\"import jass/effect as fx\")"
+---
+Module {
+    definitions: [
+        Import(
+            ImportDef {
+                path: [
+                    "jass",
+                    "effect",
+                ],
+                items: None,
+                alias: Some(
+                    "fx",
+                ),
+                span: Span {
+                    start: 0,
+                    end: 24,
+                },
+            },
+        ),
+    ],
+}

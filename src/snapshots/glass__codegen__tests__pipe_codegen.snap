@@ -1,0 +1,11 @@
+---
+source: src/codegen.rs
+expression: "compile(\"fn test(x: Int) -> Int { x |> add(1) }\")"
+---
+function glass_dispatch_void takes integer glass_closure returns integer
+    return 0
+endfunction
+
+function glass_test takes integer x returns integer
+    return glass_add(x, 1)
+endfunction

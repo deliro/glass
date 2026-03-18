@@ -1,0 +1,73 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case e { Chat { .. } -> 1 _ -> 0 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "e",
+            ),
+            span: Span {
+                start: 5,
+                end: 6,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: ConstructorNamed {
+                        name: "Chat",
+                        fields: [],
+                        rest: true,
+                    },
+                    span: Span {
+                        start: 9,
+                        end: 20,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        1,
+                    ),
+                    span: Span {
+                        start: 24,
+                        end: 25,
+                    },
+                },
+                span: Span {
+                    start: 9,
+                    end: 25,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Discard,
+                    span: Span {
+                        start: 26,
+                        end: 27,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 31,
+                        end: 32,
+                    },
+                },
+                span: Span {
+                    start: 26,
+                    end: 32,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 34,
+    },
+}

@@ -1,0 +1,73 @@
+---
+source: src/parser.rs
+expression: "parse_expr_str(\"case x { True -> 1 False -> 0 }\")"
+---
+Spanned {
+    node: Case {
+        subject: Spanned {
+            node: Var(
+                "x",
+            ),
+            span: Span {
+                start: 5,
+                end: 6,
+            },
+        },
+        arms: [
+            CaseArm {
+                pattern: Spanned {
+                    node: Bool(
+                        true,
+                    ),
+                    span: Span {
+                        start: 9,
+                        end: 13,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        1,
+                    ),
+                    span: Span {
+                        start: 17,
+                        end: 18,
+                    },
+                },
+                span: Span {
+                    start: 9,
+                    end: 18,
+                },
+            },
+            CaseArm {
+                pattern: Spanned {
+                    node: Bool(
+                        false,
+                    ),
+                    span: Span {
+                        start: 19,
+                        end: 24,
+                    },
+                },
+                guard: None,
+                body: Spanned {
+                    node: Int(
+                        0,
+                    ),
+                    span: Span {
+                        start: 28,
+                        end: 29,
+                    },
+                },
+                span: Span {
+                    start: 19,
+                    end: 29,
+                },
+            },
+        ],
+    },
+    span: Span {
+        start: 0,
+        end: 31,
+    },
+}
