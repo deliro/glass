@@ -1,10 +1,14 @@
 mod ast;
 mod closures;
 mod codegen;
+#[cfg(test)]
+mod codegen_tests;
 mod exhaustive;
 mod infer;
 mod jass_parser;
 mod linearity;
+mod lua_codegen;
+mod lua_runtime;
 mod modules;
 mod mono;
 mod parser;
@@ -15,15 +19,26 @@ mod type_repr;
 mod types;
 mod unify;
 
-use clap::{Parser as ClapParser, Subcommand};
+use clap::{Parser as ClapParser, Subcommand, ValueEnum};
 use codegen::JassCodegen;
+use lua_codegen::LuaCodegen;
 use miette::{LabeledSpan, MietteDiagnostic, Report, Severity};
 use parser::Parser;
 use token::Lexer;
 use types::TypeRegistry;
 
+/// Compilation target.
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum Target {
+    /// JASS (Warcraft 3 classic scripting language)
+    #[default]
+    Jass,
+    /// Lua (Warcraft 3 Reforged scripting language)
+    Lua,
+}
+
 #[derive(ClapParser)]
-#[command(name = "glass", about = "Glass → JASS compiler", version)]
+#[command(name = "glass", about = "Glass → JASS/Lua compiler", version)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -32,13 +47,17 @@ struct Cli {
     #[arg(value_name = "INPUT")]
     input: Option<String>,
 
-    /// Output .j file (defaults to stdout)
+    /// Output file (defaults to stdout)
     #[arg(short, long, value_name = "OUTPUT")]
     output: Option<String>,
 
     /// Skip type checking
     #[arg(long)]
     no_check: bool,
+
+    /// Compilation target
+    #[arg(long, value_enum, default_value_t = Target::Jass)]
+    target: Target,
 }
 
 #[derive(Subcommand)]
@@ -70,7 +89,7 @@ fn main() {
                 eprintln!("       glass check <INPUT>");
                 std::process::exit(1);
             };
-            cmd_compile(&input, cli.output.as_deref(), cli.no_check);
+            cmd_compile(&input, cli.output.as_deref(), cli.no_check, cli.target);
         }
     }
 }
@@ -93,7 +112,7 @@ fn cmd_check(input: &str) {
     eprintln!("No errors found.");
 }
 
-fn cmd_compile(input: &str, output: Option<&str>, no_check: bool) {
+fn cmd_compile(input: &str, output: Option<&str>, no_check: bool, target: Target) {
     let source = read_file(input);
     let module = parse_source(input, &source);
     let (module, imports, imported_count) = resolve_imports(input, module);
@@ -121,22 +140,32 @@ fn cmd_compile(input: &str, output: Option<&str>, no_check: bool) {
     let type_registry = TypeRegistry::from_module(&module);
     let mut lambda_collector = closures::LambdaCollector::new();
     lambda_collector.collect_module(&module);
-    let jass = JassCodegen::new(
-        type_registry,
-        lambda_collector.lambdas,
-        infer_result.type_map,
-        inferencer.type_param_vars.clone(),
-    )
-    .generate(&module, &imports);
+
+    let result = match target {
+        Target::Jass => JassCodegen::new(
+            type_registry,
+            lambda_collector.lambdas,
+            infer_result.type_map,
+            inferencer.type_param_vars.clone(),
+        )
+        .generate(&module, &imports),
+        Target::Lua => LuaCodegen::new(
+            type_registry,
+            lambda_collector.lambdas,
+            infer_result.type_map,
+            inferencer.type_param_vars.clone(),
+        )
+        .generate(&module, &imports),
+    };
 
     match output {
         Some(path) => {
-            if let Err(e) = std::fs::write(path, &jass) {
+            if let Err(e) = std::fs::write(path, &result) {
                 eprintln!("Error writing {}: {}", path, e);
                 std::process::exit(1);
             }
         }
-        None => print!("{}", jass),
+        None => print!("{}", result),
     }
 }
 

@@ -291,24 +291,4 @@ fn update(model: Int) -> Int { model }
         );
         assert!(entry.is_none());
     }
-
-    #[test]
-    fn runtime_globals_snapshot() {
-        let mut globals = Vec::new();
-        collect_runtime_globals(&mut globals);
-        insta::assert_snapshot!("globals", globals.join("\n"));
-    }
-
-    #[test]
-    fn runtime_functions_snapshot() {
-        let entry = ElmEntryPoints {
-            has_init: true,
-            has_update: true,
-            has_subscriptions: false,
-            msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
-        };
-        let mut output = String::new();
-        gen_elm_runtime_functions(&entry, &[], &mut output);
-        insta::assert_snapshot!("functions", output);
-    }
 }

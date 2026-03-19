@@ -1,0 +1,52 @@
+---
+source: src/codegen_tests.rs
+expression: output
+---
+-- ========== Glass Elm Runtime ==========
+
+local glass_model = nil
+local glass_timer_ht = nil
+
+function glass_exec_effect(fx)
+    if fx.tag == glass_TAG_After then
+        local t = CreateTimer()
+        SaveInteger(glass_timer_ht, GetHandleId(t), 0, fx.callback)
+        TimerStart(t, fx.duration, false, function()
+            local expired = GetExpiredTimer()
+            local cb = LoadInteger(glass_timer_ht, GetHandleId(expired), 0)
+            FlushChildHashtable(glass_timer_ht, GetHandleId(expired))
+            DestroyTimer(expired)
+            local msg = cb()
+            glass_send_msg(msg)
+        end)
+    elseif fx.tag == glass_TAG_DisplayText then
+        DisplayTimedTextToPlayer(Player(fx.player_id), 0, 0, fx.duration, fx.text)
+    end
+end
+
+function glass_process_effects(effect_list)
+    local current = effect_list
+    while current ~= nil do
+        glass_exec_effect(current.head)
+        current = current.tail
+    end
+end
+
+function glass_send_msg(msg)
+    local result = glass_update(glass_model, msg)
+    glass_model = result[1]
+    glass_process_effects(result[2])
+end
+
+function glass_runtime_init()
+    glass_timer_ht = InitHashtable()
+    local result = glass_init()
+    glass_model = result[1]
+    glass_process_effects(result[2])
+end
+
+do
+    local t = CreateTrigger()
+    TriggerRegisterTimerEvent(t, 0.00, false)
+    TriggerAddAction(t, glass_runtime_init)
+end
