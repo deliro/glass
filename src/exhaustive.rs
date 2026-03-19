@@ -18,12 +18,15 @@ pub struct ExhaustivenessWarning {
 }
 
 /// Check all case expressions in a module for exhaustiveness.
+/// `skip_imported` is the number of leading definitions that came from imports
+/// and should not be checked (their spans don't correspond to the user source).
 pub fn check_exhaustiveness(
     module: &Module,
     constructors: &ConstructorRegistry,
+    skip_imported: usize,
 ) -> Vec<ExhaustivenessWarning> {
     let mut warnings = Vec::new();
-    for def in &module.definitions {
+    for def in module.definitions.iter().skip(skip_imported) {
         if let Definition::Function(f) = def {
             check_expr(&f.body, constructors, &mut warnings);
         }
@@ -159,11 +162,11 @@ fn check_case_arms(
 
     let Some(type_name) = type_name else { return };
 
-    // Get all constructors of this type
+    // Get all constructors of this type (bare names only, no qualified)
     let all_ctors: HashSet<String> = constructors
         .constructors
         .iter()
-        .filter(|(_, info)| info.type_name == type_name)
+        .filter(|(name, info)| info.type_name == type_name && !name.contains("::"))
         .map(|(name, _)| name.clone())
         .collect();
 
@@ -193,7 +196,9 @@ fn collect_covered(
 ) {
     match pat {
         Pattern::Constructor { name, .. } | Pattern::ConstructorNamed { name, .. } => {
-            constructors.insert(name.clone());
+            // Strip qualified prefix: "BashResult::Bashed" → "Bashed"
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            constructors.insert(bare.to_string());
         }
         Pattern::Bool(true) => *has_true = true,
         Pattern::Bool(false) => *has_false = true,
@@ -225,7 +230,7 @@ mod tests {
         let mut inferencer = Inferencer::new();
         inferencer.infer_module(&module);
 
-        check_exhaustiveness(&module, &inferencer.constructors)
+        check_exhaustiveness(&module, &inferencer.constructors, 0)
             .iter()
             .map(|w| w.message.clone())
             .collect()
@@ -280,12 +285,12 @@ fn test(x: Bool) -> Int {
     fn exhaustive_enum() {
         let w = check(
             r#"
-pub type Color { Red Green Blue }
+pub enum Color { Red Green Blue }
 fn test(c: Color) -> Int {
     case c {
-        Red -> 1
-        Green -> 2
-        Blue -> 3
+        Color::Red -> 1
+        Color::Green -> 2
+        Color::Blue -> 3
     }
 }
 "#,
@@ -297,11 +302,11 @@ fn test(c: Color) -> Int {
     fn missing_enum_variant() {
         let w = check(
             r#"
-pub type Color { Red Green Blue }
+pub enum Color { Red Green Blue }
 fn test(c: Color) -> Int {
     case c {
-        Red -> 1
-        Green -> 2
+        Color::Red -> 1
+        Color::Green -> 2
     }
 }
 "#,
@@ -314,10 +319,10 @@ fn test(c: Color) -> Int {
     fn missing_multiple_variants() {
         let w = check(
             r#"
-pub type Phase { Lobby Playing Victory Draw }
+pub enum Phase { Lobby Playing Victory Draw }
 fn test(p: Phase) -> Int {
     case p {
-        Lobby -> 0
+        Phase::Lobby -> 0
     }
 }
 "#,
@@ -332,10 +337,10 @@ fn test(p: Phase) -> Int {
     fn wildcard_makes_exhaustive() {
         let w = check(
             r#"
-pub type Color { Red Green Blue }
+pub enum Color { Red Green Blue }
 fn test(c: Color) -> Int {
     case c {
-        Red -> 1
+        Color::Red -> 1
         _ -> 0
     }
 }
@@ -348,10 +353,10 @@ fn test(c: Color) -> Int {
     fn variable_makes_exhaustive() {
         let w = check(
             r#"
-pub type Color { Red Green Blue }
+pub enum Color { Red Green Blue }
 fn test(c: Color) -> Int {
     case c {
-        Red -> 1
+        Color::Red -> 1
         other -> 0
     }
 }
@@ -365,10 +370,10 @@ fn test(c: Color) -> Int {
         // A wildcard with a guard is NOT catch-all
         let w = check(
             r#"
-pub type Color { Red Green Blue }
+pub enum Color { Red Green Blue }
 fn test(c: Color) -> Int {
     case c {
-        Red -> 1
+        Color::Red -> 1
         x if True -> 0
     }
 }
@@ -384,13 +389,13 @@ fn test(c: Color) -> Int {
     fn nested_case_checked() {
         let w = check(
             r#"
-pub type AB { A B }
+pub enum AB { A B }
 fn test(x: AB, y: AB) -> Int {
     case x {
-        A -> case y {
-            A -> 1
+        AB::A -> case y {
+            AB::A -> 1
         }
-        B -> 0
+        AB::B -> 0
     }
 }
 "#,
@@ -404,11 +409,11 @@ fn test(x: AB, y: AB) -> Int {
     fn or_pattern_covers_union() {
         let w = check(
             r#"
-pub type Event { Chat { from: Int } Quit { player: Int } GameStarted }
+pub enum Event { Chat { from: Int } Quit { player: Int } GameStarted }
 fn test(e: Event) -> Int {
     case e {
-        Chat(p) | Quit(p) -> p
-        GameStarted -> 0
+        Event::Chat(p) | Event::Quit(p) -> p
+        Event::GameStarted -> 0
     }
 }
 "#,
@@ -420,10 +425,10 @@ fn test(e: Event) -> Int {
     fn or_pattern_still_missing() {
         let w = check(
             r#"
-pub type Event { Chat { from: Int } Quit { player: Int } GameStarted }
+pub enum Event { Chat { from: Int } Quit { player: Int } GameStarted }
 fn test(e: Event) -> Int {
     case e {
-        Chat(p) | Quit(p) -> p
+        Event::Chat(p) | Event::Quit(p) -> p
     }
 }
 "#,
@@ -436,11 +441,11 @@ fn test(e: Event) -> Int {
     fn named_field_pattern_exhaustive() {
         let w = check(
             r#"
-pub type Event { Chat { from: Int, text: String } Quit { player: Int } }
+pub enum Event { Chat { from: Int, text: String } Quit { player: Int } }
 fn test(e: Event) -> Int {
     case e {
-        Chat { from, .. } -> from
-        Quit(p) -> p
+        Event::Chat { from, .. } -> from
+        Event::Quit(p) -> p
     }
 }
 "#,

@@ -261,7 +261,7 @@ mod tests {
     fn detects_elm_app() {
         let entry = detect_entry_points(
             r#"
-pub type Msg { Tick GameStart }
+pub enum Msg { Tick GameStart }
 pub fn init() -> Int { 0 }
 pub fn update(model: Int, msg: Msg) -> Int { model }
 "#,

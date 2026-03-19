@@ -91,12 +91,36 @@ impl Inferencer {
     ) -> InferResult {
         let mut env = TypeEnv::with_builtins();
 
-        // Build a map: definition name → which module it came from
-        let mut name_to_module: HashMap<String, &crate::modules::ResolvedImport> = HashMap::new();
+        // Build a map: definition name → which modules it came from
+        // A name can appear in multiple modules (e.g., int.to_string vs float.to_string)
+        let mut name_to_modules: HashMap<String, Vec<&crate::modules::ResolvedImport>> =
+            HashMap::new();
         for imp in imports {
             for def in &imp.definitions {
                 if let Some(name) = crate::modules::def_name_pub(def) {
-                    name_to_module.insert(name.to_string(), imp);
+                    name_to_modules
+                        .entry(name.to_string())
+                        .or_default()
+                        .push(imp);
+                }
+            }
+        }
+
+        // Build a map: (def_index in merged module) → source module
+        // Match each merged def to its source import by name lookup.
+        let mut def_source_module: HashMap<usize, &str> = HashMap::new();
+        for (def_idx, def) in module.definitions.iter().enumerate() {
+            let def_name = crate::modules::def_name(def);
+            if let Some(name) = def_name {
+                for imp in imports {
+                    let found = imp
+                        .definitions
+                        .iter()
+                        .any(|d| crate::modules::def_name(d).is_some_and(|n| n == name));
+                    if found && imp.qualified {
+                        def_source_module.insert(def_idx, &imp.module_name);
+                        break;
+                    }
                 }
             }
         }
@@ -106,14 +130,16 @@ impl Inferencer {
             if let Definition::Type(td) = def {
                 self.register_type_def(td, &mut env);
                 // Register qualified names if module provides qualified access
-                if let Some(imp) = name_to_module.get(td.name.as_str()) {
-                    self.register_qualified_type(td, imp, &mut env);
+                if let Some(imps) = name_to_modules.get(td.name.as_str()) {
+                    for imp in imps {
+                        self.register_qualified_type(td, imp, &mut env);
+                    }
                 }
             }
         }
 
         // Phase 2: Register function signatures (forward declarations)
-        for def in &module.definitions {
+        for (def_idx, def) in module.definitions.iter().enumerate() {
             if let Definition::Function(f) = def {
                 let (fn_type, tvars) = self.fn_def_type(f);
                 let type_var_ids: Vec<u32> = tvars
@@ -144,19 +170,23 @@ impl Inferencer {
                     vars: type_var_ids,
                     ty: fn_type,
                 };
-                env.bind(f.name.clone(), scheme.clone());
-                // Register qualified name
-                if let Some(imp) = name_to_module.get(f.name.as_str())
-                    && imp.qualified
-                {
-                    let qname = format!("{}.{}", imp.module_name, f.name);
+                // Only bind unqualified name if it's unique across modules
+                let collides = name_to_modules
+                    .get(f.name.as_str())
+                    .is_some_and(|imps| imps.len() > 1);
+                if !collides {
+                    env.bind(f.name.clone(), scheme.clone());
+                }
+                // Register qualified name for THIS def's source module only
+                if let Some(&src_mod) = def_source_module.get(&def_idx) {
+                    let qname = format!("{}.{}", src_mod, f.name);
                     env.bind(qname, scheme);
                 }
             }
         }
 
         // Phase 2b: Register external function signatures
-        for def in &module.definitions {
+        for (def_idx, def) in module.definitions.iter().enumerate() {
             if let Definition::External(e) = def {
                 let mut tvars = HashMap::new();
                 let param_types: Vec<Type> = e
@@ -184,12 +214,14 @@ impl Inferencer {
                     vars: type_var_ids,
                     ty: fn_type,
                 };
-                env.bind(e.fn_name.clone(), scheme.clone());
-                // Register qualified name
-                if let Some(imp) = name_to_module.get(e.fn_name.as_str())
-                    && imp.qualified
-                {
-                    let qname = format!("{}.{}", imp.module_name, e.fn_name);
+                let collides = name_to_modules
+                    .get(e.fn_name.as_str())
+                    .is_some_and(|imps| imps.len() > 1);
+                if !collides {
+                    env.bind(e.fn_name.clone(), scheme.clone());
+                }
+                if let Some(&src_mod) = def_source_module.get(&def_idx) {
+                    let qname = format!("{}.{}", src_mod, e.fn_name);
                     env.bind(qname, scheme);
                 }
             }
@@ -208,10 +240,10 @@ impl Inferencer {
 
         // Phase 3: Infer user function bodies only
         for def in &module.definitions {
-            if let Definition::Function(f) = def {
-                if !imported_fns.contains(&f.name) {
-                    self.check_function(f, &mut env);
-                }
+            if let Definition::Function(f) = def
+                && !imported_fns.contains(&f.name)
+            {
+                self.check_function(f, &mut env);
             }
         }
 
@@ -290,9 +322,25 @@ impl Inferencer {
                 vars: type_var_ids.clone(),
                 ty: ctor_type,
             };
-            env.bind(ctor.name.clone(), scheme);
+            // For structs: bind bare name (struct name == constructor name).
+            // For enums: bind qualified Type::Variant only (no bare name leaking).
+            if td.is_struct {
+                env.bind(ctor.name.clone(), scheme.clone());
+            }
+            let qualified_name = format!("{}::{}", td.name, ctor.name);
+            env.bind(qualified_name.clone(), scheme);
             self.constructors.register(
                 ctor.name.clone(),
+                ConstructorInfo {
+                    type_name: td.name.clone(),
+                    field_types: field_types.clone(),
+                    result_type: result_type.clone(),
+                    type_var_ids: type_var_ids.clone(),
+                },
+            );
+            // Also register qualified name in constructor registry
+            self.constructors.register(
+                qualified_name,
                 ConstructorInfo {
                     type_name: td.name.clone(),
                     field_types,
@@ -620,9 +668,28 @@ impl Inferencer {
             }
 
             // Field access
-            Expr::FieldAccess { object, .. } => {
-                let _obj_type = self.infer_expr(object, env);
-                // Without full type checker for fields, return fresh var
+            Expr::FieldAccess { object, field } => {
+                let obj_type = self.infer_expr(object, env);
+                let obj_resolved = obj_type.apply(&self.subst);
+                // Look up the field type from the constructor registry
+                let type_name = match &obj_resolved {
+                    Type::Con(name) => Some(name.as_str()),
+                    Type::App(con, _) => match con.as_ref() {
+                        Type::Con(name) => Some(name.as_str()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(tn) = type_name {
+                    // Search all constructors of this type for the field
+                    for info in self.constructors.all() {
+                        if info.type_name == tn
+                            && let Some((_, ft)) = info.field_types.iter().find(|(n, _)| n == field)
+                        {
+                            return ft.apply(&self.subst);
+                        }
+                    }
+                }
                 self.var_gen.fresh()
             }
 
@@ -1441,8 +1508,8 @@ fn test(x: Bool) -> Int {
     fn constructor_nullary() {
         infer_ok(
             r#"
-pub type Color { Red Green Blue }
-fn test() -> Color { Red }
+pub enum Color { Red Green Blue }
+fn test() -> Color { Color::Red }
 "#,
         );
     }
@@ -1451,8 +1518,8 @@ fn test() -> Color { Red }
     fn constructor_with_fields() {
         infer_ok(
             r#"
-pub type Pair { Pair { x: Int, y: Int } }
-fn test() -> Pair { Pair(x: 1, y: 2) }
+pub struct Pair { x: Int, y: Int }
+fn test() -> Pair { Pair { x: 1, y: 2 } }
 "#,
         );
     }
@@ -1461,8 +1528,8 @@ fn test() -> Pair { Pair(x: 1, y: 2) }
     fn constructor_wrong_field_type() {
         let errs = infer_errors(
             r#"
-pub type Pair { Pair { x: Int, y: Int } }
-fn test() -> Pair { Pair(x: 1, y: "two") }
+pub struct Pair { x: Int, y: Int }
+fn test() -> Pair { Pair { x: 1, y: "two" } }
 "#,
         );
         assert!(!errs.is_empty());
@@ -1487,11 +1554,11 @@ fn test() -> Pair { Pair(x: 1, y: "two") }
     fn case_with_constructors() {
         infer_ok(
             r#"
-pub type Shape { Circle { radius: Float } Square { side: Float } }
+pub enum Shape { Circle { radius: Float } Square { side: Float } }
 fn area(s: Shape) -> Float {
     case s {
-        Circle(r) -> r * r * 3.14
-        Square(s) -> s * s
+        Shape::Circle(r) -> r * r * 3.14
+        Shape::Square(s) -> s * s
     }
 }
 "#,
@@ -1504,11 +1571,11 @@ fn area(s: Shape) -> Float {
     fn named_field_pattern() {
         infer_ok(
             r#"
-pub type Event { Chat { from: Int, text: String } Quit { player: Int } }
+pub enum Event { Chat { from: Int, text: String } Quit { player: Int } }
 fn test(e: Event) -> Int {
     case e {
-        Chat { from, .. } -> from
-        Quit(p) -> p
+        Event::Chat { from, .. } -> from
+        Event::Quit(p) -> p
     }
 }
 "#,
@@ -1519,10 +1586,10 @@ fn test(e: Event) -> Int {
     fn named_field_pattern_with_as() {
         infer_ok(
             r#"
-pub type Event { Chat { from: Int, text: String } Quit { player: Int } }
+pub enum Event { Chat { from: Int, text: String } Quit { player: Int } }
 fn test(e: Event) -> Int {
     case e {
-        Chat { from as p, .. } -> p
+        Event::Chat { from as p, .. } -> p
         _ -> 0
     }
 }
@@ -1534,11 +1601,11 @@ fn test(e: Event) -> Int {
     fn or_pattern_basic() {
         infer_ok(
             r#"
-pub type Color { Red Green Blue }
+pub enum Color { Red Green Blue }
 fn test(c: Color) -> Int {
     case c {
-        Red | Green -> 1
-        Blue -> 2
+        Color::Red | Color::Green -> 1
+        Color::Blue -> 2
     }
 }
 "#,
@@ -1549,10 +1616,10 @@ fn test(c: Color) -> Int {
     fn as_binding_whole_pattern() {
         infer_ok(
             r#"
-pub type Event { Chat { from: Int, text: String } Quit { player: Int } GameStarted }
+pub enum Event { Chat { from: Int, text: String } Quit { player: Int } GameStarted }
 fn test(e: Event) -> Event {
     case e {
-        Chat(p, _) | Quit(p) as event -> event
+        Event::Chat(p, _) | Event::Quit(p) as event -> event
         _ -> e
     }
 }
@@ -1564,10 +1631,10 @@ fn test(e: Event) -> Event {
     fn named_field_missing_without_rest() {
         let errs = infer_errors(
             r#"
-pub type X { Y { val: Int, name: String } }
+pub enum X { Y { val: Int, name: String } }
 fn test(x: X) -> Int {
     case x {
-        Y { val } -> val
+        X::Y { val } -> val
         _ -> 0
     }
 }
@@ -1581,10 +1648,10 @@ fn test(x: X) -> Int {
     fn named_field_with_rest_ok() {
         infer_ok(
             r#"
-pub type X { Y { val: Int, name: String } }
+pub enum X { Y { val: Int, name: String } }
 fn test(x: X) -> Int {
     case x {
-        Y { val, .. } -> val
+        X::Y { val, .. } -> val
         _ -> 0
     }
 }
@@ -1596,10 +1663,10 @@ fn test(x: X) -> Int {
     fn named_field_all_listed_ok() {
         infer_ok(
             r#"
-pub type X { Y { val: Int, name: String } }
+pub enum X { Y { val: Int, name: String } }
 fn test(x: X) -> Int {
     case x {
-        Y { val, name } -> val
+        X::Y { val, name } -> val
         _ -> 0
     }
 }
@@ -1611,10 +1678,10 @@ fn test(x: X) -> Int {
     fn named_field_unknown_field_error() {
         let errs = infer_errors(
             r#"
-pub type Event { Chat { from: Int, text: String } }
+pub enum Event { Chat { from: Int, text: String } }
 fn test(e: Event) -> Int {
     case e {
-        Chat { unknown, .. } -> 0
+        Event::Chat { unknown, .. } -> 0
         _ -> 0
     }
 }
@@ -1629,15 +1696,15 @@ fn test(e: Event) -> Int {
     fn multi_function_program() {
         infer_ok(
             r#"
-pub type Msg { Tick Reset }
-pub type Model { Model { count: Int } }
+pub enum Msg { Tick Reset }
+pub struct Model { count: Int }
 
-fn init() -> Model { Model(count: 0) }
+fn init() -> Model { Model { count: 0 } }
 
 fn update(model: Model, msg: Msg) -> Model {
     case msg {
-        Tick -> Model(count: 1)
-        Reset -> Model(count: 0)
+        Msg::Tick -> Model { count: 1 }
+        Msg::Reset -> Model { count: 0 }
     }
 }
 "#,
@@ -1665,12 +1732,12 @@ fn update(model: Model, msg: Msg) -> Model {
     #[test]
     fn type_map_resolves_generics() {
         let source = r#"
-pub type Option(T) {
+enum Option(T) {
     Some(T)
     None
 }
 fn test() -> Option(Int) {
-    Some(42)
+    Option::Some(42)
 }
 "#;
         let result = infer(source);

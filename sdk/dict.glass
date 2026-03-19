@@ -2,17 +2,16 @@
 // Backed by JASS hashtable. Fully generic — compiler picks correct
 // Save/Load natives based on concrete key/value types.
 
-import option { Option, Some, None }
+import option { Option }
 
-pub type Dict(K, V) {
-    Dict{ handle: Int, size: Int }
+pub struct Dict(K, V) {
+    handle: Int,
+    size: Int,
 }
 
 @external("jass", "InitHashtable")
 fn init_hashtable() -> Int
 
-// Compiler intrinsics: resolved to correct JASS natives based on types.
-// e.g. dict_save with v=String → SaveStr, v=Float → SaveReal, etc.
 @external("glass", "dict_save")
 fn dict_save(ht: Int, parent_key: Int, child_key: Int, value: v) -> Int
 
@@ -30,16 +29,16 @@ fn string_hash(s: String) -> Int
 
 pub fn new() -> Dict(k, v) {
     let h = init_hashtable()
-    Dict(h, 0)
+    Dict { handle: h, size: 0 }
 }
 
 pub fn insert(d: Dict(k, v), key: k, value: v) -> Dict(k, v) {
     case d {
-        Dict{ handle, size, .. } -> {
+        Dict { handle, size, .. } -> {
             let _ = dict_save(handle, 0, key, value)
             case dict_has(handle, 0, key) {
-                True -> Dict(handle, size)
-                False -> Dict(handle, size + 1)
+                True -> Dict { handle, size }
+                False -> Dict { handle, size: size + 1 }
             }
         }
     }
@@ -47,10 +46,10 @@ pub fn insert(d: Dict(k, v), key: k, value: v) -> Dict(k, v) {
 
 pub fn get(d: Dict(k, v), key: k) -> #(Option(v), Dict(k, v)) {
     case d {
-        Dict{ handle, size, .. } -> {
+        Dict { handle, size, .. } -> {
             case dict_has(handle, 0, key) {
-                True -> #(Some(dict_load(handle, 0, key)), Dict(handle, size))
-                False -> #(None, Dict(handle, size))
+                True -> #(Option::Some(dict_load(handle, 0, key)), Dict { handle, size })
+                False -> #(Option::None, Dict { handle, size })
             }
         }
     }
@@ -58,13 +57,13 @@ pub fn get(d: Dict(k, v), key: k) -> #(Option(v), Dict(k, v)) {
 
 pub fn contains_key(d: Dict(k, v), key: k) -> #(Bool, Dict(k, v)) {
     case d {
-        Dict{ handle, size, .. } ->
-            #(dict_has(handle, 0, key), Dict(handle, size))
+        Dict { handle, size, .. } ->
+            #(dict_has(handle, 0, key), Dict { handle, size })
     }
 }
 
 pub fn size(d: Dict(k, v)) -> #(Int, Dict(k, v)) {
     case d {
-        Dict{ handle, size, .. } -> #(size, Dict(handle, size))
+        Dict { handle, size, .. } -> #(size, Dict { handle, size })
     }
 }

@@ -107,25 +107,28 @@ impl Parser {
     pub fn parse_module(&mut self) -> ParseResult<Module> {
         let mut definitions = Vec::new();
         while !self.at_end() {
-            definitions.push(self.parse_definition()?);
+            definitions.extend(self.parse_definition()?);
         }
         Ok(Module { definitions })
     }
 
     // === Definitions ===
 
-    fn parse_definition(&mut self) -> ParseResult<Definition> {
+    fn parse_definition(&mut self) -> ParseResult<Vec<Definition>> {
         match self.peek() {
-            Some(Token::At) => self.parse_external_def(),
-            Some(Token::Import) => self.parse_import_def(),
-            Some(Token::Extend) => self.parse_extend_def(),
+            Some(Token::At) => self.parse_external_def().map(|d| vec![d]),
+            Some(Token::Import) => self.parse_import_defs(),
+            Some(Token::Extend) => self.parse_extend_def().map(|d| vec![d]),
             _ => {
                 let is_pub = self.eat_pub();
 
                 match self.peek() {
-                    Some(Token::Type) => self.parse_type_def(is_pub),
-                    Some(Token::Const) => self.parse_const_def(is_pub),
-                    Some(Token::Fn) | Some(Token::Local) => self.parse_fn_def(is_pub),
+                    Some(Token::Enum) => self.parse_type_def(is_pub, false).map(|d| vec![d]),
+                    Some(Token::Struct) => self.parse_type_def(is_pub, true).map(|d| vec![d]),
+                    Some(Token::Const) => self.parse_const_def(is_pub).map(|d| vec![d]),
+                    Some(Token::Fn) | Some(Token::Local) => {
+                        self.parse_fn_def(is_pub).map(|d| vec![d])
+                    }
                     other => Err(ParseError::new(
                         format!("expected definition, got {:?}", other),
                         self.peek_span(),
@@ -208,9 +211,16 @@ impl Parser {
         })
     }
 
-    fn parse_type_def(&mut self, is_pub: bool) -> ParseResult<Definition> {
+    fn parse_type_def(&mut self, is_pub: bool, is_struct: bool) -> ParseResult<Definition> {
         let start = self.peek_span();
-        self.expect(&Token::Type)?;
+        if self.at(&Token::Enum) || self.at(&Token::Struct) {
+            self.advance();
+        } else {
+            return Err(ParseError::new(
+                "expected type, enum, or struct",
+                self.peek_span(),
+            ));
+        }
         let (name, _) = self.expect_upper_ident()?;
 
         let type_params = if self.at(&Token::LParen) {
@@ -231,21 +241,57 @@ impl Parser {
             Vec::new()
         };
 
-        self.expect(&Token::LBrace)?;
-        let mut constructors = Vec::new();
-        while !self.at(&Token::RBrace) && !self.at_end() {
-            constructors.push(self.parse_constructor()?);
+        if is_struct {
+            // `struct Name { field: Type, ... }`
+            // Desugars to a single constructor with the same name as the type.
+            self.expect(&Token::LBrace)?;
+            let mut fields = Vec::new();
+            if !self.at(&Token::RBrace) {
+                fields.push(self.parse_named_field()?);
+                while self.at(&Token::Comma) {
+                    self.advance();
+                    if self.at(&Token::RBrace) {
+                        break;
+                    }
+                    fields.push(self.parse_named_field()?);
+                }
+            }
+            let end = self.expect(&Token::RBrace)?;
+            let span = start.merge(end);
+            let ctor = Constructor {
+                name: name.clone(),
+                fields,
+                span,
+            };
+            Ok(Definition::Type(TypeDef {
+                is_pub,
+                name,
+                type_params,
+                constructors: vec![ctor],
+                is_struct: true,
+                span,
+            }))
+        } else {
+            // `enum Name { Variant1, Variant2 { ... } }` or `type Name { ... }`
+            self.expect(&Token::LBrace)?;
+            let mut constructors = Vec::new();
+            while !self.at(&Token::RBrace) && !self.at_end() {
+                constructors.push(self.parse_constructor()?);
+            }
+            let end = self.expect(&Token::RBrace)?;
+            let span = start.merge(end);
+            // Auto-detect: single constructor with same name = struct-like
+            let auto_struct = constructors.len() == 1
+                && constructors.first().is_some_and(|c| c.name == name);
+            Ok(Definition::Type(TypeDef {
+                is_pub,
+                name,
+                type_params,
+                constructors,
+                is_struct: auto_struct,
+                span,
+            }))
         }
-        let end = self.expect(&Token::RBrace)?;
-
-        let span = start.merge(end);
-        Ok(Definition::Type(TypeDef {
-            is_pub,
-            name,
-            type_params,
-            constructors,
-            span,
-        }))
     }
 
     fn parse_constructor(&mut self) -> ParseResult<Constructor> {
@@ -444,7 +490,12 @@ impl Parser {
         }))
     }
 
-    fn parse_import_def(&mut self) -> ParseResult<Definition> {
+    /// Parse import definitions. Supports:
+    ///   import foo                                       → 1 ImportDef
+    ///   import foo/bar                                   → 1 ImportDef
+    ///   import foo/bar { Baz, quux }                     → 1 ImportDef (selective)
+    ///   import jass { math { cos, sin }, sfx, unit }     → 3 ImportDefs (grouped)
+    fn parse_import_defs(&mut self) -> ParseResult<Vec<Definition>> {
         let start = self.peek_span();
         self.expect(&Token::Import)?;
 
@@ -453,7 +504,6 @@ impl Parser {
         path.push(first);
         while self.at(&Token::Slash) {
             self.advance();
-            // Could be lower ident for path, or { for items
             if self.at(&Token::LBrace) {
                 break;
             }
@@ -461,8 +511,16 @@ impl Parser {
             path.push(seg);
         }
 
-        let items = if self.at(&Token::LBrace) {
-            self.advance();
+        if self.at(&Token::LBrace) {
+            // Peek ahead: is this a grouped import (sub-modules) or selective import (items)?
+            // Grouped: `{ math { ... }, unit }` — lower ident followed by { or ,
+            // Selective: `{ Option, Some, None }` — upper ident, or lower ident not followed by {
+            if self.is_grouped_import_brace() {
+                return self.parse_grouped_import(&path, start);
+            }
+
+            // Selective import: `import foo/bar { Item1, Item2 }`
+            self.advance(); // consume {
             let mut items = Vec::new();
             if !self.at(&Token::RBrace) {
                 items.push(self.parse_import_item()?);
@@ -475,11 +533,16 @@ impl Parser {
                 }
             }
             self.expect(&Token::RBrace)?;
-            Some(items)
-        } else {
-            None
-        };
+            let span = start.merge(self.prev_span());
+            return Ok(vec![Definition::Import(ImportDef {
+                path,
+                items: Some(items),
+                alias: None,
+                span,
+            })]);
+        }
 
+        // Simple import: `import foo` or `import foo/bar`
         let alias = if self.at(&Token::As) {
             self.advance();
             let (name, _) = self.expect_lower_ident()?;
@@ -489,12 +552,88 @@ impl Parser {
         };
 
         let span = start.merge(self.prev_span());
-        Ok(Definition::Import(ImportDef {
+        Ok(vec![Definition::Import(ImportDef {
             path,
-            items,
+            items: None,
             alias,
             span,
-        }))
+        })])
+    }
+
+    /// Check if the upcoming `{` starts a grouped import (sub-modules)
+    /// vs a selective import (items).
+    /// Grouped: next tokens after `{` are `lower_ident {` or `lower_ident ,` or `lower_ident }`
+    /// Selective: next tokens after `{` are `UpperIdent` or `self`
+    fn is_grouped_import_brace(&self) -> bool {
+        // Look at token after `{`
+        let after_brace = self.tokens.get(self.pos + 1).map(|(t, _)| t.clone());
+        let after_after = self.tokens.get(self.pos + 2).map(|(t, _)| t.clone());
+        match after_brace {
+            Some(Token::LowerIdent(_)) => {
+                // lower ident followed by { → grouped sub-module with items
+                // lower ident followed by , or } → grouped sub-module (plain)
+                matches!(
+                    after_after,
+                    Some(Token::LBrace) | Some(Token::Comma) | Some(Token::RBrace)
+                )
+            }
+            _ => false,
+        }
+    }
+
+    /// Parse grouped import body: `{ math { cos, sin }, sfx, unit }`
+    /// Each entry becomes a separate ImportDef with `base_path/entry` as path.
+    fn parse_grouped_import(
+        &mut self,
+        base_path: &[String],
+        start: Span,
+    ) -> ParseResult<Vec<Definition>> {
+        self.advance(); // consume {
+        let mut results = Vec::new();
+
+        loop {
+            if self.at(&Token::RBrace) {
+                break;
+            }
+            let (sub_name, _) = self.expect_lower_ident()?;
+            let mut sub_path = base_path.to_vec();
+            sub_path.push(sub_name);
+
+            let items = if self.at(&Token::LBrace) {
+                // Sub-module with selective items: `math { cos, sin, self }`
+                self.advance();
+                let mut items = Vec::new();
+                if !self.at(&Token::RBrace) {
+                    items.push(self.parse_import_item()?);
+                    while self.at(&Token::Comma) {
+                        self.advance();
+                        if self.at(&Token::RBrace) {
+                            break;
+                        }
+                        items.push(self.parse_import_item()?);
+                    }
+                }
+                self.expect(&Token::RBrace)?;
+                Some(items)
+            } else {
+                None
+            };
+
+            let span = start.merge(self.prev_span());
+            results.push(Definition::Import(ImportDef {
+                path: sub_path,
+                items,
+                alias: None,
+                span,
+            }));
+
+            if !self.at(&Token::Comma) {
+                break;
+            }
+            self.advance(); // consume ,
+        }
+        self.expect(&Token::RBrace)?;
+        Ok(results)
     }
 
     fn parse_import_item(&mut self) -> ParseResult<ImportItem> {
@@ -1008,9 +1147,19 @@ impl Parser {
             // Block: { ... }
             Some(Token::LBrace) => self.parse_block(),
             // Upper ident: Constructor or RecordUpdate
-            Some(Token::UpperIdent(name)) => {
+            Some(Token::UpperIdent(type_or_ctor)) => {
                 let (_, start) = self.advance();
-                if self.at(&Token::LParen) {
+                // Check for qualified variant: Type::Variant
+                let name = if self.at(&Token::ColonColon) {
+                    self.advance();
+                    let (variant, _) = self.expect_upper_ident()?;
+                    format!("{}::{}", type_or_ctor, variant)
+                } else {
+                    type_or_ctor
+                };
+                if self.at(&Token::LBrace) {
+                    self.parse_brace_constructor_or_update(name, start)
+                } else if self.at(&Token::LParen) {
                     self.parse_constructor_or_update(name, start)
                 } else {
                     // Bare constructor with no args
@@ -1115,6 +1264,75 @@ impl Parser {
         ))
     }
 
+    /// Parse `Name { field: val, short, ..base, field: val }`
+    fn parse_brace_constructor_or_update(
+        &mut self,
+        name: String,
+        start: Span,
+    ) -> ParseResult<Spanned<Expr>> {
+        self.expect(&Token::LBrace)?;
+
+        // Check for record update: Name { ..expr, field: val }
+        if self.at(&Token::DotDot) {
+            self.advance();
+            let base = self.parse_expr()?;
+            let mut updates = Vec::new();
+            while self.at(&Token::Comma) {
+                self.advance();
+                if self.at(&Token::RBrace) {
+                    break;
+                }
+                let (field_name, _) = self.expect_lower_ident()?;
+                self.expect(&Token::Colon)?;
+                let value = self.parse_expr()?;
+                updates.push((field_name, value));
+            }
+            let end = self.expect(&Token::RBrace)?;
+            return Ok(Spanned::new(
+                Expr::RecordUpdate {
+                    name,
+                    base: Box::new(base),
+                    updates,
+                },
+                start.merge(end),
+            ));
+        }
+
+        // Named constructor: Name { field: val, shorthand, ... }
+        let mut args = Vec::new();
+        if !self.at(&Token::RBrace) {
+            args.push(self.parse_brace_constructor_arg()?);
+            while self.at(&Token::Comma) {
+                self.advance();
+                if self.at(&Token::RBrace) {
+                    break;
+                }
+                args.push(self.parse_brace_constructor_arg()?);
+            }
+        }
+        let end = self.expect(&Token::RBrace)?;
+
+        Ok(Spanned::new(
+            Expr::Constructor { name, args },
+            start.merge(end),
+        ))
+    }
+
+    /// Parse one field in `Name { field: val }` or shorthand `Name { field }`.
+    fn parse_brace_constructor_arg(&mut self) -> ParseResult<ConstructorArg> {
+        let (field_name, field_span) = self.expect_lower_ident()?;
+        if self.at(&Token::Colon) {
+            // field: value
+            self.advance();
+            let value = self.parse_expr()?;
+            Ok(ConstructorArg::Named(field_name, value))
+        } else {
+            // shorthand: `field` means `field: field`
+            let var_expr = Spanned::new(Expr::Var(field_name.clone()), field_span);
+            Ok(ConstructorArg::Named(field_name, var_expr))
+        }
+    }
+
     fn parse_constructor_arg(&mut self) -> ParseResult<ConstructorArg> {
         // Try named: ident ':'
         if let Some(Token::LowerIdent(_)) = self.peek() {
@@ -1175,8 +1393,16 @@ impl Parser {
                 Ok(Spanned::new(Pattern::Var(name), span))
             }
             // Constructor: positional () or named {}
-            Some(Token::UpperIdent(name)) => {
+            Some(Token::UpperIdent(type_or_ctor)) => {
                 let (_, start) = self.advance();
+                // Check for qualified variant: Type::Variant
+                let name = if self.at(&Token::ColonColon) {
+                    self.advance();
+                    let (variant, _) = self.expect_upper_ident()?;
+                    format!("{}::{}", type_or_ctor, variant)
+                } else {
+                    type_or_ctor
+                };
                 if self.at(&Token::LParen) {
                     // Positional: Constructor(pat, pat)
                     self.advance();
@@ -1475,14 +1701,14 @@ mod tests {
     #[test]
     fn type_def() {
         insta::assert_debug_snapshot!(parse(
-            "pub type Phase { Lobby Playing { wave: Int } Victory { winner: Player } }"
+            "pub enum Phase { Lobby Playing { wave: Int } Victory { winner: Player } }"
         ));
     }
 
     #[test]
     fn type_def_with_params() {
         insta::assert_debug_snapshot!(parse(
-            "type Result(A, B) { Ok { value: A } Err { error: B } }"
+            "enum Result(A, B) { Ok { value: A } Err { error: B } }"
         ));
     }
 
@@ -1623,17 +1849,17 @@ mod tests {
 
     #[test]
     fn unnamed_fields() {
-        insta::assert_debug_snapshot!(parse("pub type X { Y(Int) Z(String, Bool) }"));
+        insta::assert_debug_snapshot!(parse("pub enum X { Y(Int) Z(String, Bool) }"));
     }
 
     #[test]
     fn struct_like_variant() {
-        insta::assert_debug_snapshot!(parse("pub type X { Y { val: Int, name: String } }"));
+        insta::assert_debug_snapshot!(parse("pub enum X { Y { val: Int, name: String } }"));
     }
 
     #[test]
     fn mixed_tuple_and_struct_variants() {
-        insta::assert_debug_snapshot!(parse("pub type X { Y { val: Int } Z(String) W }"));
+        insta::assert_debug_snapshot!(parse("pub enum X { Y { val: Int } Z(String) W }"));
     }
 
     // --- Advanced pattern tests ---
@@ -1688,15 +1914,15 @@ mod tests {
     #[test]
     fn full_program() {
         let source = r#"
-pub type Msg {
+pub enum Msg {
     Tick
     UnitDied { killer: Player, bounty: Int }
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, List(Effect(Msg))) {
     case msg {
-        Tick -> #(model, [])
-        UnitDied(killer, bounty) -> #(model, [])
+        Msg::Tick -> #(model, [])
+        Msg::UnitDied(killer, bounty) -> #(model, [])
     }
 }
 "#;

@@ -1,7 +1,7 @@
 // Glass standard library: List functions
 // Lists are a built-in type: linked list in SoA arrays.
 
-import option { Option, Some, None }
+import option { Option }
 
 pub fn map(xs: List(a), f: fn(a) -> b) -> List(b) {
     case xs {
@@ -29,15 +29,15 @@ pub fn fold(xs: List(a), acc: b, f: fn(b, a) -> b) -> b {
 
 pub fn head(xs: List(a)) -> Option(a) {
     case xs {
-        [] -> None
-        [h | _] -> Some(h)
+        [] -> Option::None
+        [h | _] -> Option::Some(h)
     }
 }
 
 pub fn tail(xs: List(a)) -> Option(List(a)) {
     case xs {
-        [] -> None
-        [_ | t] -> Some(t)
+        [] -> Option::None
+        [_ | t] -> Option::Some(t)
     }
 }
 
@@ -65,9 +65,9 @@ pub fn flat_map(xs: List(a), f: fn(a) -> List(b)) -> List(b) {
 
 pub fn find(xs: List(a), f: fn(a) -> Bool) -> Option(a) {
     case xs {
-        [] -> None
+        [] -> Option::None
         [h | t] -> case f(h) {
-            True -> Some(h)
+            True -> Option::Some(h)
             False -> find(t, f)
         }
     }

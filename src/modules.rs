@@ -69,10 +69,11 @@ impl ModuleResolver {
     /// Returns:
     /// - A new Module with all imported definitions merged in (for codegen)
     /// - A list of ResolvedImports (for type checker namespacing)
+    /// - The count of imported definitions (for skipping in exhaustiveness checks)
     pub fn resolve_module(
         &mut self,
         module: &Module,
-    ) -> Result<(Module, Vec<ResolvedImport>), Vec<ModuleError>> {
+    ) -> Result<(Module, Vec<ResolvedImport>, usize), Vec<ModuleError>> {
         let mut errors = Vec::new();
         let mut resolved_imports = Vec::new();
         let mut all_imported_defs: Vec<Definition> = Vec::new();
@@ -94,14 +95,15 @@ impl ModuleResolver {
         for imp in &imports {
             match self.resolve_single_import(imp) {
                 Ok(resolved) => {
-                    // Add definitions, deduplicating by name
+                    let module_name = &resolved.module_name;
+                    // Add definitions, deduplicating by qualified name (module.fn)
                     for def in &resolved.definitions {
                         let name = def_name(def);
-                        if let Some(n) = name {
-                            if seen_defs.insert(n.to_string()) {
-                                all_imported_defs.push(def.clone());
-                            }
-                        } else {
+                        let dedup_key = match name {
+                            Some(n) => format!("{}.{}", module_name, n),
+                            None => format!("{}.__anon_{}", module_name, all_imported_defs.len()),
+                        };
+                        if seen_defs.insert(dedup_key) {
                             all_imported_defs.push(def.clone());
                         }
                     }
@@ -117,6 +119,7 @@ impl ModuleResolver {
 
         // Build merged module: imported defs first, then user defs
         let mut all_defs = all_imported_defs;
+        let imported_count = all_defs.len();
         for def in &module.definitions {
             if !matches!(def, Definition::Import(_)) {
                 all_defs.push(def.clone());
@@ -128,6 +131,7 @@ impl ModuleResolver {
                 definitions: all_defs,
             },
             resolved_imports,
+            imported_count,
         ))
     }
 
@@ -224,7 +228,7 @@ impl ModuleResolver {
         })?;
 
         // Recursively resolve imports in the imported module
-        let (resolved_module, _sub_imports) =
+        let (resolved_module, _sub_imports, _) =
             self.resolve_module(&parsed).map_err(|errs| ModuleError {
                 message: format!(
                     "errors in '{}': {}",
@@ -257,7 +261,7 @@ pub fn def_name_pub(def: &Definition) -> Option<&str> {
     def_name(def)
 }
 
-fn def_name(def: &Definition) -> Option<&str> {
+pub fn def_name(def: &Definition) -> Option<&str> {
     match def {
         Definition::Function(f) => Some(&f.name),
         Definition::Type(t) => Some(&t.name),
@@ -281,7 +285,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
-        let (resolved, imports) = resolver.resolve_module(&module).unwrap();
+        let (resolved, imports, _) = resolver.resolve_module(&module).unwrap();
         // Should contain Option type from sdk/option.glass
         let type_names: Vec<&str> = resolved
             .definitions
@@ -312,7 +316,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
-        let (_resolved, imports) = resolver.resolve_module(&module).unwrap();
+        let (_resolved, imports, _) = resolver.resolve_module(&module).unwrap();
         assert_eq!(imports.len(), 1);
         assert!(!imports[0].qualified); // no `self`
         assert!(imports[0].unqualified.contains("Option"));
@@ -329,7 +333,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
-        let (_resolved, imports) = resolver.resolve_module(&module).unwrap();
+        let (_resolved, imports, _) = resolver.resolve_module(&module).unwrap();
         assert_eq!(imports.len(), 1);
         assert!(imports[0].qualified); // self → qualified access
         assert!(imports[0].unqualified.contains("Option"));

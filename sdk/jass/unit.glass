@@ -1,0 +1,35 @@
+// Glass SDK: jass/unit — unit manipulation natives
+//
+// Wraps JASS unit natives for position, creation, removal.
+//
+// Usage:
+//   import jass/unit
+//   let x = unit.get_x(my_unit)
+//   let _ = unit.set_x(my_unit, x + 100.0)
+
+@external("jass", "GetUnitX")
+pub fn get_x(u: Unit) -> Float
+
+@external("jass", "GetUnitY")
+pub fn get_y(u: Unit) -> Float
+
+@external("jass", "SetUnitX")
+pub fn set_x(u: Unit, x: Float) -> Int
+
+@external("jass", "SetUnitY")
+pub fn set_y(u: Unit, y: Float) -> Int
+
+@external("jass", "SetUnitPosition")
+pub fn set_pos(u: Unit, x: Float, y: Float) -> Int
+
+@external("jass", "GetUnitFacing")
+pub fn get_facing(u: Unit) -> Float
+
+@external("jass", "CreateUnit")
+pub fn create(owner: Player, type_id: Int, x: Float, y: Float, facing: Float) -> Unit
+
+@external("jass", "RemoveUnit")
+pub fn remove(u: Unit) -> Int
+
+@external("jass", "GetHandleId")
+pub fn handle_id(u: Unit) -> Int

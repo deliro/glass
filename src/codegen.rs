@@ -14,6 +14,7 @@ pub struct JassCodegen {
     output: String,
     indent: usize,
     temp_counter: usize,
+    temp_types: Vec<String>,
     lambda_counter: usize,
     types: TypeRegistry,
     lambdas: Vec<LambdaInfo>,
@@ -57,6 +58,7 @@ impl JassCodegen {
             output: String::new(),
             indent: 0,
             temp_counter: 0,
+            temp_types: Vec::new(),
             lambda_counter: 0,
             types,
             lambdas,
@@ -132,6 +134,14 @@ impl JassCodegen {
         // Phase 1c: Closure infrastructure
         self.gen_closure_preamble();
 
+        // Phase 1c2: Type conversion helpers for dispatch
+        self.emit("function glass_i2b takes integer i returns boolean");
+        self.indent += 1;
+        self.emit("return i != 0");
+        self.indent -= 1;
+        self.emit("endfunction");
+        self.output.push('\n');
+
         // Phase 1d: Elm runtime globals
         let elm_entry = ElmEntryPoints::detect(module, &self.types);
         if elm_entry.is_some() {
@@ -151,7 +161,8 @@ impl JassCodegen {
         }
 
         // Phase 2: Emit user definitions (DCE + topologically sorted)
-        let live_defs = dead_code_eliminate(&module.definitions);
+        let imported_count: usize = imports.iter().map(|i| i.definitions.len()).sum();
+        let live_defs = dead_code_eliminate(&module.definitions, imported_count);
         let sorted_defs = topo_sort_definitions(&live_defs);
         for def in &sorted_defs {
             self.gen_definition(def);
@@ -167,8 +178,13 @@ impl JassCodegen {
     }
 
     fn fresh_temp(&mut self) -> String {
+        self.fresh_temp_typed("integer")
+    }
+
+    fn fresh_temp_typed(&mut self, jass_type: &str) -> String {
         let n = self.temp_counter;
         self.temp_counter += 1;
+        self.temp_types.push(jass_type.to_string());
         format!("glass_tmp_{}", n)
     }
 
@@ -360,9 +376,18 @@ impl JassCodegen {
                     .iter()
                     .map(|c| (c.name.clone(), c.jass_type.clone()))
                     .collect(),
-                param_names: l.params.iter().enumerate().map(|(i, p)| {
-                    if p.name == "_" { format!("glass_unused_{}", i) } else { p.name.clone() }
-                }).collect(),
+                param_names: l
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        if p.name == "_" {
+                            format!("glass_unused_{}", i)
+                        } else {
+                            p.name.clone()
+                        }
+                    })
+                    .collect(),
                 param_types: l
                     .params
                     .iter()
@@ -433,15 +458,38 @@ impl JassCodegen {
                 }
             }
 
-            // Collect and declare locals
+            // Collect user locals, then generate body with fresh temp counter
             let mut locals = Vec::new();
             self.collect_locals(&body.node, &mut locals);
-            for (name, jass_type) in &locals {
-                self.emit(&format!("local {} {}", jass_type, name));
-            }
+
+            let saved_temp = self.temp_counter;
+            self.temp_counter = 0;
+            let saved_temp_types = std::mem::take(&mut self.temp_types);
+            let saved_output = std::mem::take(&mut self.output);
+            let saved_indent = self.indent;
+            self.indent = 1;
 
             let result = self.gen_expr(&body.node);
             self.emit(&format!("return {}", result));
+
+            let body_output = std::mem::replace(&mut self.output, saved_output);
+            let temp_types = std::mem::replace(&mut self.temp_types, saved_temp_types);
+            self.temp_counter = saved_temp;
+            self.indent = saved_indent;
+
+            {
+                let mut seen = std::collections::HashSet::new();
+                for (name, jass_type) in &locals {
+                    if seen.insert(name.clone()) {
+                        self.emit(&format!("local {} {}", jass_type, name));
+                    }
+                }
+            }
+            for (i, jass_type) in temp_types.iter().enumerate() {
+                self.emit(&format!("local {} glass_tmp_{}", jass_type, i));
+            }
+
+            self.output.push_str(&body_output);
             self.indent -= 1;
             self.emit("endfunction");
             self.output.push('\n');
@@ -502,9 +550,7 @@ impl JassCodegen {
         }
 
         // glass_dispatch_void = alias for glass_dispatch_0
-        self.emit(
-            "function glass_dispatch_void takes integer glass_closure returns integer",
-        );
+        self.emit("function glass_dispatch_void takes integer glass_closure returns integer");
         self.indent += 1;
         self.emit("return glass_dispatch_0(glass_closure)");
         self.indent -= 1;
@@ -656,12 +702,6 @@ impl JassCodegen {
             None => "nothing".to_string(),
         };
 
-        self.emit(&format!(
-            "function glass_{} takes {} returns {}",
-            f.name, takes, returns
-        ));
-        self.indent += 1;
-
         // Collect handle params for auto-null (prevents JASS handle leaks)
         let handle_params: Vec<String> = f
             .params
@@ -670,18 +710,20 @@ impl JassCodegen {
             .map(|p| p.name.clone())
             .collect();
 
-        // Collect locals needed for the body
+        // Collect user-defined locals (let bindings, pattern vars)
         let mut locals = Vec::new();
         self.collect_locals(&f.body.node, &mut locals);
-        for (name, jass_type) in &locals {
-            self.emit(&format!("local {} {}", jass_type, name));
-        }
 
-        // Generate body
+        // Reset temp counter for this function, generate body into buffer
+        let saved_temp = self.temp_counter;
+        self.temp_counter = 0;
+        let saved_temp_types = std::mem::take(&mut self.temp_types);
+        let saved_output = std::mem::take(&mut self.output);
+        let saved_indent = self.indent;
+        self.indent = 1;
+
         let result = self.gen_expr(&f.body.node);
 
-        // Null handle locals to prevent reference leaks
-        // (DestroyX is the user's responsibility — linearity checker enforces)
         for name in &handle_params {
             self.emit(&format!("set {} = null", name));
         }
@@ -690,6 +732,31 @@ impl JassCodegen {
             self.emit(&format!("return {}", result));
         }
 
+        let body_output = std::mem::replace(&mut self.output, saved_output);
+        let temp_types = std::mem::replace(&mut self.temp_types, saved_temp_types);
+        self.temp_counter = saved_temp;
+        self.indent = saved_indent;
+
+        // Now emit: header, locals, temps, body
+        self.emit(&format!(
+            "function glass_{} takes {} returns {}",
+            f.name, takes, returns
+        ));
+        self.indent += 1;
+
+        {
+            let mut seen = std::collections::HashSet::new();
+            for (name, jass_type) in &locals {
+                if seen.insert(name.clone()) {
+                    self.emit(&format!("local {} {}", jass_type, name));
+                }
+            }
+        }
+        for (i, jass_type) in temp_types.iter().enumerate() {
+            self.emit(&format!("local {} glass_tmp_{}", jass_type, i));
+        }
+
+        self.output.push_str(&body_output);
         self.indent -= 1;
         self.emit("endfunction");
     }
@@ -961,22 +1028,42 @@ impl JassCodegen {
 
             Expr::Case { subject, arms } => {
                 let subj = self.gen_expr(&subject.node);
-                let result_var = self.fresh_temp();
+                // Determine JASS type for the case result from first arm body
+                let case_jass_type = arms
+                    .first()
+                    .and_then(|arm| self.lookup_full_type(arm.body.span))
+                    .map(|ty| self.type_to_jass_from_type(&ty))
+                    .unwrap_or_else(|| "integer".to_string());
+                let result_var = self.fresh_temp_typed(&case_jass_type);
 
                 // Look up subject type for enum tag access
-                let subject_type_name = self
-                    .lookup_full_type(subject.span)
-                    .and_then(|ty| match &ty {
-                        Type::Con(name) => Some(name.clone()),
-                        Type::App(con, _) => match con.as_ref() {
+                let subject_type_name =
+                    self.lookup_full_type(subject.span)
+                        .and_then(|ty| match &ty {
                             Type::Con(name) => Some(name.clone()),
+                            Type::App(con, _) => match con.as_ref() {
+                                Type::Con(name) => Some(name.clone()),
+                                _ => None,
+                            },
                             _ => None,
-                        },
-                        _ => None,
-                    });
+                        });
+
+                // If subject type is Bool but generated code is a dispatch call (returns integer),
+                // wrap with glass_i2b to convert integer → boolean
+                let subj = if subject_type_name.as_deref() == Some("Bool")
+                    && subj.contains("glass_dispatch_")
+                {
+                    format!("glass_i2b({})", subj)
+                } else {
+                    subj
+                };
 
                 for (i, arm) in arms.iter().enumerate() {
-                    let condition = self.gen_pattern_condition_typed(&arm.pattern.node, &subj, subject_type_name.as_deref());
+                    let condition = Self::gen_pattern_condition_typed(
+                        &arm.pattern.node,
+                        &subj,
+                        subject_type_name.as_deref(),
+                    );
                     let guard = arm
                         .guard
                         .as_ref()
@@ -1096,7 +1183,12 @@ impl JassCodegen {
 
             Expr::Constructor { name, args } => {
                 // Look up variant name from types (clone to release borrow)
-                let variant_name = self.types.get_variant(name).map(|(_, v)| v.name.clone());
+                // Strip qualified prefix: "BashResult::Bashed" → "Bashed"
+                let bare_name = name.rsplit("::").next().unwrap_or(name);
+                let variant_name = self
+                    .types
+                    .get_variant(bare_name)
+                    .map(|(_, v)| v.name.clone());
 
                 match variant_name {
                     Some(vname) => {
@@ -1226,7 +1318,16 @@ impl JassCodegen {
     }
 
     /// Generate pattern condition with type info for correct SoA tag access.
-    fn gen_pattern_condition_typed(&self, pattern: &Pattern, subject: &str, type_name: Option<&str>) -> String {
+    /// Strip qualified prefix: "BashResult::Bashed" → "Bashed"
+    fn bare_ctor_name(name: &str) -> &str {
+        name.rsplit("::").next().unwrap_or(name)
+    }
+
+    fn gen_pattern_condition_typed(
+        pattern: &Pattern,
+        subject: &str,
+        type_name: Option<&str>,
+    ) -> String {
         match pattern {
             Pattern::Bool(true) => format!("({} == true)", subject),
             Pattern::Bool(false) => format!("({} == false)", subject),
@@ -1234,33 +1335,35 @@ impl JassCodegen {
             Pattern::Float(n) => format!("({} == {:.1})", subject, n),
             Pattern::String(s) => format!("({} == \"{}\")", subject, s),
             Pattern::Constructor { name, args } => {
+                let bare = Self::bare_ctor_name(name);
                 if args.is_empty() {
-                    // Nullary constructor — subject IS the tag directly (for enums stored as tag only)
-                    format!("({} == glass_TAG_{})", subject, name)
+                    format!("({} == glass_TAG_{})", subject, bare)
                 } else {
-                    // Constructor with fields — look up tag from SoA
                     let tag_access = match type_name {
                         Some(tn) => format!("glass_{}_tag[{}]", tn, subject),
-                        None => format!("glass_tag({})", subject), // fallback
+                        None => format!("glass_tag({})", subject),
                     };
-                    format!("({} == glass_TAG_{})", tag_access, name)
+                    format!("({} == glass_TAG_{})", tag_access, bare)
                 }
             }
             Pattern::ConstructorNamed { name, .. } => {
+                let bare = Self::bare_ctor_name(name);
                 let tag_access = match type_name {
                     Some(tn) => format!("glass_{}_tag[{}]", tn, subject),
                     None => format!("glass_tag({})", subject),
                 };
-                format!("({} == glass_TAG_{})", tag_access, name)
+                format!("({} == glass_TAG_{})", tag_access, bare)
             }
             Pattern::Or(alternatives) => {
                 let conditions: Vec<String> = alternatives
                     .iter()
-                    .map(|alt| self.gen_pattern_condition_typed(&alt.node, subject, type_name))
+                    .map(|alt| Self::gen_pattern_condition_typed(&alt.node, subject, type_name))
                     .collect();
                 format!("({})", conditions.join(" or "))
             }
-            Pattern::As { pattern, .. } => self.gen_pattern_condition_typed(&pattern.node, subject, type_name),
+            Pattern::As { pattern, .. } => {
+                Self::gen_pattern_condition_typed(&pattern.node, subject, type_name)
+            }
             // Empty list pattern: [] → subject == -1
             Pattern::List(elems) if elems.is_empty() => {
                 format!("({} == -1)", subject)
@@ -1323,16 +1426,42 @@ impl JassCodegen {
             Pattern::Var(name) => {
                 self.emit(&format!("set {} = {}", name, subject));
             }
-            Pattern::Constructor { args, .. } => {
+            Pattern::Constructor { name, args } => {
+                let bare = Self::bare_ctor_name(name);
+                let variant_info = self.types.get_variant(bare).map(|(ti, v)| {
+                    let field_names: Vec<String> =
+                        v.fields.iter().map(|f| f.name.clone()).collect();
+                    (ti.name.clone(), field_names)
+                });
                 for (i, arg) in args.iter().enumerate() {
-                    let field = format!("glass_field_{}({})", i, subject);
+                    let field = match &variant_info {
+                        Some((tn, field_names)) => {
+                            let fname = field_names
+                                .get(i)
+                                .cloned()
+                                .unwrap_or_else(|| format!("_{}", i));
+                            format!("glass_get_{}_{}_{} ({})", tn, bare, fname, subject)
+                        }
+                        None => format!("glass_field_{}({})", i, subject),
+                    };
                     self.gen_pattern_bindings(&arg.node, &field);
                 }
             }
             Pattern::ConstructorNamed { name, fields, .. } => {
+                let bare = Self::bare_ctor_name(name);
+                let type_name = self
+                    .types
+                    .get_variant(bare)
+                    .map(|(ti, _)| ti.name.clone())
+                    .unwrap_or_default();
+                let prefix = if type_name.is_empty() {
+                    bare.to_string()
+                } else {
+                    format!("{}_{}", type_name, bare)
+                };
                 for fp in fields {
                     let var = fp.binding.as_ref().unwrap_or(&fp.field_name);
-                    let field = format!("glass_get_{}_{}({})", name, fp.field_name, subject);
+                    let field = format!("glass_get_{}_{}({})", prefix, fp.field_name, subject);
                     self.emit(&format!("set {} = {}", var, field));
                 }
             }
@@ -1380,28 +1509,24 @@ impl JassCodegen {
                         locals.push((name.clone(), jass_type));
                     }
                     Pattern::Tuple(elems) => {
-                        // Temp for the tuple ID + each element binding
-                        locals.push((format!("glass_tmp_{}", locals.len()), "integer".to_string()));
-                        Self::collect_pattern_locals(&pattern.node, locals);
+                        self.collect_pattern_locals(&pattern.node, locals);
                         // Also recurse into each sub-element
                         for elem in elems {
-                            Self::collect_pattern_locals(&elem.node, locals);
+                            self.collect_pattern_locals(&elem.node, locals);
                         }
                     }
                     _ => {
-                        Self::collect_pattern_locals(&pattern.node, locals);
+                        self.collect_pattern_locals(&pattern.node, locals);
                     }
                 }
                 self.collect_locals(&value.node, locals);
                 self.collect_locals(&body.node, locals);
             }
             Expr::Case { subject, arms } => {
-                // Add result temp
-                locals.push((format!("glass_tmp_{}", locals.len()), "integer".to_string()));
                 self.collect_locals(&subject.node, locals);
                 for arm in arms {
                     // Collect bindings from patterns
-                    Self::collect_pattern_locals(&arm.pattern.node, locals);
+                    self.collect_pattern_locals(&arm.pattern.node, locals);
                     self.collect_locals(&arm.body.node, locals);
                 }
             }
@@ -1411,57 +1536,65 @@ impl JassCodegen {
                 }
             }
             Expr::RecordUpdate { base, updates, .. } => {
-                // RecordUpdate uses a temp for the new ID
-                locals.push((format!("glass_tmp_{}", locals.len()), "integer".to_string()));
                 self.collect_locals(&base.node, locals);
                 for (_, val) in updates {
                     self.collect_locals(&val.node, locals);
                 }
             }
-            Expr::Lambda { .. } => {
-                // Capturing lambdas use a temp for the closure instance ID
-                // Check if this lambda has captures by matching the lambda counter
-                // For safety, always reserve a temp for any lambda
-                locals.push((format!("glass_tmp_{}", locals.len()), "integer".to_string()));
-            }
             _ => {}
         }
     }
 
-    fn collect_pattern_locals(pattern: &Pattern, locals: &mut Vec<(String, String)>) {
+    fn collect_pattern_locals(&self, pattern: &Pattern, locals: &mut Vec<(String, String)>) {
         match pattern {
             Pattern::Var(name) if name != "_" => {
                 locals.push((name.clone(), "integer".to_string()));
             }
             Pattern::Constructor { args, .. } => {
                 for arg in args {
-                    Self::collect_pattern_locals(&arg.node, locals);
+                    self.collect_pattern_locals(&arg.node, locals);
                 }
             }
-            Pattern::ConstructorNamed { fields, .. } => {
+            Pattern::ConstructorNamed { name, fields, .. } => {
+                // Look up field types from the type registry
+                let bare = Self::bare_ctor_name(name);
+                let field_types: HashMap<String, String> = self
+                    .types
+                    .get_variant(bare)
+                    .map(|(_, v)| {
+                        v.fields
+                            .iter()
+                            .map(|f| (f.name.clone(), f.jass_type.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 for fp in fields {
                     let var = fp.binding.as_ref().unwrap_or(&fp.field_name);
-                    locals.push((var.clone(), "integer".to_string()));
+                    let jass_type = field_types
+                        .get(&fp.field_name)
+                        .cloned()
+                        .unwrap_or_else(|| "integer".to_string());
+                    locals.push((var.clone(), jass_type));
                 }
             }
             Pattern::Or(alternatives) => {
                 // All alternatives bind the same vars — use first
                 if let Some(first) = alternatives.first() {
-                    Self::collect_pattern_locals(&first.node, locals);
+                    self.collect_pattern_locals(&first.node, locals);
                 }
             }
             Pattern::As { pattern, name } => {
                 locals.push((name.clone(), "integer".to_string()));
-                Self::collect_pattern_locals(&pattern.node, locals);
+                self.collect_pattern_locals(&pattern.node, locals);
             }
             Pattern::Tuple(elems) => {
                 for e in elems {
-                    Self::collect_pattern_locals(&e.node, locals);
+                    self.collect_pattern_locals(&e.node, locals);
                 }
             }
             Pattern::ListCons { head, tail } => {
-                Self::collect_pattern_locals(&head.node, locals);
-                Self::collect_pattern_locals(&tail.node, locals);
+                self.collect_pattern_locals(&head.node, locals);
+                self.collect_pattern_locals(&tail.node, locals);
             }
             _ => {}
         }
@@ -1473,7 +1606,11 @@ impl JassCodegen {
         let TypeExpr::Named { name, .. } = ty else {
             return "integer".to_string();
         };
-        match name.as_str() {
+        Self::type_name_to_jass(name)
+    }
+
+    fn type_name_to_jass(name: &str) -> String {
+        match name {
             "Float" => "real".to_string(),
             "Bool" => "boolean".to_string(),
             "String" => "string".to_string(),
@@ -1482,7 +1619,19 @@ impl JassCodegen {
             "Timer" => "timer".to_string(),
             "Group" => "group".to_string(),
             "Trigger" => "trigger".to_string(),
+            "Sfx" => "effect".to_string(),
             // Int, user types, Effect, closures, tuples → all integer
+            _ => "integer".to_string(),
+        }
+    }
+
+    fn type_to_jass_from_type(&self, ty: &Type) -> String {
+        match ty {
+            Type::Con(name) => Self::type_name_to_jass(name),
+            Type::App(con, _) => match con.as_ref() {
+                Type::Con(name) => Self::type_name_to_jass(name),
+                _ => "integer".to_string(),
+            },
             _ => "integer".to_string(),
         }
     }
@@ -1500,6 +1649,8 @@ impl JassCodegen {
         let prev_param_types = std::mem::take(&mut self.mono_param_types);
         let prev_output = std::mem::take(&mut self.output);
         let prev_indent = std::mem::replace(&mut self.indent, 0);
+        let prev_temp = std::mem::replace(&mut self.temp_counter, 0);
+        let prev_temp_types = std::mem::take(&mut self.temp_types);
 
         // Build param name → concrete type mapping
         for p in &fdef.params {
@@ -1523,6 +1674,21 @@ impl JassCodegen {
             .map(|t| self.type_to_jass_with_subst(t))
             .unwrap_or_else(|| "nothing".to_string());
 
+        // Collect user locals
+        let mut locals = Vec::new();
+        self.collect_locals(&fdef.body.node, &mut locals);
+
+        // Generate body into buffer with fresh temp counter
+        self.indent = 1;
+        let result = self.gen_expr(&fdef.body.node);
+        if ret_type != "nothing" {
+            self.emit(&format!("return {}", result));
+        }
+        let body_buf = std::mem::take(&mut self.output);
+        let temp_types = std::mem::take(&mut self.temp_types);
+
+        // Build full function
+        self.indent = 0;
         self.emit(&format!(
             "function {} takes {} returns {}",
             mono_name,
@@ -1533,22 +1699,20 @@ impl JassCodegen {
             },
             ret_type
         ));
-        self.indent += 1;
-
-        // Collect and emit locals
-        let mut locals = Vec::new();
-        self.collect_locals(&fdef.body.node, &mut locals);
-        for (name, jass_type) in &locals {
-            self.emit(&format!("local {} {}", jass_type, name));
+        self.indent = 1;
+        {
+            let mut seen = std::collections::HashSet::new();
+            for (name, jass_type) in &locals {
+                if seen.insert(name.clone()) {
+                    self.emit(&format!("local {} {}", jass_type, name));
+                }
+            }
         }
-
-        // Generate body
-        let result = self.gen_expr(&fdef.body.node);
-        if ret_type != "nothing" {
-            self.emit(&format!("return {}", result));
+        for (i, jass_type) in temp_types.iter().enumerate() {
+            self.emit(&format!("local {} glass_tmp_{}", jass_type, i));
         }
-
-        self.indent -= 1;
+        self.output.push_str(&body_buf);
+        self.indent = 0;
         self.emit("endfunction");
 
         // Capture the generated function, restore state
@@ -1556,6 +1720,8 @@ impl JassCodegen {
         self.indent = prev_indent;
         self.mono_subst = prev_subst;
         self.mono_param_types = prev_param_types;
+        self.temp_counter = prev_temp;
+        self.temp_types = prev_temp_types;
 
         // Append the mono function to the main output (at top level, before current position)
         // We prepend it to the output so it's defined before it's called
@@ -1923,14 +2089,14 @@ fn combined(x: Int) -> Int { add(x, mul(x, 2)) }
     #[test]
     fn soa_enum_type() {
         insta::assert_snapshot!(compile(
-            "pub type Phase { Lobby Playing { wave: Int } Victory { winner: Int } }"
+            "pub enum Phase { Lobby Playing { wave: Int } Victory { winner: Int } }"
         ));
     }
 
     #[test]
     fn soa_record_type() {
         insta::assert_snapshot!(compile(
-            "pub type Model { Model { phase: Int, wave: Int, score: Int } }"
+            "pub struct Model { phase: Int, wave: Int, score: Int }"
         ));
     }
 
@@ -1938,8 +2104,8 @@ fn combined(x: Int) -> Int { add(x, mul(x, 2)) }
     fn constructor_call() {
         insta::assert_snapshot!(compile(
             r#"
-pub type Model { Model { wave: Int, score: Int } }
-fn make() -> Int { Model(wave: 1, score: 100) }
+pub struct Model { wave: Int, score: Int }
+fn make() -> Int { Model { wave: 1, score: 100 } }
 "#
         ));
     }
@@ -1948,8 +2114,8 @@ fn make() -> Int { Model(wave: 1, score: 100) }
     fn record_update_codegen() {
         insta::assert_snapshot!(compile(
             r#"
-pub type Model { Model { wave: Int, score: Int } }
-fn bump(m: Int) -> Int { Model(..m, wave: 5) }
+pub struct Model { wave: Int, score: Int }
+fn bump(m: Int) -> Int { Model { ..m, wave: 5 } }
 "#
         ));
     }
@@ -1982,7 +2148,7 @@ fn pair(a: Int, b: Int) -> Int { #(a, b) }
     fn list_with_type_def() {
         insta::assert_snapshot!(compile(
             r#"
-pub type Model { Model { wave: Int } }
+pub struct Model { wave: Int }
 fn test() -> Int { [1, 2, 3] }
 "#
         ));
@@ -2050,8 +2216,9 @@ fn const_fold_binop(op: &BinOp, left: &Expr, right: &Expr) -> Option<String> {
 }
 
 /// Dead code elimination: keep only definitions reachable from entry points.
-/// Entry points: pub functions, init/update/subscriptions (Elm), type definitions.
-fn dead_code_eliminate(defs: &[Definition]) -> Vec<Definition> {
+/// `imported_count` is the number of leading imported definitions.
+/// Only user (non-imported) pub functions are entry points.
+fn dead_code_eliminate(defs: &[Definition], imported_count: usize) -> Vec<Definition> {
     // Build fn name → index
     let mut fn_indices: HashMap<&str, usize> = HashMap::new();
     for (i, def) in defs.iter().enumerate() {
@@ -2096,9 +2263,12 @@ fn dead_code_eliminate(defs: &[Definition]) -> Vec<Definition> {
             | Definition::Extend(_)
             | Definition::Const(_)
             | Definition::External(_) => true,
-            // Pub functions and Elm entry points
+            // Only USER pub functions and Elm entry points are roots.
+            // Imported pub functions are NOT entry points — only kept if reachable.
             Definition::Function(f) => {
-                f.is_pub || matches!(f.name.as_str(), "init" | "update" | "subscriptions")
+                let is_user_def = i >= imported_count;
+                (is_user_def && f.is_pub)
+                    || matches!(f.name.as_str(), "init" | "update" | "subscriptions")
             }
         };
         if is_entry {

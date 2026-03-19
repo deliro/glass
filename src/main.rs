@@ -84,7 +84,7 @@ fn cmd_gen_bindings(jass_file: &str) {
 fn cmd_check(input: &str) {
     let source = read_file(input);
     let module = parse_source(input, &source);
-    let (module, imports) = resolve_imports(input, module);
+    let (module, imports, _imported_count) = resolve_imports(input, module);
     let error_count = run_checks(input, &source, &module, &imports);
     if error_count > 0 {
         eprintln!("{} error(s) found", error_count);
@@ -96,7 +96,7 @@ fn cmd_check(input: &str) {
 fn cmd_compile(input: &str, output: Option<&str>, no_check: bool) {
     let source = read_file(input);
     let module = parse_source(input, &source);
-    let (module, imports) = resolve_imports(input, module);
+    let (module, imports, imported_count) = resolve_imports(input, module);
 
     // Always run inference (needed for type_map in codegen)
     let mut inferencer = infer::Inferencer::new();
@@ -110,6 +110,7 @@ fn cmd_compile(input: &str, output: Option<&str>, no_check: bool) {
             &imports,
             &infer_result,
             &inferencer,
+            imported_count,
         );
         if error_count > 0 {
             std::process::exit(1);
@@ -147,6 +148,7 @@ fn run_checks_with_result(
     _imports: &[modules::ResolvedImport],
     infer_result: &infer::InferResult,
     inferencer: &infer::Inferencer,
+    imported_count: usize,
 ) -> usize {
     let named_src = miette::NamedSource::new(filename, source.to_string());
     let mut error_count = 0;
@@ -156,9 +158,9 @@ fn run_checks_with_result(
         error_count += 1;
     }
 
-    // Exhaustiveness
+    // Exhaustiveness — only check user definitions, not imported ones
     let exhaustiveness_warnings =
-        exhaustive::check_exhaustiveness(module, &inferencer.constructors);
+        exhaustive::check_exhaustiveness(module, &inferencer.constructors, imported_count);
     for w in &exhaustiveness_warnings {
         emit_warning(&w.message, w.span, "this case expression", &named_src);
     }
@@ -195,6 +197,7 @@ fn run_checks(
 ) -> usize {
     let mut inferencer = infer::Inferencer::new();
     let infer_result = inferencer.infer_module_with_imports(module, imports);
+    let imported_count: usize = imports.iter().map(|i| i.definitions.len()).sum();
     run_checks_with_result(
         filename,
         source,
@@ -202,6 +205,7 @@ fn run_checks(
         imports,
         &infer_result,
         &inferencer,
+        imported_count,
     )
 }
 
@@ -226,11 +230,11 @@ fn emit_warning(
 fn resolve_imports(
     input: &str,
     module: ast::Module,
-) -> (ast::Module, Vec<modules::ResolvedImport>) {
+) -> (ast::Module, Vec<modules::ResolvedImport>, usize) {
     let input_path = std::path::Path::new(input);
     let mut resolver = modules::ModuleResolver::new(input_path);
     match resolver.resolve_module(&module) {
-        Ok((resolved, imports)) => (resolved, imports),
+        Ok((resolved, imports, imported_count)) => (resolved, imports, imported_count),
         Err(errors) => {
             for e in &errors {
                 eprintln!("  × {}", e.message);

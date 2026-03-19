@@ -1,0 +1,36 @@
+// Glass SDK: jass/math — trigonometry and randomness
+//
+// Wraps JASS math natives. All angles are in radians unless noted.
+//
+// Usage:
+//   import jass/math
+//   let angle = math.atan2(dy, dx)
+//   let r = math.random_int(1, 100)
+
+@external("jass", "Sin")
+pub fn sin(radians: Float) -> Float
+
+@external("jass", "Cos")
+pub fn cos(radians: Float) -> Float
+
+@external("jass", "Atan2")
+pub fn atan2(y: Float, x: Float) -> Float
+
+@external("jass", "SquareRoot")
+pub fn sqrt(x: Float) -> Float
+
+@external("jass", "GetRandomInt")
+pub fn random_int(low: Int, high: Int) -> Int
+
+@external("jass", "GetRandomReal")
+pub fn random_real(low: Float, high: Float) -> Float
+
+// Degrees → radians.
+pub fn deg2rad(deg: Float) -> Float {
+    deg * 3.14159265 / 180.0
+}
+
+// Radians → degrees.
+pub fn rad2deg(rad: Float) -> Float {
+    rad * 180.0 / 3.14159265
+}

@@ -50,6 +50,8 @@ fn is_handle_type(name: &str) -> bool {
 enum VarState {
     Alive,
     Moved,
+    /// Handle was cloned (read-only use) — not a leak if unconsumed at end.
+    Borrowed,
 }
 
 #[derive(Debug)]
@@ -99,6 +101,7 @@ impl LinearityChecker {
         // Otherwise it's a leak → warning
         for (name, state) in &handles {
             if *state == VarState::Alive {
+                // Handle was never used at all — likely a bug.
                 self.warnings.push(LinearityError {
                     message: format!(
                         "handle '{}' is not consumed at end of function (will be auto-destroyed)",
@@ -107,6 +110,8 @@ impl LinearityChecker {
                     span: f.span,
                 });
             }
+            // VarState::Borrowed — handle was clone()-d for read-only use, OK.
+            // VarState::Moved — handle was consumed, OK.
         }
     }
 
@@ -175,16 +180,16 @@ impl LinearityChecker {
             }
 
             Expr::Clone(inner) => {
+                // clone(handle) is allowed — it creates an alias to the same
+                // JASS handle without consuming the original.  The underlying
+                // handle is reference-counted by the WC3 runtime, so this is
+                // safe.  Mark the original as Borrowed (read-only use — no
+                // leak warning at end of function).
                 if let Expr::Var(name) = &inner.node
-                    && handles.contains_key(name.as_str())
+                    && let Some(state) = handles.get_mut(name.as_str())
+                    && *state == VarState::Alive
                 {
-                    self.errors.push(LinearityError {
-                        message: format!(
-                            "cannot clone handle '{}' — handles are not cloneable",
-                            name
-                        ),
-                        span: expr.span,
-                    });
+                    *state = VarState::Borrowed;
                 }
                 self.check_expr(inner, handles);
             }
@@ -192,10 +197,23 @@ impl LinearityChecker {
             Expr::Case { subject, arms } => {
                 self.check_expr(subject, handles);
                 let snapshot = handles.clone();
+                // Track the "most moved" state across all arms
+                let mut merged = snapshot.clone();
                 for arm in arms {
                     *handles = snapshot.clone();
                     self.check_expr(&arm.body, handles);
+                    // Merge: pick the "most consumed" state per variable
+                    for (name, state) in handles.iter() {
+                        let merged_state = merged.get(name).cloned().unwrap_or(VarState::Alive);
+                        let new_state = match (&merged_state, state) {
+                            (VarState::Moved, _) | (_, VarState::Moved) => VarState::Moved,
+                            (VarState::Borrowed, _) | (_, VarState::Borrowed) => VarState::Borrowed,
+                            _ => VarState::Alive,
+                        };
+                        merged.insert(name.clone(), new_state);
+                    }
                 }
+                *handles = merged;
             }
 
             Expr::BinOp { left, right, .. } | Expr::Pipe { left, right } => {
@@ -229,6 +247,8 @@ impl LinearityChecker {
                         ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => e,
                     };
                     self.check_expr(e, handles);
+                    // Handle passed into constructor → moved (ownership transferred to ADT)
+                    self.try_move_handle(e, handles);
                 }
             }
 
@@ -513,10 +533,11 @@ fn test(t: Timer) {
     }
 
     #[test]
-    fn clone_handle_error() {
+    fn clone_handle_allowed() {
+        // clone(handle) is now allowed — it creates an alias without consuming
+        // the original. The WC3 runtime reference-counts handles.
         let errs = errors("fn test(t: Timer) { clone(t) }");
-        assert_eq!(errs.len(), 1);
-        assert!(errs[0].contains("cannot clone handle"));
+        assert_eq!(errs.len(), 0);
     }
 
     #[test]

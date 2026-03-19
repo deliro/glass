@@ -39,6 +39,10 @@ function glass_dispatch_void takes integer glass_closure returns integer
     return 0
 endfunction
 
+function glass_i2b takes integer i returns boolean
+    return i != 0
+endfunction
+
 function glass_nums takes nothing returns integer
     return glass_List_integer_cons(1, glass_List_integer_cons(2, glass_List_integer_cons(3, -1)))
 endfunction

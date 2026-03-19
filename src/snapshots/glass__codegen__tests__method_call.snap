@@ -6,6 +6,10 @@ function glass_dispatch_void takes integer glass_closure returns integer
     return 0
 endfunction
 
+function glass_i2b takes integer i returns boolean
+    return i != 0
+endfunction
+
 function glass_test takes unit h returns boolean
     set h = null
     return glass_is_alive()

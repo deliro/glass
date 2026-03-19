@@ -1,0 +1,208 @@
+// ============================================================
+// Axes of Rexxar — bouncing axe throw from DotA
+//
+// Active ability: throws an axe that bounces between enemies.
+// Each bounce deals decreasing damage. The number of bounces
+// and damage depend on the ability level.
+//
+// State is per-unit-instance: each hero has its own cooldown
+// tracker and ability level. Two Rexxars owned by the same
+// player have independent state.
+//
+// Demonstrates: struct/enum, per-instance state, recursive
+// bounce damage, pattern matching, Elm architecture, effects.
+// ============================================================
+
+import effect
+import int
+
+// === Types ===
+
+pub struct AxeState {
+    unit_id: Int,
+    level: Int,
+    cooldown_left: Int,
+}
+
+pub struct BounceResult {
+    total_damage: Int,
+    targets_hit: Int,
+}
+
+pub struct Model {
+    units: List(AxeState),
+}
+
+pub enum Msg {
+    RegisterAxe { unit_id: Int, level: Int }
+    CastAxe { caster_id: Int }
+    LevelUpAxe { unit_id: Int }
+}
+
+// === Ability constants by level ===
+
+fn base_damage(level: Int) -> Int {
+    case level {
+        1 -> 100
+        2 -> 175
+        3 -> 250
+        4 -> 325
+        _ -> 0
+    }
+}
+
+fn max_bounces(level: Int) -> Int {
+    case level {
+        1 -> 3
+        2 -> 5
+        3 -> 7
+        4 -> 9
+        _ -> 0
+    }
+}
+
+fn cooldown_ticks(level: Int) -> Int {
+    case level {
+        1 -> 12
+        2 -> 11
+        3 -> 10
+        4 -> 9
+        _ -> 15
+    }
+}
+
+fn bounce_decay_percent() -> Int { 80 }
+
+// === Association list helpers ===
+
+fn upsert_axe_state(
+    states: List(AxeState), new_state: AxeState,
+) -> List(AxeState) {
+    case states {
+        [] -> [new_state]
+        [head | tail] -> case head.unit_id == new_state.unit_id {
+            True -> [new_state | tail]
+            False -> [head | upsert_axe_state(tail, new_state)]
+        }
+    }
+}
+
+fn lookup_axe_state(
+    states: List(AxeState), unit_id: Int,
+) -> AxeState {
+    case states {
+        [] -> AxeState { unit_id, level: 0, cooldown_left: 0 }
+        [head | tail] -> case head.unit_id == unit_id {
+            True -> head
+            False -> lookup_axe_state(tail, unit_id)
+        }
+    }
+}
+
+// === Pure bounce computation ===
+
+fn compute_bounces(damage_now: Int, bounces_remaining: Int) -> BounceResult {
+    case bounces_remaining <= 0 {
+        True -> BounceResult { total_damage: 0, targets_hit: 0 }
+        False -> {
+            let next_damage = damage_now * bounce_decay_percent() / 100
+            let rest = compute_bounces(next_damage, bounces_remaining - 1)
+            BounceResult {
+                total_damage: damage_now + rest.total_damage,
+                targets_hit: 1 + rest.targets_hit,
+            }
+        }
+    }
+}
+
+// === Elm architecture ===
+
+fn handle_register_axe(
+    model: Model, unit_id: Int, level: Int,
+) -> #(Model, List(effect.Effect(Msg))) {
+    let state = AxeState { unit_id, level, cooldown_left: 0 }
+    #(Model { units: upsert_axe_state(model.units, state) }, [])
+}
+
+fn handle_cast_axe(
+    model: Model, caster_id: Int,
+) -> #(Model, List(effect.Effect(Msg))) {
+    let state = lookup_axe_state(model.units, caster_id)
+    case state.level == 0 {
+        True ->
+            #(model, [])
+        False ->
+            case state.cooldown_left <= 0 {
+                True -> {
+                    let bounces = compute_bounces(
+                        base_damage(state.level),
+                        max_bounces(state.level),
+                    )
+                    let new_state = AxeState {
+                        unit_id: caster_id,
+                        level: state.level,
+                        cooldown_left: cooldown_ticks(state.level),
+                    }
+                    #(Model { units: upsert_axe_state(model.units, new_state) }, [
+                        effect.display_text(
+                            0,
+                            "Axes fly! " <> int.to_string(bounces.targets_hit)
+                            <> " targets, " <> int.to_string(bounces.total_damage)
+                            <> " total damage",
+                            5.0,
+                        ),
+                    ])
+                }
+                False ->
+                    #(model, [
+                        effect.display_text(
+                            0,
+                            "Axes on cooldown: "
+                            <> int.to_string(state.cooldown_left)
+                            <> " ticks left",
+                            2.0,
+                        ),
+                    ])
+            }
+    }
+}
+
+fn handle_level_up_axe(
+    model: Model, unit_id: Int,
+) -> #(Model, List(effect.Effect(Msg))) {
+    let state = lookup_axe_state(model.units, unit_id)
+    case state.level == 0 {
+        True ->
+            #(model, [])
+        False -> {
+            let new_level = int.min(state.level + 1, 4)
+            let new_state = AxeState {
+                unit_id,
+                level: new_level,
+                cooldown_left: state.cooldown_left,
+            }
+            #(Model { units: upsert_axe_state(model.units, new_state) }, [
+                effect.display_text(
+                    0,
+                    "Axes leveled up to " <> int.to_string(new_level),
+                    3.0,
+                ),
+            ])
+        }
+    }
+}
+
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+    #(Model { units: [] }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+    case msg {
+        Msg::RegisterAxe { unit_id, level, .. } ->
+            handle_register_axe(model, unit_id, level)
+        Msg::CastAxe { caster_id, .. } ->
+            handle_cast_axe(model, caster_id)
+        Msg::LevelUpAxe { unit_id, .. } ->
+            handle_level_up_axe(model, unit_id)
+    }
+}

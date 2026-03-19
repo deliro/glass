@@ -59,6 +59,7 @@ Module {
                         },
                     },
                 ],
+                is_struct: false,
                 span: Span {
                     start: 4,
                     end: 41,

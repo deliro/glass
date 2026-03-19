@@ -11,8 +11,10 @@ pub enum Token {
     Let,
     #[token("case")]
     Case,
-    #[token("type")]
-    Type,
+    #[token("struct")]
+    Struct,
+    #[token("enum")]
+    Enum,
     #[token("pub")]
     Pub,
     #[token("import")]
@@ -41,6 +43,8 @@ pub enum Token {
     StringConcat,
     #[token("->")]
     Arrow,
+    #[token("::")]
+    ColonColon,
     #[token("..")]
     DotDot,
     #[token("==")]
@@ -190,7 +194,8 @@ mod tests {
     #[case("fn", Token::Fn)]
     #[case("let", Token::Let)]
     #[case("case", Token::Case)]
-    #[case("type", Token::Type)]
+    #[case("struct", Token::Struct)]
+    #[case("enum", Token::Enum)]
     #[case("pub", Token::Pub)]
     #[case("import", Token::Import)]
     #[case("local", Token::Local)]

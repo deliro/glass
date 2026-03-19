@@ -257,7 +257,7 @@ impl TypeRegistry {
     }
 
     fn collect_type(def: &TypeDef) -> TypeInfo {
-        let is_enum = def.constructors.len() > 1;
+        let is_enum = !def.is_struct && def.constructors.len() > 1;
         let variants: Vec<VariantInfo> = def
             .constructors
             .iter()

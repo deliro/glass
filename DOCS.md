@@ -16,13 +16,11 @@
 - Пользовательские типы — линейные, если не помечены
 
 ```rust
-type Player                    // Copy (обёртка над integer)
-type Unit                      // линейный, move-only
-type MyRecord { ... }          // линейный по умолчанию
+// Примитивы — Copy
+// Handle типы (Unit, Timer, Group) — линейные, move-only (но clone разрешён)
 
-// Явное клонирование:
-let a = Model(wave: 1)
-let b = clone(a)               // OK — явный clone
+let a = Model { wave: 1 }
+let b = clone(a)               // OK — clone создаёт алиас (WC3 ref-counted)
 let c = a                      // a moved в c, больше нельзя использовать a
 ```
 
@@ -131,17 +129,29 @@ combat_utils.power_level(hero)   // OK
 ```ebnf
 (* === Top level === *)
 module          = definition* ;
-definition      = type_def | fn_def | const_def | extend_def | external_def | import_def ;
+definition      = struct_def | enum_def | fn_def | const_def
+                | extend_def | external_def | import_def ;
 
-import_def      = "import" module_path [ "/" "{" import_item { "," import_item } "}" ] ;
+(* === Imports === *)
+import_def      = "import" module_path [ "{" import_items "}" ]     (* simple/selective *)
+                | "import" module_path "{" grouped_item { "," grouped_item } "}" ;  (* grouped *)
 module_path     = LOWER_IDENT { "/" LOWER_IDENT } ;
-import_item     = ( UPPER_IDENT | LOWER_IDENT ) [ "as" ( UPPER_IDENT | LOWER_IDENT ) ] ;
+import_items    = import_item { "," import_item } ;
+import_item     = ( UPPER_IDENT | LOWER_IDENT | "self" ) [ "as" IDENT ] ;
+grouped_item    = LOWER_IDENT [ "{" import_items "}" ] ;            (* sub-module with optional selective items *)
 
-(* === Type definitions === *)
-type_def        = [ "pub" ] "type" UPPER_IDENT [ type_params ] "{" constructor { constructor } "}" ;
+(* === Struct — single-variant, no tag === *)
+struct_def      = [ "pub" ] "struct" UPPER_IDENT [ type_params ] "{" named_field { "," named_field } "}" ;
+
+(* === Enum — multiple variants, with tag === *)
+enum_def        = [ "pub" ] "enum" UPPER_IDENT [ type_params ] "{" variant { variant } "}" ;
+variant         = UPPER_IDENT                                      (* nullary: Lobby *)
+                | UPPER_IDENT "(" positional_field { "," positional_field } ")"  (* tuple: Ok(T) *)
+                | UPPER_IDENT "{" named_field { "," named_field } "}" ;         (* record: Playing { wave: Int } *)
+
 type_params     = "(" UPPER_IDENT { "," UPPER_IDENT } ")" ;
-constructor     = UPPER_IDENT [ "(" field { "," field } ")" ] ;
-field           = LOWER_IDENT ":" type_expr ;
+named_field     = LOWER_IDENT ":" type_expr ;
+positional_field = type_expr ;
 
 (* === Functions === *)
 fn_def          = [ "pub" ] [ "local" ] "fn" LOWER_IDENT "(" [ params ] ")" [ "->" type_expr ] block ;
@@ -160,13 +170,7 @@ external_def    = "@external(" STRING "," STRING ")"
                   [ "pub" ] "fn" LOWER_IDENT "(" [ params ] ")" [ "->" type_expr ] ;
 
 (* === Expressions === *)
-expr            = let_expr
-                | case_expr
-                | if_expr
-                | pipe_expr
-                | lambda_expr
-                | block_expr ;
-
+expr            = let_expr | case_expr | if_expr | pipe_expr | lambda_expr | block_expr ;
 let_expr        = "let" pattern [ ":" type_expr ] "=" expr expr ;
 case_expr       = "case" expr "{" case_arm { case_arm } "}" ;
 case_arm        = pattern [ "if" expr ] "->" expr ;
@@ -186,34 +190,45 @@ call_expr       = field_expr [ "(" [ args ] ")" ] ;
 field_expr      = primary { "." LOWER_IDENT [ "(" [ args ] ")" ] } ;
 args            = expr { "," expr } ;
 
-primary         = LOWER_IDENT                         (* variable *)
-                | UPPER_IDENT [ "(" [ args ] ")" ]    (* constructor *)
-                | UPPER_IDENT "(" ".." expr { "," LOWER_IDENT ":" expr } ")"  (* record update *)
-                | INT_LITERAL
-                | FLOAT_LITERAL
-                | STRING_LITERAL
-                | RAWCODE_LITERAL                     (* 'hfoo' — JASS raw codes *)
+(* === Primary expressions === *)
+primary         = LOWER_IDENT                                      (* variable *)
+                | ctor_name "(" args ")"                           (* positional constructor: Option::Some(42) *)
+                | ctor_name "{" brace_fields "}"                   (* named constructor: Model { x, y: 1 } *)
+                | ctor_name "{" ".." expr { "," LOWER_IDENT ":" expr } "}"  (* record update *)
+                | ctor_name                                        (* nullary constructor: Phase::Lobby *)
+                | INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL
+                | RAWCODE_LITERAL                                  (* 'hfoo' — JASS raw codes *)
                 | "True" | "False"
-                | "#(" [ expr { "," expr } ] ")"      (* tuple *)
-                | "[" [ expr { "," expr } ] "]"       (* list *)
-                | "(" expr ")"                        (* grouping *)
-                | "clone" "(" expr ")"                (* explicit clone *)
-                | "todo" [ "(" STRING ")" ]           (* placeholder, crashes at runtime *) ;
+                | "#(" [ expr { "," expr } ] ")"                   (* tuple *)
+                | "[" [ expr { "," expr } ] "]"                    (* list *)
+                | "[" expr "|" expr "]"                            (* list cons: [head | tail] *)
+                | "(" expr ")"                                     (* grouping *)
+                | "clone" "(" expr ")"                             (* explicit clone *)
+                | "todo" [ "(" STRING ")" ]                        (* placeholder *) ;
+
+ctor_name       = UPPER_IDENT [ "::" UPPER_IDENT ] ;              (* Lobby or Phase::Lobby *)
+brace_fields    = brace_field { "," brace_field } ;
+brace_field     = LOWER_IDENT ":" expr                             (* named: x: 42 *)
+                | LOWER_IDENT ;                                    (* shorthand: x means x: x *)
 
 (* === Patterns === *)
-pattern         = "_"                                             (* discard *)
-                | LOWER_IDENT                                     (* variable binding *)
-                | INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL    (* literal *)
+pattern         = "_"                                              (* discard *)
+                | LOWER_IDENT                                      (* variable binding *)
+                | INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL     (* literal *)
                 | "True" | "False"
-                | UPPER_IDENT [ "(" pattern { "," pattern } ")" ] (* constructor *)
-                | "#(" pattern { "," pattern } ")"                (* tuple *)
-                | "[" [ pattern { "," pattern } [ "|" pattern ] ] "]"  (* list: [h | t] *)
-                | pattern "as" LOWER_IDENT ;                      (* alias *)
+                | ctor_name [ "(" pattern { "," pattern } ")" ]    (* positional: Option::Some(x) *)
+                | ctor_name "{" field_pat { "," field_pat } [ "," ".." ] "}"  (* named: Phase::Playing { wave, .. } *)
+                | "#(" pattern { "," pattern } ")"                 (* tuple *)
+                | "[" [ pattern { "," pattern } [ "|" pattern ] ] "]"  (* list *)
+                | pattern "|" pattern                              (* or pattern *)
+                | pattern "as" LOWER_IDENT ;                       (* alias *)
+
+field_pat       = LOWER_IDENT [ "as" LOWER_IDENT ] ;              (* field or field as binding *)
 
 (* === Type expressions === *)
-type_expr       = UPPER_IDENT [ "(" type_expr { "," type_expr } ")" ]  (* named/generic *)
-                | "fn" "(" [ type_expr { "," type_expr } ] ")" "->" type_expr  (* function *)
-                | "#(" type_expr { "," type_expr } ")"             (* tuple *) ;
+type_expr       = UPPER_IDENT [ "(" type_expr { "," type_expr } ")" ]
+                | "fn" "(" [ type_expr { "," type_expr } ] ")" "->" type_expr
+                | "#(" type_expr { "," type_expr } ")" ;
 
 (* === Tokens === *)
 LOWER_IDENT     = [a-z_][a-zA-Z0-9_]* ;
@@ -221,124 +236,97 @@ UPPER_IDENT     = [A-Z][a-zA-Z0-9_]* ;
 INT_LITERAL     = [0-9]+ | "0x" [0-9a-fA-F]+ ;
 FLOAT_LITERAL   = [0-9]+ "." [0-9]+ ;
 STRING_LITERAL  = '"' ( [^"\\] | '\\' . )* '"' ;
-RAWCODE_LITERAL = "'" [a-zA-Z0-9]{4} "'" ;           (* JASS four-char codes *)
+RAWCODE_LITERAL = "'" [a-zA-Z0-9]{4} "'" ;
 COMMENT         = "//" [^\n]* ;
 ```
 
 ### Ключевые синтаксические решения
 
-- **`'hfoo'` rawcode literals** — JASS использует четырёхсимвольные коды для ID юнитов/абилок. Поддержка на уровне синтаксиса
-- **`<>` для конкатенации строк** (как в Gleam)
-- **`clone(x)`** — явное клонирование, не метод и не оператор
-- **`todo("reason")`** — placeholder выражение для незаконченного кода (компилируется в crash)
-- **`case` с guard**: `pattern if condition -> expr`
-- **List patterns**: `[head | tail]` для деструктуризации списков
-- **Record update**: `Model(..old, wave: new_wave)` (как в Gleam)
-- **No semicolons** — expressions разделяются переводом строки в блоках
-- **`local fn`** — синтаксис, не декоратор
+- **`struct` vs `enum`** — struct: один вариант, без tag, без повторения имени. Enum: несколько вариантов, с tag.
+- **`Type::Variant`** — конструкторы enum квалифицированные (как в Rust). Не протекают в scope. `Phase::Lobby`, `Option::Some(x)`.
+- **`{}` для именованных полей, `()` для позиционных** — в конструкторах и паттернах единообразно.
+- **Shorthand** — `Model { name, age: 18 }` если переменная `name` в scope, не нужно `name: name`.
+- **Grouped imports** — `import jass { math { cos, sin, self }, unit, sfx }`.
+- **`'hfoo'` rawcode literals** — JASS четырёхсимвольные коды для ID юнитов/абилок.
+- **`<>` для конкатенации строк** (как в Gleam).
+- **`clone(x)`** — явное клонирование handle. `Borrowed` состояние: не даёт warning "not consumed".
+- **`case` с guard** — `pattern if condition -> expr`.
+- **List patterns** — `[head | tail]` для деструктуризации.
+- **Record update** — `Model { ..old, wave: new_wave }`.
+- **No semicolons** — expressions разделяются переводом строки.
+- **`local fn`** — desync-safe функции для GetLocalPlayer.
 
 ---
 
 ## Полный пример программы
 
-```rust
-import jass/player
-import jass/unit
-import jass/effect as fx
+```glass
+import effect
+import int
+import jass { math, unit, sfx }
 
-pub type Phase {
+pub enum Phase {
   Lobby
-  Playing(wave: Int)
-  Victory(winner: Player)
+  Playing { wave: Int, lives: Int, gold: Int }
+  GameOver { final_wave: Int }
 }
 
-pub type Model {
-  Model(
-    phase: Phase,
-    scores: List(#(Player, Int)),
-  )
+pub struct Model {
+  phase: Phase,
+  tick: Int,
 }
 
-pub type Msg {
-  StartGame(Player)
-  Tick
-  UnitDied(killer: Player, bounty: Int)
-  ChatCommand(player: Player, cmd: String)
+pub enum Msg {
+  StartGame
+  WaveTick
+  UnitDied { killer_id: Int, bounty: Int }
 }
 
-pub fn init() -> #(Model, List(Effect(Msg))) {
-  let model = Model(phase: Lobby, scores: [])
-  #(model, [])
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+  let model = Model { phase: Phase::Lobby, tick: 0 }
+  #(model, [
+    effect.display_text(0, "Waiting for players...", 5.0),
+    effect.after(5.0, fn() { Msg::StartGame }),
+  ])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
   case msg {
-    StartGame(_) -> {
-      let new_model = Model(..model, phase: Playing(wave: 1))
+    Msg::StartGame -> {
+      let new_model = Model {
+        phase: Phase::Playing { wave: 1, lives: 20, gold: 100 },
+        tick: 0,
+      }
       #(new_model, [
-        fx.display_all("Game started!"),
+        effect.display_text(0, "Wave 1 — Fight!", 5.0),
+        effect.after(2.0, fn() { Msg::WaveTick }),
       ])
     }
 
-    Tick -> {
+    Msg::WaveTick -> {
       case model.phase {
-        Playing(wave) -> {
-          let new_model = Model(..model, phase: Playing(wave: wave + 1))
-          #(new_model, [spawn_wave(wave)])
+        Phase::Playing { wave, lives, gold, .. } -> {
+          let new_model = Model {
+            phase: Phase::Playing { wave, lives, gold },
+            tick: model.tick + 1,
+          }
+          #(new_model, [
+            effect.display_text(0, "Tick " <> int.to_string(model.tick), 2.0),
+            effect.after(1.5, fn() { Msg::WaveTick }),
+          ])
         }
         _ -> #(model, [])
       }
     }
 
-    UnitDied(killer, bounty) -> {
-      let new_scores = model.scores
-        |> list.map(fn(entry) {
-          let #(p, score) = entry
-          if p == killer { #(p, score + bounty) } else { entry }
-        })
-      #(Model(..model, scores: new_scores), [])
+    Msg::UnitDied { bounty, .. } -> {
+      case model.phase {
+        Phase::Playing { wave, lives, gold, .. } ->
+          #(Model { phase: Phase::Playing { wave, lives, gold: gold + bounty }, tick: model.tick }, [])
+        _ -> #(model, [])
+      }
     }
-
-    _ -> #(model, [])
   }
-}
-
-pub fn subscriptions(model: Model) -> List(Sub(Msg)) {
-  case model.phase {
-    Lobby -> [
-      sub.on_chat("-start", fn(p) { StartGame(p) })
-        |> sub.key("start_cmd"),
-    ]
-    Playing(_) -> [
-      sub.every(30.0, fn() { Tick })
-        |> sub.key("wave_tick"),
-      sub.on_unit_death(fn(dying, killer) {
-        UnitDied(killer: killer, bounty: 25)
-      })
-        |> sub.key("unit_death"),
-    ]
-    Victory(_) -> []
-  }
-}
-
-local fn update_camera(model: Model) {
-  case model.phase {
-    Playing(_) -> {
-      let p = get_local_player()
-      pan_camera_to(0.0, 0.0, 0.5)
-    }
-    _ -> {}
-  }
-}
-
-fn spawn_wave(wave: Int) -> Effect(Msg) {
-  let count = wave * 3
-  list.range(1, count)
-    |> list.map(fn(i) {
-      let x = int.to_float(i) * 128.0
-      fx.create_unit(Player(11), 'hfoo', x, 0.0, 270.0, fn(_unit) { Tick })
-    })
-    |> effect.batch
 }
 ```
 

@@ -1,0 +1,21 @@
+// Glass SDK: jass/sfx — visual special effects
+//
+// Wraps JASS special effect natives.
+// `Sfx` is the Glass handle type for JASS `effect`.
+//
+// Fire-and-forget pattern: create + immediately destroy.
+// The model plays its death animation and then vanishes.
+//
+// Usage:
+//   import jass/sfx
+//   let fx = sfx.at_point("war3mapImported\\Dust.mdl", x, y)
+//   let _ = sfx.destroy(fx)
+
+@external("jass", "AddSpecialEffect")
+pub fn at_point(model_path: String, x: Float, y: Float) -> Sfx
+
+@external("jass", "AddSpecialEffectTarget")
+pub fn on_unit(model_path: String, target: Unit, attach_point: String) -> Sfx
+
+@external("jass", "DestroyEffect")
+pub fn destroy(fx: Sfx) -> Int

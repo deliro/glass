@@ -305,12 +305,12 @@ fn pair() -> #(Int, String) { #(1, "x") }
     fn generic_adt_option() {
         let names = mono_names(
             r#"
-pub type Option(T) {
+enum Option(T) {
     Some(T)
     None
 }
-fn test_int() -> Option(Int) { Some(42) }
-fn test_str() -> Option(String) { Some("x") }
+fn test_int() -> Option(Int) { Option::Some(42) }
+fn test_str() -> Option(String) { Option::Some("x") }
 "#,
         );
         assert!(names.contains(&"Option_integer".to_string()));
@@ -321,11 +321,11 @@ fn test_str() -> Option(String) { Some("x") }
     fn generic_adt_result() {
         let names = mono_names(
             r#"
-pub type Result(T, E) {
+enum Result(T, E) {
     Ok(T)
     Err(E)
 }
-fn test() -> Result(Int, String) { Ok(42) }
+fn test() -> Result(Int, String) { Result::Ok(42) }
 "#,
         );
         assert!(names.contains(&"Result_integer_string".to_string()));
@@ -336,18 +336,18 @@ fn test() -> Result(Int, String) { Ok(42) }
         // unwrap_or is generic (a), called with Int — should discover Option(Int)
         let names = mono_names(
             r#"
-pub type Option(T) {
+enum Option(T) {
     Some(T)
     None
 }
 fn unwrap_or(opt: Option(a), default: a) -> a {
     case opt {
-        Some(val) -> val
-        None -> default
+        Option::Some(val) -> val
+        Option::None -> default
     }
 }
 fn test() -> Int {
-    unwrap_or(Some(42), 0)
+    unwrap_or(Option::Some(42), 0)
 }
 "#,
         );
@@ -363,18 +363,18 @@ fn test() -> Int {
         // Same generic function called with different types
         let names = mono_names(
             r#"
-pub type Option(T) {
+enum Option(T) {
     Some(T)
     None
 }
 fn unwrap_or(opt: Option(a), default: a) -> a {
     case opt {
-        Some(val) -> val
-        None -> default
+        Option::Some(val) -> val
+        Option::None -> default
     }
 }
-fn test_int() -> Int { unwrap_or(Some(42), 0) }
-fn test_str() -> String { unwrap_or(Some("hi"), "default") }
+fn test_int() -> Int { unwrap_or(Option::Some(42), 0) }
+fn test_str() -> String { unwrap_or(Option::Some("hi"), "default") }
 "#,
         );
         assert!(

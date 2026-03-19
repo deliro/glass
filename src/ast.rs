@@ -56,6 +56,8 @@ pub struct TypeDef {
     pub name: String,
     pub type_params: Vec<String>,
     pub constructors: Vec<Constructor>,
+    /// True for `struct Name { ... }` — single variant, no tag needed.
+    pub is_struct: bool,
     pub span: Span,
 }
 

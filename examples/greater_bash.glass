@@ -1,0 +1,334 @@
+// ============================================================
+// Greater Bash — Barathrum (Spirit Breaker) from DotA
+//
+// Passive ability: each attack has a pseudo-random chance to
+// bash the target — stun + bonus damage + KNOCKBACK.
+//
+// On proc the target is pushed away from the attacker
+// (direction = attacker facing) with decaying velocity.
+// A dust trail effect spawns at each tick during knockback.
+//
+// Key design points:
+//   • Pseudo-Random Distribution (PRD) — chance grows with
+//     each miss, resets on proc. Eliminates lucky/unlucky streaks.
+//   • Per-unit state — multiple heroes share a model but each
+//     has independent PRD counters and knockback animations.
+//   • Tick-based knockback — each 0.03 s tick moves the target,
+//     reduces velocity, and schedules the next tick until speed
+//     drops below a threshold.
+//   • Dust trail — a new "ImpaleTargetDust" spawns at each
+//     tick position (fire-and-forget: destroy immediately, the
+//     model plays its death anim and vanishes).
+//
+// Demonstrates: per-instance mutable state, PRD, tick-driven
+// animation, SDK imports (jass/unit, jass/math, jass/sfx),
+// Elm architecture, brace constructor syntax with shorthand.
+// ============================================================
+
+import effect
+import int
+import jass/math
+import jass/unit
+import jass/sfx
+
+// === Constants ===
+
+fn tick_interval() -> Float { 0.03 }
+fn knockback_decay_pct() -> Int { 88 }
+fn knockback_min_velocity() -> Int { 30 }
+fn dust_model_path() -> String { "Objects\\Spawnmodels\\Undead\\ImpaleTargetDust\\ImpaleTargetDust.mdl" }
+
+// === Types ===
+
+pub struct BashState {
+    owner: Unit,
+    miss_streak: Int,
+    chance_pct_x100: Int,
+    bonus_damage: Int,
+    stun_duration_ms: Int,
+    knockback_speed: Int,
+}
+
+pub enum BashResult {
+    Bashed { damage: Int, stun_ms: Int, speed: Int }
+    NoBash
+}
+
+pub struct Knockback {
+    target: Unit,
+    position_x: Float,
+    position_y: Float,
+    direction_x: Float,
+    direction_y: Float,
+    velocity: Int,
+}
+
+pub struct RollOutcome {
+    new_state: BashState,
+    result: BashResult,
+}
+
+pub struct AttackWalkResult {
+    updated_units: List(BashState),
+    result: BashResult,
+}
+
+pub struct Model {
+    bash_units: List(BashState),
+    active_knockbacks: List(Knockback),
+}
+
+pub enum Msg {
+    RegisterBash { hero: Unit, chance: Int, damage: Int, stun: Int, speed: Int }
+    OnAttackHit { attacker: Unit, target: Unit, roll: Int }
+    KnockbackTick
+}
+
+// === Association list ===
+
+fn upsert_bash_state(
+    states: List(BashState), new_state: BashState,
+) -> List(BashState) {
+    case states {
+        [] -> [new_state]
+        [head | tail] -> case head.owner == new_state.owner {
+            True -> [new_state | tail]
+            False -> [head | upsert_bash_state(tail, new_state)]
+        }
+    }
+}
+
+// === PRD core ===
+
+fn effective_chance(state: BashState) -> Int {
+    let raw = (state.miss_streak + 1) * state.chance_pct_x100 / 100
+    int.min(raw, 100)
+}
+
+fn roll_prd(state: BashState, roll: Int) -> RollOutcome {
+    let chance = effective_chance(state)
+    case roll <= chance {
+        True ->
+            RollOutcome {
+                new_state: BashState {
+                    owner: state.owner, miss_streak: 0,
+                    chance_pct_x100: state.chance_pct_x100,
+                    bonus_damage: state.bonus_damage,
+                    stun_duration_ms: state.stun_duration_ms,
+                    knockback_speed: state.knockback_speed,
+                },
+                result: BashResult::Bashed {
+                    damage: state.bonus_damage,
+                    stun_ms: state.stun_duration_ms,
+                    speed: state.knockback_speed,
+                },
+            }
+        False ->
+            RollOutcome {
+                new_state: BashState {
+                    owner: state.owner, miss_streak: state.miss_streak + 1,
+                    chance_pct_x100: state.chance_pct_x100,
+                    bonus_damage: state.bonus_damage,
+                    stun_duration_ms: state.stun_duration_ms,
+                    knockback_speed: state.knockback_speed,
+                },
+                result: BashResult::NoBash,
+            }
+    }
+}
+
+fn find_attacker_and_roll(
+    states: List(BashState), attacker: Unit, roll: Int,
+) -> AttackWalkResult {
+    case states {
+        [] -> AttackWalkResult { updated_units: [], result: BashResult::NoBash }
+        [head | tail] -> case head.owner == attacker {
+            True -> {
+                let outcome = roll_prd(head, roll)
+                AttackWalkResult {
+                    updated_units: [outcome.new_state | tail],
+                    result: outcome.result,
+                }
+            }
+            False -> {
+                let rest = find_attacker_and_roll(tail, attacker, roll)
+                AttackWalkResult {
+                    updated_units: [head | rest.updated_units],
+                    result: rest.result,
+                }
+            }
+        }
+    }
+}
+
+// === Knockback physics ===
+
+fn spawn_dust(x: Float, y: Float) -> Int {
+    let dust = sfx.at_point(dust_model_path(), x, y)
+    let _ = sfx.destroy(dust)
+    0
+}
+
+fn begin_knockback(
+    attacker: Unit, target: Unit, speed: Int,
+) -> Knockback {
+    let facing_degrees = unit.get_facing(clone(attacker))
+    let facing_radians = math.deg2rad(facing_degrees)
+    let direction_x = math.cos(facing_radians)
+    let direction_y = math.sin(facing_radians)
+    let position_x = unit.get_x(clone(target))
+    let position_y = unit.get_y(clone(target))
+    let _ = spawn_dust(position_x, position_y)
+    // Shorthand: target, position_x, etc. are in scope
+    Knockback { target, position_x, position_y, direction_x, direction_y, velocity: speed }
+}
+
+fn advance_one_knockback(knockback: Knockback) -> Knockback {
+    let new_velocity = knockback.velocity * knockback_decay_pct() / 100
+    case new_velocity < knockback_min_velocity() {
+        True ->
+            Knockback {
+                target: knockback.target,
+                position_x: knockback.position_x,
+                position_y: knockback.position_y,
+                direction_x: knockback.direction_x,
+                direction_y: knockback.direction_y,
+                velocity: 0,
+            }
+        False -> {
+            let step = int.to_float(new_velocity) / 100.0
+            let new_x = knockback.position_x + knockback.direction_x * step
+            let new_y = knockback.position_y + knockback.direction_y * step
+            let _ = unit.set_x(clone(knockback.target), new_x)
+            let _ = unit.set_y(clone(knockback.target), new_y)
+            let _ = spawn_dust(new_x, new_y)
+            Knockback {
+                target: knockback.target,
+                position_x: new_x,
+                position_y: new_y,
+                direction_x: knockback.direction_x,
+                direction_y: knockback.direction_y,
+                velocity: new_velocity,
+            }
+        }
+    }
+}
+
+fn advance_all_knockbacks(
+    knockbacks: List(Knockback),
+) -> List(Knockback) {
+    case knockbacks {
+        [] -> []
+        [head | tail] -> {
+            let updated = advance_one_knockback(head)
+            case updated.velocity <= 0 {
+                True -> advance_all_knockbacks(tail)
+                False -> [updated | advance_all_knockbacks(tail)]
+            }
+        }
+    }
+}
+
+fn has_active_knockbacks(knockbacks: List(Knockback)) -> Bool {
+    case knockbacks {
+        [] -> False
+        _ -> True
+    }
+}
+
+// === Effect builders ===
+
+fn bash_display_effects(result: BashResult) -> List(effect.Effect(Msg)) {
+    case result {
+        BashResult::Bashed { damage, stun_ms, .. } -> [
+            effect.display_text(
+                0,
+                "BASH! +" <> int.to_string(damage)
+                <> " damage, stun " <> int.to_string(stun_ms) <> "ms",
+                3.0,
+            ),
+        ]
+        BashResult::NoBash -> []
+    }
+}
+
+fn schedule_knockback_tick(
+    knockbacks: List(Knockback),
+) -> List(effect.Effect(Msg)) {
+    case has_active_knockbacks(knockbacks) {
+        True -> [effect.after(tick_interval(), fn() { Msg::KnockbackTick })]
+        False -> []
+    }
+}
+
+fn lookup_knockback_speed(states: List(BashState), attacker: Unit) -> Int {
+    case states {
+        [] -> 500
+        [head | tail] -> case head.owner == attacker {
+            True -> head.knockback_speed
+            False -> lookup_knockback_speed(tail, attacker)
+        }
+    }
+}
+
+fn maybe_start_knockback(
+    result: BashResult,
+    attacker: Unit,
+    target: Unit,
+    bash_units: List(BashState),
+    knockbacks: List(Knockback),
+) -> List(Knockback) {
+    case result {
+        BashResult::Bashed { .. } -> {
+            let speed = lookup_knockback_speed(bash_units, attacker)
+            [begin_knockback(attacker, target, speed) | knockbacks]
+        }
+        BashResult::NoBash -> knockbacks
+    }
+}
+
+// === Elm architecture ===
+
+fn handle_register(
+    model: Model, hero: Unit, chance: Int, damage: Int, stun: Int, speed: Int,
+) -> #(Model, List(effect.Effect(Msg))) {
+    let state = BashState {
+        owner: hero, miss_streak: 0, chance_pct_x100: chance,
+        bonus_damage: damage, stun_duration_ms: stun, knockback_speed: speed,
+    }
+    let updated_units = upsert_bash_state(model.bash_units, state)
+    #(Model { bash_units: updated_units, active_knockbacks: model.active_knockbacks }, [])
+}
+
+fn handle_attack(
+    model: Model, attacker: Unit, target: Unit, roll: Int,
+) -> #(Model, List(effect.Effect(Msg))) {
+    let walk = find_attacker_and_roll(model.bash_units, clone(attacker), roll)
+    let display = bash_display_effects(walk.result)
+    let new_knockbacks = maybe_start_knockback(
+        walk.result, attacker, target, walk.updated_units, model.active_knockbacks,
+    )
+    let tick_schedule = schedule_knockback_tick(new_knockbacks)
+    #(Model { bash_units: walk.updated_units, active_knockbacks: new_knockbacks }, display)
+}
+
+fn handle_knockback_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+    let new_knockbacks = advance_all_knockbacks(model.active_knockbacks)
+    let tick_schedule = schedule_knockback_tick(new_knockbacks)
+    #(Model { bash_units: model.bash_units, active_knockbacks: new_knockbacks }, tick_schedule)
+}
+
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+    #(Model { bash_units: [], active_knockbacks: [] }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+    case msg {
+        Msg::RegisterBash { hero, chance, damage, stun, speed, .. } ->
+            handle_register(model, hero, chance, damage, stun, speed)
+        Msg::OnAttackHit { attacker, target, roll, .. } ->
+            handle_attack(model, attacker, target, roll)
+        Msg::KnockbackTick ->
+            handle_knockback_tick(model)
+    }
+}
