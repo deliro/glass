@@ -1,0 +1,27 @@
+// Glass SDK: wc3/sound — sound natives
+//
+// Usage:
+//   import wc3/sound
+//   let s = sound.create("war3mapImported\\ding.wav", False)
+//   let _ = sound.start(s)
+
+@external("jass", "CreateSound")
+pub fn create(filename: String, looping: Bool, is_3d: Bool, stop_on_exit: Bool, fade_in: Int, fade_out: Int, eax_setting: String) -> Sound
+
+@external("jass", "StartSound")
+pub fn start(s: Sound) -> Int
+
+@external("jass", "StopSound")
+pub fn stop(s: Sound, kill_when_done: Bool, fade_out: Bool) -> Int
+
+@external("jass", "KillSoundWhenDone")
+pub fn kill_when_done(s: Sound) -> Int
+
+@external("jass", "SetSoundVolume")
+pub fn set_volume(s: Sound, volume: Int) -> Int
+
+@external("jass", "SetSoundPosition")
+pub fn set_position(s: Sound, x: Float, y: Float, z: Float) -> Int
+
+@external("jass", "GetHandleId")
+pub fn handle_id(s: Sound) -> Int

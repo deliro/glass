@@ -33,6 +33,9 @@ pub struct ModuleResolver {
     resolving: HashSet<PathBuf>,
 }
 
+/// Maps def index in merged module → source module name (for qualified access).
+pub type DefModuleMap = HashMap<usize, String>;
+
 #[derive(Debug)]
 pub struct ModuleError {
     pub message: String,
@@ -73,7 +76,7 @@ impl ModuleResolver {
     pub fn resolve_module(
         &mut self,
         module: &Module,
-    ) -> Result<(Module, Vec<ResolvedImport>, usize), Vec<ModuleError>> {
+    ) -> Result<(Module, Vec<ResolvedImport>, usize, DefModuleMap), Vec<ModuleError>> {
         let mut errors = Vec::new();
         let mut resolved_imports = Vec::new();
         let mut all_imported_defs: Vec<Definition> = Vec::new();
@@ -92,6 +95,9 @@ impl ModuleResolver {
             })
             .collect();
 
+        // Track which module each imported def comes from (by index in all_defs)
+        let mut def_module_map: HashMap<usize, String> = HashMap::new();
+
         for imp in &imports {
             match self.resolve_single_import(imp) {
                 Ok(resolved) => {
@@ -104,6 +110,9 @@ impl ModuleResolver {
                             None => format!("{}.__anon_{}", module_name, all_imported_defs.len()),
                         };
                         if seen_defs.insert(dedup_key) {
+                            if resolved.qualified {
+                                def_module_map.insert(all_imported_defs.len(), module_name.clone());
+                            }
                             all_imported_defs.push(def.clone());
                         }
                     }
@@ -132,6 +141,7 @@ impl ModuleResolver {
             },
             resolved_imports,
             imported_count,
+            def_module_map,
         ))
     }
 
@@ -228,7 +238,7 @@ impl ModuleResolver {
         })?;
 
         // Recursively resolve imports in the imported module
-        let (resolved_module, _sub_imports, _) =
+        let (resolved_module, _sub_imports, _, _) =
             self.resolve_module(&parsed).map_err(|errs| ModuleError {
                 message: format!(
                     "errors in '{}': {}",
@@ -285,7 +295,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
-        let (resolved, imports, _) = resolver.resolve_module(&module).unwrap();
+        let (resolved, imports, _, _) = resolver.resolve_module(&module).unwrap();
         // Should contain Option type from sdk/option.glass
         let type_names: Vec<&str> = resolved
             .definitions
@@ -316,7 +326,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
-        let (_resolved, imports, _) = resolver.resolve_module(&module).unwrap();
+        let (_resolved, imports, _, _) = resolver.resolve_module(&module).unwrap();
         assert_eq!(imports.len(), 1);
         assert!(!imports[0].qualified); // no `self`
         assert!(imports[0].unqualified.contains("Option"));
@@ -333,7 +343,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
-        let (_resolved, imports, _) = resolver.resolve_module(&module).unwrap();
+        let (_resolved, imports, _, _) = resolver.resolve_module(&module).unwrap();
         assert_eq!(imports.len(), 1);
         assert!(imports[0].qualified); // self → qualified access
         assert!(imports[0].unqualified.contains("Option"));

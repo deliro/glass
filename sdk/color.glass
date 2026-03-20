@@ -1,0 +1,41 @@
+// Glass standard library: WC3 color codes
+// WC3 uses |cAARRGGBB format for colored text in strings.
+
+import int
+
+fn hex_digit(n: Int) -> String {
+    case n {
+        0 -> "0"  1 -> "1"  2 -> "2"  3 -> "3"
+        4 -> "4"  5 -> "5"  6 -> "6"  7 -> "7"
+        8 -> "8"  9 -> "9"  10 -> "a"  11 -> "b"
+        12 -> "c"  13 -> "d"  14 -> "e"  15 -> "f"
+        _ -> "0"
+    }
+}
+
+fn to_hex_byte(n: Int) -> String {
+    let clamped = int.clamp(n, 0, 255)
+    hex_digit(clamped / 16) <> hex_digit(clamped % 16)
+}
+
+pub fn rgb(r: Int, g: Int, b: Int) -> String {
+    "|cff" <> to_hex_byte(r) <> to_hex_byte(g) <> to_hex_byte(b)
+}
+
+pub fn rgba(r: Int, g: Int, b: Int, a: Int) -> String {
+    "|c" <> to_hex_byte(a) <> to_hex_byte(r) <> to_hex_byte(g) <> to_hex_byte(b)
+}
+
+pub fn end() -> String { "|r" }
+
+pub fn wrap(text: String, r: Int, g: Int, b: Int) -> String {
+    rgb(r, g, b) <> text <> end()
+}
+
+pub fn red(text: String) -> String { wrap(text, 255, 0, 0) }
+pub fn green(text: String) -> String { wrap(text, 0, 255, 0) }
+pub fn blue(text: String) -> String { wrap(text, 0, 128, 255) }
+pub fn yellow(text: String) -> String { wrap(text, 255, 255, 0) }
+pub fn gold(text: String) -> String { wrap(text, 255, 204, 0) }
+pub fn white(text: String) -> String { wrap(text, 255, 255, 255) }
+pub fn gray(text: String) -> String { wrap(text, 128, 128, 128) }

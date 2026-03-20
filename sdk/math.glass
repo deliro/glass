@@ -1,0 +1,67 @@
+// Glass standard library: Math utilities for game development
+// Higher-level math functions built on raw trig externals.
+
+@external("jass", "Sin")
+fn native_sin(radians: Float) -> Float
+
+@external("jass", "Cos")
+fn native_cos(radians: Float) -> Float
+
+@external("jass", "Atan2")
+fn native_atan2(y: Float, x: Float) -> Float
+
+@external("jass", "SquareRoot")
+fn native_sqrt(x: Float) -> Float
+
+pub fn pi() -> Float { 3.14159265 }
+
+pub fn distance(x1: Float, y1: Float, x2: Float, y2: Float) -> Float {
+    let dx = x2 - x1
+    let dy = y2 - y1
+    native_sqrt(dx * dx + dy * dy)
+}
+
+pub fn angle_between(x1: Float, y1: Float, x2: Float, y2: Float) -> Float {
+    native_atan2(y2 - y1, x2 - x1)
+}
+
+pub fn move_point_x(x: Float, angle: Float, dist: Float) -> Float {
+    x + native_cos(angle) * dist
+}
+
+pub fn move_point_y(y: Float, angle: Float, dist: Float) -> Float {
+    y + native_sin(angle) * dist
+}
+
+pub fn lerp(a: Float, b: Float, t: Float) -> Float {
+    a + (b - a) * t
+}
+
+pub fn normalize_angle(angle: Float) -> Float {
+    let two_pi = 6.2831853
+    case angle < 0.0 {
+        True -> normalize_angle(angle + two_pi)
+        False -> case angle >= two_pi {
+            True -> normalize_angle(angle - two_pi)
+            False -> angle
+        }
+    }
+}
+
+pub fn clamp_angle(angle: Float, min_a: Float, max_a: Float) -> Float {
+    case angle < min_a {
+        True -> min_a
+        False -> case angle > max_a {
+            True -> max_a
+            False -> angle
+        }
+    }
+}
+
+pub fn deg2rad(deg: Float) -> Float {
+    deg * 3.14159265 / 180.0
+}
+
+pub fn rad2deg(rad: Float) -> Float {
+    rad * 180.0 / 3.14159265
+}

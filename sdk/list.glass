@@ -123,3 +123,73 @@ pub fn range(from: Int, to: Int) -> List(Int) {
 pub fn each(xs: List(a), f: fn(a) -> b) -> List(b) {
     map(xs, f)
 }
+
+pub fn take(xs: List(a), n: Int) -> List(a) {
+    case n <= 0 {
+        True -> []
+        False -> case xs {
+            [] -> []
+            [h | t] -> [h | take(t, n - 1)]
+        }
+    }
+}
+
+pub fn drop(xs: List(a), n: Int) -> List(a) {
+    case n <= 0 {
+        True -> xs
+        False -> case xs {
+            [] -> []
+            [_ | t] -> drop(t, n - 1)
+        }
+    }
+}
+
+pub fn enumerate(xs: List(a)) -> List(#(Int, a)) {
+    enumerate_helper(xs, 0)
+}
+
+fn enumerate_helper(xs: List(a), idx: Int) -> List(#(Int, a)) {
+    case xs {
+        [] -> []
+        [h | t] -> [#(idx, h) | enumerate_helper(t, idx + 1)]
+    }
+}
+
+pub fn concat(xss: List(List(a))) -> List(a) {
+    case xss {
+        [] -> []
+        [h | t] -> append(h, concat(t))
+    }
+}
+
+pub fn intersperse(xs: List(a), sep: a) -> List(a) {
+    case xs {
+        [] -> []
+        [h | t] -> case t {
+            [] -> [h]
+            _ -> [h | [sep | intersperse(t, sep)]]
+        }
+    }
+}
+
+pub fn sum(xs: List(Int)) -> Int {
+    fold(xs, 0, fn(acc: Int, x: Int) -> Int { acc + x })
+}
+
+pub fn product(xs: List(Int)) -> Int {
+    fold(xs, 1, fn(acc: Int, x: Int) -> Int { acc * x })
+}
+
+pub fn partition(xs: List(a), f: fn(a) -> Bool) -> #(List(a), List(a)) {
+    partition_helper(xs, f, [], [])
+}
+
+fn partition_helper(xs: List(a), f: fn(a) -> Bool, yes: List(a), no: List(a)) -> #(List(a), List(a)) {
+    case xs {
+        [] -> #(reverse(yes), reverse(no))
+        [h | t] -> case f(h) {
+            True -> partition_helper(t, f, [h | yes], no)
+            False -> partition_helper(t, f, yes, [h | no])
+        }
+    }
+}

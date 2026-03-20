@@ -1,0 +1,17 @@
+// Creep wave spawning system.
+
+import int
+import map/setup
+
+pub const SPAWN_INTERVAL: Float = 30.0
+
+pub fn creeps_per_wave(wave: Int) -> Int {
+    4 + wave * 2
+}
+
+pub fn creep_type(wave: Int) -> Int {
+    case int.is_even(wave) {
+        True -> setup.FOOTMAN_ID
+        False -> setup.GRUNT_ID
+    }
+}

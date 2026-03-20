@@ -1,0 +1,35 @@
+// Glass SDK: wc3/timer — timer natives
+//
+// Note: In Elm architecture, prefer Effect::After over raw timers.
+// Raw timers are useful for advanced patterns outside TEA.
+//
+// Usage:
+//   import wc3/timer
+//   let t = timer.create()
+
+@external("jass", "CreateTimer")
+pub fn create() -> Timer
+
+@external("jass", "DestroyTimer")
+pub fn destroy(t: Timer) -> Int
+
+@external("jass", "PauseTimer")
+pub fn pause(t: Timer) -> Int
+
+@external("jass", "ResumeTimer")
+pub fn resume(t: Timer) -> Int
+
+@external("jass", "GetExpiredTimer")
+pub fn get_expired() -> Timer
+
+@external("jass", "TimerGetRemaining")
+pub fn get_remaining(t: Timer) -> Float
+
+@external("jass", "TimerGetElapsed")
+pub fn get_elapsed(t: Timer) -> Float
+
+@external("jass", "TimerGetTimeout")
+pub fn get_timeout(t: Timer) -> Float
+
+@external("jass", "GetHandleId")
+pub fn handle_id(t: Timer) -> Int

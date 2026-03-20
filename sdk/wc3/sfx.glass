@@ -7,7 +7,7 @@
 // The model plays its death animation and then vanishes.
 //
 // Usage:
-//   import jass/sfx
+//   import wc3/sfx
 //   let fx = sfx.at_point("war3mapImported\\Dust.mdl", x, y)
 //   let _ = sfx.destroy(fx)
 

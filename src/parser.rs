@@ -281,8 +281,8 @@ impl Parser {
             let end = self.expect(&Token::RBrace)?;
             let span = start.merge(end);
             // Auto-detect: single constructor with same name = struct-like
-            let auto_struct = constructors.len() == 1
-                && constructors.first().is_some_and(|c| c.name == name);
+            let auto_struct =
+                constructors.len() == 1 && constructors.first().is_some_and(|c| c.name == name);
             Ok(Definition::Type(TypeDef {
                 is_pub,
                 name,
@@ -1387,10 +1387,28 @@ impl Parser {
                 let (_, span) = self.advance();
                 Ok(Spanned::new(Pattern::Discard, span))
             }
-            // Variable
+            // Variable or qualified constant (module.CONST_NAME)
             Some(Token::LowerIdent(name)) => {
-                let (_, span) = self.advance();
-                Ok(Spanned::new(Pattern::Var(name), span))
+                let (_, start) = self.advance();
+                // Check for qualified constant: module.CONST_NAME
+                let is_qualified_const = self.at(&Token::Dot)
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|(t, _)| t.clone()),
+                        Some(Token::UpperIdent(_))
+                    );
+                if is_qualified_const {
+                    self.advance(); // consume .
+                    let (const_name, end) = self.expect_upper_ident()?;
+                    let qualified = format!("{}.{}", name, const_name);
+                    return Ok(Spanned::new(
+                        Pattern::Constructor {
+                            name: qualified,
+                            args: Vec::new(),
+                        },
+                        start.merge(end),
+                    ));
+                }
+                Ok(Spanned::new(Pattern::Var(name), start))
             }
             // Constructor: positional () or named {}
             Some(Token::UpperIdent(type_or_ctor)) => {
@@ -1469,10 +1487,19 @@ impl Parser {
                 let (_, span) = self.advance();
                 Ok(Spanned::new(Pattern::Int(n), span))
             }
-            // Float literal
-            Some(Token::FloatLiteral(n)) => {
+            // Rawcode literal
+            Some(Token::RawcodeLiteral(s)) => {
                 let (_, span) = self.advance();
-                Ok(Spanned::new(Pattern::Float(n), span))
+                Ok(Spanned::new(Pattern::Rawcode(s), span))
+            }
+            // Float literal — disallowed in patterns (floating point equality is unreliable)
+            Some(Token::FloatLiteral(_)) => {
+                let span = self.peek_span();
+                Err(ParseError::new(
+                    "cannot match on Float literals (floating point equality is unreliable)"
+                        .to_string(),
+                    span,
+                ))
             }
             // String literal
             Some(Token::StringLiteral(s)) => {

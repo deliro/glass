@@ -270,9 +270,9 @@ pub enum Pattern {
     Var(String),
     Discard,
     Int(i64),
-    Float(f64),
     String(String),
     Bool(bool),
+    Rawcode(String),
     /// Positional constructor: Quit(player)
     Constructor {
         name: String,

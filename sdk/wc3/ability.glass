@@ -1,0 +1,26 @@
+// Glass SDK: wc3/ability — ability management natives
+//
+// Usage:
+//   import wc3/ability
+//   let _ = ability.add(my_unit, 'AHhb')
+
+@external("jass", "UnitAddAbility")
+pub fn add(u: Unit, ability_id: Int) -> Bool
+
+@external("jass", "UnitRemoveAbility")
+pub fn remove(u: Unit, ability_id: Int) -> Bool
+
+@external("jass", "GetUnitAbilityLevel")
+pub fn get_level(u: Unit, ability_id: Int) -> Int
+
+@external("jass", "SetUnitAbilityLevel")
+pub fn set_level(u: Unit, ability_id: Int, level: Int) -> Int
+
+@external("jass", "IncUnitAbilityLevel")
+pub fn inc_level(u: Unit, ability_id: Int) -> Int
+
+@external("jass", "UnitMakeAbilityPermanent")
+pub fn make_permanent(u: Unit, permanent: Bool, ability_id: Int) -> Bool
+
+@external("jass", "GetSpellAbilityId")
+pub fn get_spell_id() -> Int

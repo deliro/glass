@@ -19,6 +19,7 @@ pub struct LuaCodegen {
     mono_param_types: HashMap<String, Type>,
     mono_generated: HashSet<String>,
     fn_defs: HashMap<String, FnDef>,
+    const_values: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -47,6 +48,7 @@ impl LuaCodegen {
             mono_param_types: HashMap::new(),
             mono_generated: HashSet::new(),
             fn_defs: HashMap::new(),
+            const_values: HashMap::new(),
         }
     }
 
@@ -62,6 +64,10 @@ impl LuaCodegen {
         // Phase 0: Collect external bindings and identify mono-needed functions
         for def in &module.definitions {
             match def {
+                Definition::Const(c) => {
+                    let value = self.gen_expr(&c.value.node);
+                    self.const_values.insert(c.name.clone(), value);
+                }
                 Definition::External(e) => {
                     let info = ExternalInfo {
                         lua_name: e.name_in_module.clone(),
@@ -121,8 +127,7 @@ impl LuaCodegen {
         }
 
         // Phase 3: Emit Elm runtime if applicable
-        let elm_entry =
-            crate::runtime::ElmEntryPoints::detect(module, &self.types);
+        let elm_entry = crate::runtime::ElmEntryPoints::detect(module, &self.types);
         if let Some(entry) = elm_entry {
             crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut self.output);
         }
@@ -187,11 +192,7 @@ impl LuaCodegen {
             })
             .collect();
 
-        self.emit(&format!(
-            "function glass_{}({})",
-            f.name,
-            params.join(", ")
-        ));
+        self.emit(&format!("function glass_{}({})", f.name, params.join(", ")));
         self.indent += 1;
         let result = self.gen_expr(&f.body.node);
         if f.return_type.is_some() {
@@ -201,9 +202,8 @@ impl LuaCodegen {
         self.emit("end");
     }
 
-    fn gen_const_def(&mut self, c: &ConstDef) {
-        let value = self.gen_expr(&c.value.node);
-        self.emit(&format!("glass_{} = {}", c.name, value));
+    fn gen_const_def(&mut self, _c: &ConstDef) {
+        // Constants are fully inlined at use sites — no codegen needed.
     }
 
     // === Expressions ===
@@ -222,7 +222,12 @@ impl LuaCodegen {
                     "false".to_string()
                 }
             }
-            Expr::Var(name) => name.clone(),
+            Expr::Var(name) => {
+                if let Some(value) = self.const_values.get(name.as_str()) {
+                    return value.clone();
+                }
+                name.clone()
+            }
 
             Expr::BinOp { op, left, right } => {
                 if let Some(result) = const_fold_binop(op, &left.node, &right.node) {
@@ -270,12 +275,7 @@ impl LuaCodegen {
                         args.iter().map(|a| self.gen_expr(&a.node)).collect();
                     if ext.module == "glass" {
                         let call_span = Some(function.span);
-                        return self.gen_intrinsic_call(
-                            &ext.lua_name,
-                            args,
-                            &args_str,
-                            call_span,
-                        );
+                        return self.gen_intrinsic_call(&ext.lua_name, args, &args_str, call_span);
                     }
                     return format!("{}({})", ext.lua_name, args_str.join(", "));
                 }
@@ -301,9 +301,7 @@ impl LuaCodegen {
                         if self.mono_needed.contains(name.as_str()) {
                             let concrete_types: Vec<Type> = args
                                 .iter()
-                                .map(|a| {
-                                    self.lookup_full_type(a.span).unwrap_or(Type::int())
-                                })
+                                .map(|a| self.lookup_full_type(a.span).unwrap_or(Type::int()))
                                 .collect();
                             let mangled = Self::mangle_types(&concrete_types);
                             let mono_name = format!("glass_{}_{}", name, mangled);
@@ -320,12 +318,14 @@ impl LuaCodegen {
                     }
                     _ => self.gen_expr(&function.node),
                 };
-                let args_str: Vec<String> =
-                    args.iter().map(|a| self.gen_expr(&a.node)).collect();
+                let args_str: Vec<String> = args.iter().map(|a| self.gen_expr(&a.node)).collect();
                 format!("{}({})", func_name, args_str.join(", "))
             }
 
             Expr::FieldAccess { object, field } => {
+                if let Some(value) = self.const_values.get(field.as_str()) {
+                    return value.clone();
+                }
                 let obj = self.gen_expr(&object.node);
                 format!("{}.{}", obj, field)
             }
@@ -361,9 +361,7 @@ impl LuaCodegen {
                     if self.mono_needed.contains(method.as_str()) {
                         let concrete_types: Vec<Type> = args
                             .iter()
-                            .map(|a| {
-                                self.lookup_full_type(a.span).unwrap_or(Type::int())
-                            })
+                            .map(|a| self.lookup_full_type(a.span).unwrap_or(Type::int()))
                             .collect();
                         let mangled = Self::mangle_types(&concrete_types);
                         let mono_name = format!("glass_{}_{}", method, mangled);
@@ -413,8 +411,7 @@ impl LuaCodegen {
                 self.emit(&format!("local {}", result_var));
 
                 for (i, arm) in arms.iter().enumerate() {
-                    let condition =
-                        Self::gen_pattern_condition(&arm.pattern.node, &subj_var);
+                    let condition = self.gen_pattern_condition(&arm.pattern.node, &subj_var);
                     let guard = arm
                         .guard
                         .as_ref()
@@ -448,8 +445,7 @@ impl LuaCodegen {
             }
 
             Expr::Tuple(elems) => {
-                let args: Vec<String> =
-                    elems.iter().map(|e| self.gen_expr(&e.node)).collect();
+                let args: Vec<String> = elems.iter().map(|e| self.gen_expr(&e.node)).collect();
                 format!("{{{}}}", args.join(", "))
             }
 
@@ -516,6 +512,52 @@ impl LuaCodegen {
                             format!("glass_{}({})", name, l)
                         }
                     }
+                    // x |> module.func → glass_func(x)
+                    // x |> module.func(a, _) → glass_func(a, x)
+                    Expr::MethodCall {
+                        object,
+                        method,
+                        args,
+                    } => {
+                        let ext_info = if let Expr::Var(module_name) = &object.node {
+                            let qualified = format!("{}.{}", module_name, method);
+                            self.externals
+                                .get(&qualified)
+                                .or_else(|| self.externals.get(method.as_str()))
+                                .cloned()
+                        } else {
+                            None
+                        };
+                        let func_name = match &ext_info {
+                            Some(ext) => ext.lua_name.clone(),
+                            None => format!("glass_{}", method),
+                        };
+                        if args.is_empty() {
+                            format!("{}({})", func_name, l)
+                        } else {
+                            let has_placeholder = args
+                                .iter()
+                                .any(|a| matches!(&a.node, Expr::Var(n) if n == "_"));
+                            let all_args: Vec<String> = if has_placeholder {
+                                args.iter()
+                                    .map(|a| {
+                                        if matches!(&a.node, Expr::Var(n) if n == "_") {
+                                            l.clone()
+                                        } else {
+                                            self.gen_expr(&a.node)
+                                        }
+                                    })
+                                    .collect()
+                            } else {
+                                let mut all = vec![l];
+                                for a in args {
+                                    all.push(self.gen_expr(&a.node));
+                                }
+                                all
+                            };
+                            format!("{}({})", func_name, all_args.join(", "))
+                        }
+                    }
                     _ => {
                         let r = self.gen_expr(&right.node);
                         format!("{}({})", r, l)
@@ -524,6 +566,12 @@ impl LuaCodegen {
             }
 
             Expr::Constructor { name, args } => {
+                if args.is_empty()
+                    && !name.contains("::")
+                    && let Some(value) = self.const_values.get(name.as_str())
+                {
+                    return value.clone();
+                }
                 let bare_name = name.rsplit("::").next().unwrap_or(name);
                 let variant_info = self.types.get_variant(bare_name).map(|(ti, vi)| {
                     (
@@ -531,10 +579,7 @@ impl LuaCodegen {
                         ti.is_enum,
                         vi.name.clone(),
                         vi.tag,
-                        vi.fields
-                            .iter()
-                            .map(|f| f.name.clone())
-                            .collect::<Vec<_>>(),
+                        vi.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>(),
                     )
                 });
 
@@ -546,8 +591,7 @@ impl LuaCodegen {
                         }
                         for (i, a) in args.iter().enumerate() {
                             let e = match a {
-                                ConstructorArg::Positional(e)
-                                | ConstructorArg::Named(_, e) => e,
+                                ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => e,
                             };
                             let val = self.gen_expr(&e.node);
                             let fname = match a {
@@ -587,12 +631,7 @@ impl LuaCodegen {
                             return None;
                         }
                         let v = info.variants.first()?;
-                        Some(
-                            v.fields
-                                .iter()
-                                .map(|f| f.name.clone())
-                                .collect(),
-                        )
+                        Some(v.fields.iter().map(|f| f.name.clone()).collect())
                     });
 
                 match record_info {
@@ -609,10 +648,7 @@ impl LuaCodegen {
                                     fields.push(format!("{} = {}", fname, v));
                                 }
                                 None => {
-                                    fields.push(format!(
-                                        "{} = {}.{}",
-                                        fname, base_var, fname
-                                    ));
+                                    fields.push(format!("{} = {}.{}", fname, base_var, fname));
                                 }
                             }
                         }
@@ -642,11 +678,7 @@ impl LuaCodegen {
                 let result = self.gen_expr(&body.node);
                 self.indent = saved_indent;
                 // For simple expressions, use inline form
-                format!(
-                    "function({}) return {} end",
-                    param_names.join(", "),
-                    result
-                )
+                format!("function({}) return {} end", param_names.join(", "), result)
             }
 
             Expr::Clone(inner) => self.gen_expr(&inner.node),
@@ -663,17 +695,22 @@ impl LuaCodegen {
 
     // === Pattern matching ===
 
-    fn gen_pattern_condition(pattern: &Pattern, subject: &str) -> String {
+    fn gen_pattern_condition(&self, pattern: &Pattern, subject: &str) -> String {
         match pattern {
             Pattern::Bool(true) => format!("({} == true)", subject),
             Pattern::Bool(false) => format!("({} == false)", subject),
             Pattern::Int(n) => format!("({} == {})", subject, n),
-            Pattern::Float(n) => format!("({} == {:.1})", subject, n),
+            Pattern::Rawcode(s) => format!("({} == FourCC(\"{}\"))", subject, s),
             Pattern::String(s) => format!("({} == \"{}\")", subject, s),
             Pattern::Constructor { name, args } => {
                 let bare = bare_ctor_name(name);
                 if args.is_empty() {
-                    format!("({} == glass_TAG_{})", subject, bare)
+                    let const_key = bare.rsplit('.').next().unwrap_or(bare);
+                    if let Some(value) = self.const_values.get(const_key) {
+                        format!("({} == {})", subject, value)
+                    } else {
+                        format!("({} == glass_TAG_{})", subject, bare)
+                    }
                 } else {
                     format!("({}.tag == glass_TAG_{})", subject, bare)
                 }
@@ -685,13 +722,11 @@ impl LuaCodegen {
             Pattern::Or(alternatives) => {
                 let conditions: Vec<String> = alternatives
                     .iter()
-                    .map(|alt| Self::gen_pattern_condition(&alt.node, subject))
+                    .map(|alt| self.gen_pattern_condition(&alt.node, subject))
                     .collect();
                 format!("({})", conditions.join(" or "))
             }
-            Pattern::As { pattern, .. } => {
-                Self::gen_pattern_condition(&pattern.node, subject)
-            }
+            Pattern::As { pattern, .. } => self.gen_pattern_condition(&pattern.node, subject),
             Pattern::List(elems) if elems.is_empty() => {
                 format!("({} == nil)", subject)
             }
@@ -708,7 +743,10 @@ impl LuaCodegen {
                 self.emit(&format!("local {} = {}", name, val));
             }
             Pattern::Discard => {
-                if matches!(value_expr, Expr::Call { .. }) {
+                // Only emit bare call expressions for side effects.
+                // Check the val string: only emit if the original expression is a call
+                // AND we're not inside a tuple destructure (val would be a field access).
+                if matches!(value_expr, Expr::Call { .. }) && !val.contains('[') {
                     self.emit(val);
                 }
             }
@@ -798,7 +836,10 @@ impl LuaCodegen {
         match intrinsic {
             "dict_save" => {
                 // Type-directed: 4th arg (value) determines which Save* native
-                let value_type = args.get(3).map(|a| self.resolve_arg_type(a)).unwrap_or("integer");
+                let value_type = args
+                    .get(3)
+                    .map(|a| self.resolve_arg_type(a))
+                    .unwrap_or("integer");
                 let lua_fn = match value_type {
                     "real" => "SaveReal",
                     "string" => "SaveStr",
@@ -825,7 +866,10 @@ impl LuaCodegen {
                 format!("{}({})", lua_fn, args_str.join(", "))
             }
             "dict_has" => {
-                let key_type = args.get(2).map(|a| self.lookup_type(a.span)).unwrap_or("integer");
+                let key_type = args
+                    .get(2)
+                    .map(|a| self.lookup_type(a.span))
+                    .unwrap_or("integer");
                 let lua_fn = match key_type {
                     "real" => "HaveSavedReal",
                     "string" => "HaveSavedString",
@@ -835,7 +879,10 @@ impl LuaCodegen {
                 format!("{}({})", lua_fn, args_str.join(", "))
             }
             "dict_remove" => {
-                let key_type = args.get(2).map(|a| self.lookup_type(a.span)).unwrap_or("integer");
+                let key_type = args
+                    .get(2)
+                    .map(|a| self.lookup_type(a.span))
+                    .unwrap_or("integer");
                 let lua_fn = match key_type {
                     "real" => "RemoveSavedReal",
                     "string" => "RemoveSavedString",
@@ -898,11 +945,7 @@ impl LuaCodegen {
         {
             let mut name_to_type: HashMap<String, Type> = HashMap::new();
             for (param, concrete) in fdef.params.iter().zip(concrete_arg_types.iter()) {
-                Self::extract_type_bindings(
-                    &param.type_expr,
-                    concrete,
-                    &mut name_to_type,
-                );
+                Self::extract_type_bindings(&param.type_expr, concrete, &mut name_to_type);
             }
             for (name, var_id) in tvars {
                 if let Some(concrete_type) = name_to_type.get(name) {
@@ -962,17 +1005,9 @@ impl LuaCodegen {
             self.mono_param_types.insert(p.name.clone(), concrete_type);
         }
 
-        let params: Vec<String> = fdef
-            .params
-            .iter()
-            .map(|p| p.name.clone())
-            .collect();
+        let params: Vec<String> = fdef.params.iter().map(|p| p.name.clone()).collect();
 
-        self.emit(&format!(
-            "function {}({})",
-            mono_name,
-            params.join(", ")
-        ));
+        self.emit(&format!("function {}({})", mono_name, params.join(", ")));
         self.indent = 1;
         let result = self.gen_expr(&fdef.body.node);
         if fdef.return_type.is_some() {
@@ -1071,9 +1106,7 @@ fn const_fold_binop(op: &BinOp, left: &Expr, right: &Expr) -> Option<String> {
         (BinOp::Add, Expr::Float(a), Expr::Float(b)) => Some(format!("{:.1}", a + b)),
         (BinOp::Sub, Expr::Float(a), Expr::Float(b)) => Some(format!("{:.1}", a - b)),
         (BinOp::Mul, Expr::Float(a), Expr::Float(b)) => Some(format!("{:.1}", a * b)),
-        (BinOp::StringConcat, Expr::String(a), Expr::String(b)) => {
-            Some(format!("\"{}{}\"", a, b))
-        }
+        (BinOp::StringConcat, Expr::String(a), Expr::String(b)) => Some(format!("\"{}{}\"", a, b)),
         (BinOp::Eq, Expr::Int(a), Expr::Int(b)) => {
             Some(if a == b { "true" } else { "false" }.into())
         }
@@ -1316,4 +1349,3 @@ fn collect_calls_in_expr(
         _ => {}
     }
 }
-

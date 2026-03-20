@@ -1,0 +1,9 @@
+// Dagon — active nuke item, levels 1-5.
+
+pub fn damage(level: Int) -> Int {
+    400 + (level - 1) * 100
+}
+
+pub fn cooldown(level: Int) -> Float {
+    case level { 1 -> 35.0  2 -> 30.0  3 -> 25.0  4 -> 20.0  5 -> 15.0  _ -> 35.0 }
+}

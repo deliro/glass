@@ -1,0 +1,367 @@
+// Rune system — DotA-style rune spawning, pickup, and expiration.
+//
+// Runes spawn at fixed locations, have types with different effects,
+// and expire after a timeout. Players pick up runes to gain temporary buffs.
+//
+// Demonstrates: custom Maybe enum, recursive list helpers replacing HOFs,
+// pipe with placeholder, import int (clamp), function-based constants,
+// manual filter/map/fold/append.
+
+import effect
+import int
+
+// --- Rune types ---
+
+pub enum RuneType {
+    DoubleDamage
+    Haste
+    Illusion
+    Invisibility
+    Regeneration
+    Bounty
+}
+
+fn rune_duration(rt: RuneType) -> Float {
+    case rt {
+        DoubleDamage -> 45.0
+        Haste -> 22.0
+        Illusion -> 75.0
+        Invisibility -> 45.0
+        Regeneration -> 30.0
+        Bounty -> 0.0
+    }
+}
+
+fn rune_name(rt: RuneType) -> String {
+    case rt {
+        DoubleDamage -> "Double Damage"
+        Haste -> "Haste"
+        Illusion -> "Illusion"
+        Invisibility -> "Invisibility"
+        Regeneration -> "Regeneration"
+        Bounty -> "Bounty"
+    }
+}
+
+fn bounty_gold(minute: Int) -> Int {
+    int.clamp(50 + minute * 5, 50, 200)
+}
+
+// --- Rune instance on the map ---
+
+pub struct Rune {
+    id: Int,
+    rune_type: RuneType,
+    spawn_x: Int,
+    spawn_y: Int,
+    time_remaining: Float,
+}
+
+// --- Active buff from picked-up rune ---
+
+pub struct RuneBuff {
+    player_id: Int,
+    rune_type: RuneType,
+    time_left: Float,
+}
+
+// --- Spawn point ---
+
+pub struct SpawnPoint {
+    x: Int,
+    y: Int,
+}
+
+// --- Maybe enum (replaces Option) ---
+
+pub enum MaybeRune {
+    FoundRune { value: Rune }
+    NoRune
+}
+
+// --- Constants as functions ---
+
+fn spawn_interval() -> Float { 120.0 }
+fn rune_lifetime() -> Float { 120.0 }
+fn tick() -> Float { 1.0 }
+
+// --- Spawn result struct (replaces tuple) ---
+
+pub struct SpawnResult {
+    runes: List(Rune),
+    next_id: Int,
+}
+
+pub struct Model {
+    runes_on_map: List(Rune),
+    active_buffs: List(RuneBuff),
+    next_rune_id: Int,
+    game_minute: Int,
+    spawn_points: List(SpawnPoint),
+}
+
+pub enum Msg {
+    SpawnRunes
+    PickupRune { player_id: Int, rune_id: Int }
+    Tick
+    QueryPlayer { player_id: Int }
+}
+
+// --- List helpers ---
+
+fn append_runes(xs: List(Rune), ys: List(Rune)) -> List(Rune) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append_runes(t, ys)]
+    }
+}
+
+// --- Rune lookup ---
+
+fn find_rune(runes: List(Rune), rune_id: Int) -> MaybeRune {
+    case runes {
+        [] -> MaybeRune::NoRune
+        [h | t] -> case h.id == rune_id {
+            True -> MaybeRune::FoundRune(h)
+            False -> find_rune(t, rune_id)
+        }
+    }
+}
+
+fn remove_rune(runes: List(Rune), rune_id: Int) -> List(Rune) {
+    case runes {
+        [] -> []
+        [h | t] -> case h.id != rune_id {
+            True -> [h | remove_rune(t, rune_id)]
+            False -> remove_rune(t, rune_id)
+        }
+    }
+}
+
+// --- Buff management ---
+
+fn rune_type_eq(a: RuneType, b: RuneType) -> Bool {
+    rune_type_id(a) == rune_type_id(b)
+}
+
+fn find_player_buff(buffs: List(RuneBuff), pid: Int, rt: RuneType) -> Bool {
+    case buffs {
+        [] -> False
+        [h | t] -> case h.player_id == pid {
+            True -> case rune_type_eq(h.rune_type, rt) {
+                True -> True
+                False -> find_player_buff(t, pid, rt)
+            }
+            False -> find_player_buff(t, pid, rt)
+        }
+    }
+}
+
+fn refresh_buff(buffs: List(RuneBuff), player_id: Int, rt: RuneType, dur: Float) -> List(RuneBuff) {
+    case buffs {
+        [] -> []
+        [b | rest] -> case b.player_id == player_id {
+            True -> case rune_type_eq(b.rune_type, rt) {
+                True -> [RuneBuff { player_id: b.player_id, rune_type: b.rune_type, time_left: dur } | refresh_buff(rest, player_id, rt, dur)]
+                False -> [b | refresh_buff(rest, player_id, rt, dur)]
+            }
+            False -> [b | refresh_buff(rest, player_id, rt, dur)]
+        }
+    }
+}
+
+fn add_or_refresh_buff(buffs: List(RuneBuff), player_id: Int, rt: RuneType) -> List(RuneBuff) {
+    let dur = rune_duration(rt)
+    case find_player_buff(buffs, player_id, rt) {
+        True -> refresh_buff(buffs, player_id, rt, dur)
+        False -> [RuneBuff { player_id, rune_type: rt, time_left: dur } | buffs]
+    }
+}
+
+fn rune_type_id(rt: RuneType) -> Int {
+    case rt {
+        DoubleDamage -> 0
+        Haste -> 1
+        Illusion -> 2
+        Invisibility -> 3
+        Regeneration -> 4
+        Bounty -> 5
+    }
+}
+
+// Tick all buffs, remove expired.
+fn tick_buffs(buffs: List(RuneBuff)) -> List(RuneBuff) {
+    case buffs {
+        [] -> []
+        [b | rest] -> {
+            let updated = RuneBuff { player_id: b.player_id, rune_type: b.rune_type, time_left: b.time_left - tick() }
+            case updated.time_left > 0.0 {
+                True -> [updated | tick_buffs(rest)]
+                False -> tick_buffs(rest)
+            }
+        }
+    }
+}
+
+// Tick rune lifetimes, remove expired.
+fn tick_runes(runes: List(Rune)) -> List(Rune) {
+    case runes {
+        [] -> []
+        [r | rest] -> {
+            let updated = Rune {
+                id: r.id,
+                rune_type: r.rune_type,
+                spawn_x: r.spawn_x,
+                spawn_y: r.spawn_y,
+                time_remaining: r.time_remaining - tick(),
+            }
+            case updated.time_remaining > 0.0 {
+                True -> [updated | tick_runes(rest)]
+                False -> tick_runes(rest)
+            }
+        }
+    }
+}
+
+// Count active buffs for a player.
+fn count_player_buffs(buffs: List(RuneBuff), pid: Int) -> Int {
+    case buffs {
+        [] -> 0
+        [b | rest] -> case b.player_id == pid {
+            True -> 1 + count_player_buffs(rest, pid)
+            False -> count_player_buffs(rest, pid)
+        }
+    }
+}
+
+// --- Rune spawning ---
+
+fn pick_rune_type(minute: Int) -> RuneType {
+    let roll = minute % 6
+    case roll {
+        0 -> RuneType::DoubleDamage
+        1 -> RuneType::Haste
+        2 -> RuneType::Illusion
+        3 -> RuneType::Invisibility
+        4 -> RuneType::Regeneration
+        _ -> RuneType::Bounty
+    }
+}
+
+fn spawn_at_points(points: List(SpawnPoint), next_id: Int, minute: Int) -> SpawnResult {
+    case points {
+        [] -> SpawnResult { runes: [], next_id }
+        [p | rest] -> {
+            let rt = pick_rune_type(minute + next_id)
+            let rune = Rune {
+                id: next_id,
+                rune_type: rt,
+                spawn_x: p.x,
+                spawn_y: p.y,
+                time_remaining: rune_lifetime(),
+            }
+            let result = spawn_at_points(rest, next_id + 1, minute)
+            SpawnResult { runes: [rune | result.runes], next_id: result.next_id }
+        }
+    }
+}
+
+// --- Handlers ---
+
+fn handle_spawn(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+    let result = spawn_at_points(model.spawn_points, model.next_rune_id, model.game_minute)
+    let all_runes = append_runes(model.runes_on_map, result.runes)
+    let new_model = Model {
+        runes_on_map: all_runes,
+        active_buffs: model.active_buffs,
+        next_rune_id: result.next_id,
+        game_minute: model.game_minute,
+        spawn_points: model.spawn_points,
+    }
+    let fx = [effect.after(spawn_interval(), fn() { Msg::SpawnRunes })]
+    #(new_model, fx)
+}
+
+fn handle_pickup(model: Model, player_id: Int, rune_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+    let rune_opt = find_rune(model.runes_on_map, rune_id)
+    case rune_opt {
+        MaybeRune::NoRune -> #(model, [])
+        MaybeRune::FoundRune(rune) -> {
+            let remaining = remove_rune(model.runes_on_map, rune_id)
+            let is_bounty = rune_type_id(rune.rune_type) == 5
+            case is_bounty {
+                True -> {
+                    let gold = bounty_gold(model.game_minute)
+                    let new_model = Model {
+                        runes_on_map: remaining,
+                        active_buffs: model.active_buffs,
+                        next_rune_id: model.next_rune_id,
+                        game_minute: model.game_minute,
+                        spawn_points: model.spawn_points,
+                    }
+                    #(new_model, [effect.display_text(player_id, "+" <> int.to_string(gold) <> " gold", 2.0)])
+                }
+                False -> {
+                    let new_buffs = add_or_refresh_buff(model.active_buffs, player_id, rune.rune_type)
+                    let text = rune_name(rune.rune_type) <> " activated!"
+                    let new_model = Model {
+                        runes_on_map: remaining,
+                        active_buffs: new_buffs,
+                        next_rune_id: model.next_rune_id,
+                        game_minute: model.game_minute,
+                        spawn_points: model.spawn_points,
+                    }
+                    #(new_model, [effect.display_text(player_id, text, 3.0)])
+                }
+            }
+        }
+    }
+}
+
+fn handle_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+    let new_runes = tick_runes(model.runes_on_map)
+    let new_buffs = tick_buffs(model.active_buffs)
+    let new_model = Model {
+        runes_on_map: new_runes,
+        active_buffs: new_buffs,
+        next_rune_id: model.next_rune_id,
+        game_minute: model.game_minute + 1,
+        spawn_points: model.spawn_points,
+    }
+    #(new_model, [effect.after(tick(), fn() { Msg::Tick })])
+}
+
+fn handle_query(model: Model, pid: Int) -> #(Model, List(effect.Effect(Msg))) {
+    let n = count_player_buffs(model.active_buffs, pid)
+    let text = "Active buffs: " <> int.to_string(n)
+    #(model, [effect.display_text(pid, text, 3.0)])
+}
+
+// --- Elm architecture ---
+
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+    let points = [
+        SpawnPoint { x: -2000, y: 0 },
+        SpawnPoint { x: 2000, y: 0 },
+    ]
+    let model = Model {
+        runes_on_map: [],
+        active_buffs: [],
+        next_rune_id: 1,
+        game_minute: 0,
+        spawn_points: points,
+    }
+    #(model, [
+        effect.after(spawn_interval(), fn() { Msg::SpawnRunes }),
+        effect.after(tick(), fn() { Msg::Tick }),
+    ])
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+    case msg {
+        SpawnRunes -> handle_spawn(model)
+        PickupRune(pid, rid) -> handle_pickup(model, pid, rid)
+        Tick -> handle_tick(model)
+        QueryPlayer(pid) -> handle_query(model, pid)
+    }
+}

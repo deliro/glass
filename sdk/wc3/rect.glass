@@ -1,0 +1,29 @@
+// Glass SDK: wc3/rect — rectangle (region) natives
+//
+// Usage:
+//   import wc3/rect
+//   let r = rect.create(-500.0, -500.0, 500.0, 500.0)
+
+@external("jass", "Rect")
+pub fn create(min_x: Float, min_y: Float, max_x: Float, max_y: Float) -> Rect
+
+@external("jass", "RemoveRect")
+pub fn remove(r: Rect) -> Int
+
+@external("jass", "GetRectCenterX")
+pub fn center_x(r: Rect) -> Float
+
+@external("jass", "GetRectCenterY")
+pub fn center_y(r: Rect) -> Float
+
+@external("jass", "GetRectMinX")
+pub fn min_x(r: Rect) -> Float
+
+@external("jass", "GetRectMinY")
+pub fn min_y(r: Rect) -> Float
+
+@external("jass", "GetRectMaxX")
+pub fn max_x(r: Rect) -> Float
+
+@external("jass", "GetRectMaxY")
+pub fn max_y(r: Rect) -> Float

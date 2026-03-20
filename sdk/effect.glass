@@ -1,11 +1,28 @@
 // Glass standard library: Effect(M)
 // Effects are pure data — returned from update, executed by the Glass runtime.
 // Use List(Effect(Msg)) for multiple effects; [] for none.
+//
+// `M` only appears inside After's callback. All other variants are phantom in M,
+// which makes `map` possible: wrap the callback, reconstruct the rest.
 
 pub enum Effect(M) {
     After { duration: Float, callback: fn() -> M }
     DisplayText { player_id: Int, text: String, duration: Float }
+    DamageUnit { source_id: Int, target_id: Int, amount: Float, attack_type: Int, damage_type: Int }
+    CreateUnit { owner: Int, type_id: Int, x: Float, y: Float, facing: Float }
+    RemoveUnit { unit_id: Int }
+    MoveUnit { unit_id: Int, x: Float, y: Float }
+    PlayAnimation { unit_id: Int, anim: String }
+    AddAbility { unit_id: Int, ability_id: Int }
+    AddSfx { model: String, x: Float, y: Float }
+    SetUnitHp { unit_id: Int, hp: Float }
+    SetUnitMana { unit_id: Int, mana: Float }
+    PanCamera { player_id: Int, x: Float, y: Float }
+    ShowFloatingText { text: String, x: Float, y: Float, size: Float }
+    PlaySound { path: String }
 }
+
+// --- Constructors ---
 
 pub fn after(duration: Float, callback: fn() -> m) -> Effect(m) {
     Effect::After { duration, callback }
@@ -13,4 +30,96 @@ pub fn after(duration: Float, callback: fn() -> m) -> Effect(m) {
 
 pub fn display_text(player_id: Int, text: String, duration: Float) -> Effect(m) {
     Effect::DisplayText { player_id, text, duration }
+}
+
+pub fn damage_unit(source_id: Int, target_id: Int, amount: Float, attack_type: Int, damage_type: Int) -> Effect(m) {
+    Effect::DamageUnit { source_id, target_id, amount, attack_type, damage_type }
+}
+
+pub fn create_unit(owner: Int, type_id: Int, x: Float, y: Float, facing: Float) -> Effect(m) {
+    Effect::CreateUnit { owner, type_id, x, y, facing }
+}
+
+pub fn remove_unit(unit_id: Int) -> Effect(m) {
+    Effect::RemoveUnit { unit_id }
+}
+
+pub fn move_unit(unit_id: Int, x: Float, y: Float) -> Effect(m) {
+    Effect::MoveUnit { unit_id, x, y }
+}
+
+pub fn play_animation(unit_id: Int, anim: String) -> Effect(m) {
+    Effect::PlayAnimation { unit_id, anim }
+}
+
+pub fn add_ability(unit_id: Int, ability_id: Int) -> Effect(m) {
+    Effect::AddAbility { unit_id, ability_id }
+}
+
+pub fn add_sfx(model: String, x: Float, y: Float) -> Effect(m) {
+    Effect::AddSfx { model, x, y }
+}
+
+pub fn set_unit_hp(unit_id: Int, hp: Float) -> Effect(m) {
+    Effect::SetUnitHp { unit_id, hp }
+}
+
+pub fn set_unit_mana(unit_id: Int, mana: Float) -> Effect(m) {
+    Effect::SetUnitMana { unit_id, mana }
+}
+
+pub fn pan_camera(player_id: Int, x: Float, y: Float) -> Effect(m) {
+    Effect::PanCamera { player_id, x, y }
+}
+
+pub fn show_floating_text(text: String, x: Float, y: Float, size: Float) -> Effect(m) {
+    Effect::ShowFloatingText { text, x, y, size }
+}
+
+pub fn play_sound(path: String) -> Effect(m) {
+    Effect::PlaySound { path }
+}
+
+// --- Functor: map over the message type ---
+// Transforms Effect(a) → Effect(b) by wrapping After's callback.
+// All other variants are phantom in M — reconstructed with new type.
+
+pub fn map(fx: Effect(a), f: fn(a) -> b) -> Effect(b) {
+    case fx {
+        After(duration, callback) ->
+            Effect::After { duration, callback: fn() { f(callback()) } }
+        DisplayText(player_id, text, duration) ->
+            Effect::DisplayText { player_id, text, duration }
+        DamageUnit(source_id, target_id, amount, attack_type, damage_type) ->
+            Effect::DamageUnit { source_id, target_id, amount, attack_type, damage_type }
+        CreateUnit(owner, type_id, x, y, facing) ->
+            Effect::CreateUnit { owner, type_id, x, y, facing }
+        RemoveUnit(unit_id) ->
+            Effect::RemoveUnit { unit_id }
+        MoveUnit(unit_id, x, y) ->
+            Effect::MoveUnit { unit_id, x, y }
+        PlayAnimation(unit_id, anim) ->
+            Effect::PlayAnimation { unit_id, anim }
+        AddAbility(unit_id, ability_id) ->
+            Effect::AddAbility { unit_id, ability_id }
+        AddSfx(model, x, y) ->
+            Effect::AddSfx { model, x, y }
+        SetUnitHp(unit_id, hp) ->
+            Effect::SetUnitHp { unit_id, hp }
+        SetUnitMana(unit_id, mana) ->
+            Effect::SetUnitMana { unit_id, mana }
+        PanCamera(player_id, x, y) ->
+            Effect::PanCamera { player_id, x, y }
+        ShowFloatingText(text, x, y, size) ->
+            Effect::ShowFloatingText { text, x, y, size }
+        PlaySound(path) ->
+            Effect::PlaySound { path }
+    }
+}
+
+pub fn map_list(fxs: List(Effect(a)), f: fn(a) -> b) -> List(Effect(b)) {
+    case fxs {
+        [] -> []
+        [h | t] -> [map(h, f) | map_list(t, f)]
+    }
 }

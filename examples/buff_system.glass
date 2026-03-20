@@ -1,0 +1,310 @@
+// Buff system — timed buffs/debuffs with stacking and expiration.
+//
+// Each unit can have multiple active buffs. Buffs tick down over time
+// and are removed when their duration expires. Some buffs stack
+// (multiple instances), others refresh (reset timer).
+//
+// Demonstrates: multiple enums, nested case, record update,
+// recursive list processing, pipe with placeholder, string concatenation.
+
+import effect
+import int
+
+// --- Buff definitions ---
+
+pub enum BuffType {
+    Haste
+    DoubleDamage
+    Regeneration
+    Slow
+    Poison
+}
+
+pub enum StackBehavior {
+    Refresh
+    Stack
+}
+
+pub struct BuffDef {
+    buff_type: BuffType,
+    duration: Float,
+    stacking: StackBehavior,
+}
+
+pub struct ActiveBuff {
+    buff_type: BuffType,
+    remaining: Float,
+    stacks: Int,
+    source_unit: Int,
+}
+
+pub struct UnitBuffs {
+    unit_id: Int,
+    buffs: List(ActiveBuff),
+}
+
+pub struct Model {
+    units: List(UnitBuffs),
+}
+
+pub enum Msg {
+    ApplyBuff { target: Int, source: Int, def: BuffDef }
+    RemoveBuff { target: Int, buff_type: BuffType }
+    Tick
+    QueryUnit { unit_id: Int }
+}
+
+fn tick_interval() -> Float { 0.1 }
+
+// --- Buff helpers ---
+
+fn buff_type_eq(a: BuffType, b: BuffType) -> Bool {
+    buff_type_id(a) == buff_type_id(b)
+}
+
+fn buff_type_id(bt: BuffType) -> Int {
+    case bt {
+        Haste -> 0
+        DoubleDamage -> 1
+        Regeneration -> 2
+        Slow -> 3
+        Poison -> 4
+    }
+}
+
+fn buff_type_name(bt: BuffType) -> String {
+    case bt {
+        Haste -> "Haste"
+        DoubleDamage -> "Double Damage"
+        Regeneration -> "Regeneration"
+        Slow -> "Slow"
+        Poison -> "Poison"
+    }
+}
+
+fn compute_speed_acc(buffs: List(ActiveBuff), acc: Int) -> Int {
+    case buffs {
+        [] -> acc
+        [h | t] -> {
+            let delta = case h.buff_type {
+                Haste -> 50
+                Slow -> 0 - 30 * h.stacks
+                _ -> 0
+            }
+            compute_speed_acc(t, acc + delta)
+        }
+    }
+}
+
+// Compute total speed modifier from active buffs (manual fold).
+fn compute_speed_modifier(buffs: List(ActiveBuff)) -> Int {
+    int.clamp(compute_speed_acc(buffs, 100), 20, 500)
+}
+
+fn compute_dmg_acc(buffs: List(ActiveBuff), acc: Int) -> Int {
+    case buffs {
+        [] -> acc
+        [h | t] -> {
+            let delta = case h.buff_type {
+                DoubleDamage -> 100
+                Poison -> 0 - 10 * h.stacks
+                _ -> 0
+            }
+            compute_dmg_acc(t, acc + delta)
+        }
+    }
+}
+
+// Compute total damage multiplier (percentage).
+fn compute_damage_multiplier(buffs: List(ActiveBuff)) -> Int {
+    int.clamp(compute_dmg_acc(buffs, 100), 0, 1000)
+}
+
+fn compute_regen_acc(buffs: List(ActiveBuff), acc: Int) -> Int {
+    case buffs {
+        [] -> acc
+        [h | t] -> {
+            let delta = case h.buff_type {
+                Regeneration -> 15 * h.stacks
+                Poison -> 0 - 5 * h.stacks
+                _ -> 0
+            }
+            compute_regen_acc(t, acc + delta)
+        }
+    }
+}
+
+// Compute HP regen per second from buffs.
+fn compute_regen(buffs: List(ActiveBuff)) -> Int {
+    compute_regen_acc(buffs, 0)
+}
+
+// --- Unit buff list helpers ---
+
+fn lookup_unit_buffs(units: List(UnitBuffs), uid: Int) -> UnitBuffs {
+    case units {
+        [] -> UnitBuffs { unit_id: uid, buffs: [] }
+        [h | t] -> case h.unit_id == uid {
+            True -> h
+            False -> lookup_unit_buffs(t, uid)
+        }
+    }
+}
+
+fn upsert_unit_buffs(units: List(UnitBuffs), ub: UnitBuffs) -> List(UnitBuffs) {
+    case units {
+        [] -> [ub]
+        [h | t] -> case h.unit_id == ub.unit_id {
+            True -> [ub | t]
+            False -> [h | upsert_unit_buffs(t, ub)]
+        }
+    }
+}
+
+fn find_buff(buffs: List(ActiveBuff), bt: BuffType) -> Bool {
+    case buffs {
+        [] -> False
+        [h | t] -> case buff_type_eq(h.buff_type, bt) {
+            True -> True
+            False -> find_buff(t, bt)
+        }
+    }
+}
+
+fn update_existing_buff(buffs: List(ActiveBuff), source: Int, def: BuffDef) -> List(ActiveBuff) {
+    case buffs {
+        [] -> []
+        [h | t] -> case buff_type_eq(h.buff_type, def.buff_type) {
+            True -> case def.stacking {
+                Refresh -> {
+                    let refreshed = ActiveBuff {
+                        buff_type: h.buff_type,
+                        remaining: def.duration,
+                        stacks: h.stacks,
+                        source_unit: source,
+                    }
+                    [refreshed | t]
+                }
+                Stack -> {
+                    let stacked = ActiveBuff {
+                        buff_type: h.buff_type,
+                        remaining: def.duration,
+                        stacks: h.stacks + 1,
+                        source_unit: source,
+                    }
+                    [stacked | t]
+                }
+            }
+            False -> [h | update_existing_buff(t, source, def)]
+        }
+    }
+}
+
+// Apply or refresh/stack a buff on a unit's buff list.
+fn apply_buff_to_list(buffs: List(ActiveBuff), source: Int, def: BuffDef) -> List(ActiveBuff) {
+    case find_buff(buffs, def.buff_type) {
+        True -> update_existing_buff(buffs, source, def)
+        False -> {
+            let new_buff = ActiveBuff {
+                buff_type: def.buff_type,
+                remaining: def.duration,
+                stacks: 1,
+                source_unit: source,
+            }
+            [new_buff | buffs]
+        }
+    }
+}
+
+// Tick all buffs: reduce remaining time, remove expired.
+fn tick_buffs(buffs: List(ActiveBuff)) -> List(ActiveBuff) {
+    case buffs {
+        [] -> []
+        [h | t] -> {
+            let new_remaining = h.remaining - tick_interval()
+            case new_remaining > 0.0 {
+                True -> {
+                    let updated = ActiveBuff {
+                        buff_type: h.buff_type,
+                        remaining: new_remaining,
+                        stacks: h.stacks,
+                        source_unit: h.source_unit,
+                    }
+                    [updated | tick_buffs(t)]
+                }
+                False -> tick_buffs(t)
+            }
+        }
+    }
+}
+
+// Remove a specific buff type.
+fn remove_buff_type(buffs: List(ActiveBuff), bt: BuffType) -> List(ActiveBuff) {
+    case buffs {
+        [] -> []
+        [h | t] -> case buff_type_eq(h.buff_type, bt) {
+            True -> remove_buff_type(t, bt)
+            False -> [h | remove_buff_type(t, bt)]
+        }
+    }
+}
+
+// Tick all units' buffs.
+fn tick_all_units(units: List(UnitBuffs)) -> List(UnitBuffs) {
+    case units {
+        [] -> []
+        [h | t] -> {
+            let new_ub = UnitBuffs { unit_id: h.unit_id, buffs: tick_buffs(h.buffs) }
+            [new_ub | tick_all_units(t)]
+        }
+    }
+}
+
+// --- Handlers ---
+
+fn handle_apply(model: Model, target: Int, source: Int, def: BuffDef) -> #(Model, List(effect.Effect(Msg))) {
+    let ub = lookup_unit_buffs(model.units, target)
+    let new_buffs = apply_buff_to_list(ub.buffs, source, def)
+    let new_ub = UnitBuffs { unit_id: target, buffs: new_buffs }
+    let new_units = upsert_unit_buffs(model.units, new_ub)
+    let fx = [effect.display_text(0, "+" <> buff_type_name(def.buff_type), 2.0)]
+    #(Model { units: new_units }, fx)
+}
+
+fn handle_remove(model: Model, target: Int, bt: BuffType) -> #(Model, List(effect.Effect(Msg))) {
+    let ub = lookup_unit_buffs(model.units, target)
+    let new_buffs = remove_buff_type(ub.buffs, bt)
+    let new_ub = UnitBuffs { unit_id: target, buffs: new_buffs }
+    let new_units = upsert_unit_buffs(model.units, new_ub)
+    #(Model { units: new_units }, [])
+}
+
+fn handle_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+    let new_units = tick_all_units(model.units)
+    let fx = [effect.after(tick_interval(), fn() { Msg::Tick })]
+    #(Model { units: new_units }, fx)
+}
+
+fn handle_query(model: Model, uid: Int) -> #(Model, List(effect.Effect(Msg))) {
+    let ub = lookup_unit_buffs(model.units, uid)
+    let speed = compute_speed_modifier(ub.buffs)
+    let dmg = compute_damage_multiplier(ub.buffs)
+    let regen = compute_regen(ub.buffs)
+    let text = "Speed: " <> int.to_string(speed) <> "% | Dmg: " <> int.to_string(dmg) <> "% | Regen: " <> int.to_string(regen)
+    #(model, [effect.display_text(0, text, 5.0)])
+}
+
+// --- Elm architecture ---
+
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+    #(Model { units: [] }, [effect.after(tick_interval(), fn() { Msg::Tick })])
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+    case msg {
+        ApplyBuff(target, source, def) -> handle_apply(model, target, source, def)
+        RemoveBuff(target, bt) -> handle_remove(model, target, bt)
+        Tick -> handle_tick(model)
+        QueryUnit(uid) -> handle_query(model, uid)
+    }
+}

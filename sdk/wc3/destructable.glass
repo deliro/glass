@@ -1,0 +1,29 @@
+// Glass SDK: wc3/destructable — destructable object natives
+//
+// Usage:
+//   import wc3/destructable
+//   let d = destructable.create('LTlt', 0.0, 0.0, 0.0, 1.0, 0)
+
+@external("jass", "CreateDestructable")
+pub fn create(type_id: Int, x: Float, y: Float, facing: Float, scale: Float, variation: Int) -> Destructable
+
+@external("jass", "RemoveDestructable")
+pub fn remove(d: Destructable) -> Int
+
+@external("jass", "KillDestructable")
+pub fn kill(d: Destructable) -> Int
+
+@external("jass", "GetDestructableLife")
+pub fn get_life(d: Destructable) -> Float
+
+@external("jass", "SetDestructableLife")
+pub fn set_life(d: Destructable, life: Float) -> Int
+
+@external("jass", "GetDestructableMaxLife")
+pub fn get_max_life(d: Destructable) -> Float
+
+@external("jass", "SetDestructableMaxLife")
+pub fn set_max_life(d: Destructable, max_life: Float) -> Int
+
+@external("jass", "GetHandleId")
+pub fn handle_id(d: Destructable) -> Int

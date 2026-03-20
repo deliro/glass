@@ -1,0 +1,56 @@
+// Glass SDK: wc3/player — player natives
+//
+// Usage:
+//   import wc3/player
+//   let p = player.get(0)
+//   let name = player.get_name(p)
+
+@external("jass", "Player")
+pub fn get(number: Int) -> Player
+
+@external("jass", "GetLocalPlayer")
+pub fn get_local() -> Player
+
+@external("jass", "GetPlayerId")
+pub fn get_id(p: Player) -> Int
+
+@external("jass", "GetTriggerPlayer")
+pub fn get_trigger_player() -> Player
+
+@external("jass", "GetOwningPlayer")
+pub fn get_owner(u: Unit) -> Player
+
+@external("jass", "GetPlayerName")
+pub fn get_name(p: Player) -> String
+
+@external("jass", "SetPlayerName")
+pub fn set_name(p: Player, name: String) -> Int
+
+@external("jass", "GetPlayerState")
+pub fn get_state(p: Player, state: Int) -> Int
+
+@external("jass", "SetPlayerState")
+pub fn set_state(p: Player, state: Int, value: Int) -> Int
+
+pub const STATE_GOLD: Int = 1
+pub const STATE_LUMBER: Int = 2
+
+pub fn get_gold(p: Player) -> Int {
+    get_state(p, STATE_GOLD)
+}
+
+pub fn set_gold(p: Player, amount: Int) -> Int {
+    set_state(p, STATE_GOLD, amount)
+}
+
+pub fn get_lumber(p: Player) -> Int {
+    get_state(p, STATE_LUMBER)
+}
+
+pub fn set_lumber(p: Player, amount: Int) -> Int {
+    set_state(p, STATE_LUMBER, amount)
+}
+
+pub fn adjust_gold(p: Player, delta: Int) -> Int {
+    set_state(p, STATE_GOLD, get_state(p, STATE_GOLD) + delta)
+}

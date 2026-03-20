@@ -2,8 +2,10 @@ use rstest::rstest;
 use std::process::Command;
 
 fn compile_glass_lua(source: &str) -> String {
-    let tmp =
-        std::env::temp_dir().join(format!("glass_lua_src_{:?}.glass", std::thread::current().id()));
+    let tmp = std::env::temp_dir().join(format!(
+        "glass_lua_src_{:?}.glass",
+        std::thread::current().id()
+    ));
     std::fs::write(&tmp, source).expect("write temp file");
 
     let output = Command::new(env!("CARGO_BIN_EXE_glass"))
@@ -38,8 +40,10 @@ fn validate_lua(lua_code: &str) {
         eprintln!("luac not found at {:?}, skipping validation", luac);
         return;
     }
-    let tmp =
-        std::env::temp_dir().join(format!("glass_lua_test_{:?}.lua", std::thread::current().id()));
+    let tmp = std::env::temp_dir().join(format!(
+        "glass_lua_test_{:?}.lua",
+        std::thread::current().id()
+    ));
     std::fs::write(&tmp, lua_code).expect("write temp file");
 
     let output = Command::new(&luac)
@@ -64,6 +68,26 @@ fn compile_and_validate(source: &str) {
     validate_lua(&lua);
 }
 
+/// Compile a .glass file by path (preserving directory context for imports).
+fn compile_glass_lua_file(path: &std::path::Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_glass"))
+        .arg(path)
+        .arg("--target")
+        .arg("lua")
+        .arg("--no-check")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("failed to run glass");
+
+    assert!(
+        output.status.success(),
+        "glass compilation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("invalid utf8")
+}
+
 // ============================================================
 // Example files — full compilation cycle + luac validation
 // ============================================================
@@ -76,11 +100,46 @@ fn compile_and_validate(source: &str) {
 #[case("tower_defense.glass")]
 #[case("axes_rexxar.glass")]
 #[case("greater_bash.glass")]
+#[case("invoker.glass")]
+#[case("buff_system.glass")]
+#[case("rune_system.glass")]
+#[case("chain_lightning.glass")]
+#[case("item_combine.glass")]
+#[case("game/main.glass")]
+#[case("sdk_smoke.glass")]
+#[case("stdlib_smoke.glass")]
 fn example_compiles(#[case] filename: &str) {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source =
-        std::fs::read_to_string(manifest.join("examples").join(filename)).expect("read example");
-    compile_and_validate(&source);
+    let path = manifest.join("examples").join(filename);
+    let lua = compile_glass_lua_file(&path);
+    validate_lua(&lua);
+}
+
+// ============================================================
+// Game example — full compilation WITH type checking
+// ============================================================
+
+#[test]
+fn game_compiles_with_type_checking() {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest.join("examples").join("game/main.glass");
+    let output = Command::new(env!("CARGO_BIN_EXE_glass"))
+        .arg(&path)
+        .arg("--target")
+        .arg("lua")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("failed to run glass");
+
+    assert!(
+        output.status.success(),
+        "game/main.glass failed type checking (Lua):\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let lua = String::from_utf8(output.stdout).expect("invalid utf8");
+    validate_lua(&lua);
 }
 
 // ============================================================

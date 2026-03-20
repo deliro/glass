@@ -1,0 +1,228 @@
+// Chain Lightning — bouncing spell that finds the nearest unhit target.
+//
+// Pure computation: given a list of unit positions and a starting target,
+// compute the chain of hits with distance-based nearest-neighbor search
+// and damage decay per bounce.
+//
+// Demonstrates: import float + jass/math (sqrt, distance), recursive fold/append/length,
+// recursion with accumulator, nested case, complex struct patterns.
+
+import effect
+import int
+import float
+import wc3/math
+
+// --- Unit position data ---
+
+pub struct UnitPos {
+    uid: Int,
+    x: Float,
+    y: Float,
+    alive: Bool,
+}
+
+// --- Chain hit result ---
+
+pub struct ChainHit {
+    target_uid: Int,
+    damage: Int,
+    bounce_index: Int,
+}
+
+pub struct ChainResult {
+    hits: List(ChainHit),
+    total_damage: Int,
+}
+
+// --- Config ---
+
+fn max_bounces() -> Int { 8 }
+fn max_bounce_range() -> Float { 500.0 }
+fn damage_decay_pct() -> Int { 75 }
+
+// --- Distance calculation ---
+
+fn distance(a: UnitPos, b: UnitPos) -> Float {
+    let dx = a.x - b.x
+    let dy = a.y - b.y
+    float.sqrt(dx * dx + dy * dy)
+}
+
+fn distance_xy(x1: Float, y1: Float, x2: Float, y2: Float) -> Float {
+    let dx = x1 - x2
+    let dy = y1 - y2
+    float.sqrt(dx * dx + dy * dy)
+}
+
+// --- Already-hit check ---
+
+fn is_hit(uid: Int, hits: List(ChainHit)) -> Bool {
+    case hits {
+        [] -> False
+        [h | t] -> case h.target_uid == uid {
+            True -> True
+            False -> is_hit(uid, t)
+        }
+    }
+}
+
+// --- Find nearest valid target ---
+
+pub struct SearchState {
+    best_uid: Int,
+    best_dist: Float,
+    found: Bool,
+}
+
+fn find_nearest_loop(
+    units: List(UnitPos),
+    from_x: Float,
+    from_y: Float,
+    max_range: Float,
+    already_hit: List(ChainHit),
+    acc: SearchState
+) -> SearchState {
+    case units {
+        [] -> acc
+        [u | rest] -> {
+            let next_acc = case u.alive {
+                False -> acc
+                True -> case is_hit(u.uid, already_hit) {
+                    True -> acc
+                    False -> {
+                        let d = distance_xy(from_x, from_y, u.x, u.y)
+                        case d < acc.best_dist {
+                            True -> case d <= max_range {
+                                True -> SearchState { best_uid: u.uid, best_dist: d, found: True }
+                                False -> acc
+                            }
+                            False -> acc
+                        }
+                    }
+                }
+            }
+            find_nearest_loop(rest, from_x, from_y, max_range, already_hit, next_acc)
+        }
+    }
+}
+
+fn find_nearest(
+    units: List(UnitPos),
+    from_x: Float,
+    from_y: Float,
+    max_range: Float,
+    already_hit: List(ChainHit)
+) -> SearchState {
+    find_nearest_loop(units, from_x, from_y, max_range, already_hit, SearchState { best_uid: 0, best_dist: max_range + 1.0, found: False })
+}
+
+fn get_unit_pos(units: List(UnitPos), uid: Int) -> UnitPos {
+    case units {
+        [] -> UnitPos { uid: 0, x: 0.0, y: 0.0, alive: False }
+        [h | t] -> case h.uid == uid {
+            True -> h
+            False -> get_unit_pos(t, uid)
+        }
+    }
+}
+
+// --- List helpers ---
+
+fn append_hits(xs: List(ChainHit), ys: List(ChainHit)) -> List(ChainHit) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append_hits(t, ys)]
+    }
+}
+
+fn sum_damage(hits: List(ChainHit)) -> Int {
+    case hits {
+        [] -> 0
+        [h | t] -> h.damage + sum_damage(t)
+    }
+}
+
+fn length_hits(hits: List(ChainHit)) -> Int {
+    case hits {
+        [] -> 0
+        [_ | t] -> 1 + length_hits(t)
+    }
+}
+
+// --- Chain computation (recursive) ---
+
+fn compute_chain(
+    units: List(UnitPos),
+    from_x: Float,
+    from_y: Float,
+    damage: Int,
+    bounce: Int,
+    hits: List(ChainHit)
+) -> List(ChainHit) {
+    case bounce >= max_bounces() {
+        True -> hits
+        False -> case damage <= 0 {
+            True -> hits
+            False -> {
+                let search = find_nearest(units, from_x, from_y, max_bounce_range(), hits)
+                case search.found {
+                    False -> hits
+                    True -> {
+                        let hit = ChainHit {
+                            target_uid: search.best_uid,
+                            damage,
+                            bounce_index: bounce,
+                        }
+                        let new_hits = append_hits(hits, [hit])
+                        let target = get_unit_pos(units, search.best_uid)
+                        let next_damage = damage * damage_decay_pct() / 100
+                        compute_chain(units, target.x, target.y, next_damage, bounce + 1, new_hits)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- Public API ---
+
+pub fn cast_chain_lightning(
+    units: List(UnitPos),
+    caster_x: Float,
+    caster_y: Float,
+    initial_damage: Int
+) -> ChainResult {
+    let hits = compute_chain(units, caster_x, caster_y, initial_damage, 0, [])
+    ChainResult { hits, total_damage: sum_damage(hits) }
+}
+
+// --- Elm architecture (optional: for triggering from WC3 events) ---
+
+pub struct Model {
+    last_result: ChainResult,
+}
+
+pub enum Msg {
+    Cast { caster_x: Int, caster_y: Int, damage: Int, targets: List(UnitPos) }
+    Reset
+}
+
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+    let empty = ChainResult { hits: [], total_damage: 0 }
+    #(Model { last_result: empty }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+    case msg {
+        Cast(cx, cy, dmg, targets) -> {
+            let result = cast_chain_lightning(targets, int.to_float(cx), int.to_float(cy), dmg)
+            let text = "Chain Lightning hit " <> int.to_string(length_hits(result.hits))
+                <> " targets for " <> int.to_string(result.total_damage) <> " total damage"
+            #(Model { last_result: result }, [effect.display_text(0, text, 5.0)])
+        }
+        Reset -> {
+            let empty = ChainResult { hits: [], total_damage: 0 }
+            #(Model { last_result: empty }, [])
+        }
+    }
+}

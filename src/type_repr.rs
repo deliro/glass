@@ -86,7 +86,7 @@ impl Type {
                 "Item" => "item",
                 "Ability" => "ability",
                 "Buff" => "buff",
-                "Effect" | "Sfx" => "effect",
+                "Sfx" => "effect",
                 "Quest" => "quest",
                 "Dialog" => "dialog",
                 "Sound" => "sound",

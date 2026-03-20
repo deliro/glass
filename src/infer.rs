@@ -50,6 +50,8 @@ pub struct Inferencer {
     /// For each generic function, maps type param names to their TypeVarIds.
     /// e.g. "insert" → {"k" → 42, "v" → 43}
     pub type_param_vars: HashMap<String, HashMap<String, TypeVarId>>,
+    /// Const name → inferred type (for qualified const access: module.CONST)
+    const_types: HashMap<String, Type>,
 }
 
 impl Inferencer {
@@ -62,6 +64,7 @@ impl Inferencer {
             inferred_types: Vec::new(),
             type_map_raw: HashMap::new(),
             type_param_vars: HashMap::new(),
+            const_types: HashMap::new(),
         }
     }
 
@@ -80,7 +83,7 @@ impl Inferencer {
 
     /// Run inference on a full module.
     pub fn infer_module(&mut self, module: &Module) -> InferResult {
-        self.infer_module_with_imports(module, &[])
+        self.infer_module_with_imports(module, &[], &HashMap::new())
     }
 
     /// Run inference with import namespace information.
@@ -88,6 +91,7 @@ impl Inferencer {
         &mut self,
         module: &Module,
         imports: &[crate::modules::ResolvedImport],
+        def_module_map: &HashMap<usize, String>,
     ) -> InferResult {
         let mut env = TypeEnv::with_builtins();
 
@@ -106,24 +110,8 @@ impl Inferencer {
             }
         }
 
-        // Build a map: (def_index in merged module) → source module
-        // Match each merged def to its source import by name lookup.
-        let mut def_source_module: HashMap<usize, &str> = HashMap::new();
-        for (def_idx, def) in module.definitions.iter().enumerate() {
-            let def_name = crate::modules::def_name(def);
-            if let Some(name) = def_name {
-                for imp in imports {
-                    let found = imp
-                        .definitions
-                        .iter()
-                        .any(|d| crate::modules::def_name(d).is_some_and(|n| n == name));
-                    if found && imp.qualified {
-                        def_source_module.insert(def_idx, &imp.module_name);
-                        break;
-                    }
-                }
-            }
-        }
+        // def_module_map: (def_index in merged module) → source module name
+        // Built during module resolution where we know exactly which import each def comes from.
 
         // Phase 1: Register all type definitions and their constructors
         for def in &module.definitions {
@@ -178,7 +166,7 @@ impl Inferencer {
                     env.bind(f.name.clone(), scheme.clone());
                 }
                 // Register qualified name for THIS def's source module only
-                if let Some(&src_mod) = def_source_module.get(&def_idx) {
+                if let Some(src_mod) = def_module_map.get(&def_idx) {
                     let qname = format!("{}.{}", src_mod, f.name);
                     env.bind(qname, scheme);
                 }
@@ -220,7 +208,7 @@ impl Inferencer {
                 if !collides {
                     env.bind(e.fn_name.clone(), scheme.clone());
                 }
-                if let Some(&src_mod) = def_source_module.get(&def_idx) {
+                if let Some(src_mod) = def_module_map.get(&def_idx) {
                     let qname = format!("{}.{}", src_mod, e.fn_name);
                     env.bind(qname, scheme);
                 }
@@ -238,6 +226,24 @@ impl Inferencer {
             })
             .collect();
 
+        // Phase 2c: Register const types and bind them in env
+        for def in &module.definitions {
+            if let Definition::Const(c) = def {
+                let const_type = match &c.type_expr {
+                    Some(t) => self.resolve_type_expr(t),
+                    None => self.infer_expr(&c.value, &mut env),
+                };
+                self.const_types.insert(c.name.clone(), const_type.clone());
+                env.bind(
+                    c.name.clone(),
+                    crate::type_repr::TypeScheme {
+                        vars: vec![],
+                        ty: const_type,
+                    },
+                );
+            }
+        }
+
         // Phase 3: Infer user function bodies only
         for def in &module.definitions {
             if let Definition::Function(f) = def
@@ -248,7 +254,9 @@ impl Inferencer {
         }
 
         // Phase 3b: Infer imported function bodies in isolated contexts
-        // Save/restore substitution to avoid type var contamination between modules.
+        // Each import gets its own substitution to avoid type var contamination.
+        // After checking each body, apply the per-import substitution to recorded
+        // type_map entries so field access expressions resolve correctly.
         let saved_subst = self.subst.clone();
         let saved_errors_len = self.errors.len();
         for imp in imports {
@@ -387,12 +395,17 @@ impl Inferencer {
                 {
                     return tv.clone();
                 }
-                let base = match name.as_str() {
+                // Strip qualified prefix (module.Type → Type)
+                let bare_name = name
+                    .find('.')
+                    .map(|pos| &name[pos + 1..])
+                    .unwrap_or(name.as_str());
+                let base = match bare_name {
                     "Int" => Type::Con("Int".to_string()),
                     "Float" => Type::Con("Float".to_string()),
                     "Bool" => Type::Con("Bool".to_string()),
                     "String" => Type::Con("String".to_string()),
-                    _ => Type::Con(name.clone()),
+                    _ => Type::Con(bare_name.to_string()),
                 };
                 if args.is_empty() {
                     base
@@ -667,8 +680,14 @@ impl Inferencer {
                 }
             }
 
-            // Field access
+            // Field access — also handles qualified const: module.CONST_NAME
             Expr::FieldAccess { object, field } => {
+                // Check for qualified const access first
+                if matches!(&object.node, Expr::Var(_))
+                    && let Some(const_type) = self.const_types.get(field.as_str())
+                {
+                    return const_type.clone();
+                }
                 let obj_type = self.infer_expr(object, env);
                 let obj_resolved = obj_type.apply(&self.subst);
                 // Look up the field type from the constructor registry
@@ -972,16 +991,12 @@ impl Inferencer {
                     self.errors.push(e.into());
                 }
             }
-            Pattern::Int(_) => {
+            Pattern::Int(_) | Pattern::Rawcode(_) => {
                 if let Err(e) = unify::unify(expected, &Type::int(), span) {
                     self.errors.push(e.into());
                 }
             }
-            Pattern::Float(_) => {
-                if let Err(e) = unify::unify(expected, &Type::float(), span) {
-                    self.errors.push(e.into());
-                }
-            }
+            // Pattern::Float removed — floating point equality is unreliable
             Pattern::String(_) => {
                 if let Err(e) = unify::unify(expected, &Type::string(), span) {
                     self.errors.push(e.into());

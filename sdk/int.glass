@@ -33,3 +33,28 @@ pub fn abs(n: Int) -> Int {
 pub fn clamp(n: Int, low: Int, high: Int) -> Int {
     max(low, min(n, high))
 }
+
+pub fn pow(base: Int, exp: Int) -> Int {
+    case exp <= 0 {
+        True -> 1
+        False -> base * pow(base, exp - 1)
+    }
+}
+
+pub fn sign(n: Int) -> Int {
+    case n > 0 {
+        True -> 1
+        False -> case n < 0 {
+            True -> 0 - 1
+            False -> 0
+        }
+    }
+}
+
+pub fn is_even(n: Int) -> Bool {
+    n % 2 == 0
+}
+
+pub fn is_odd(n: Int) -> Bool {
+    n % 2 != 0
+}

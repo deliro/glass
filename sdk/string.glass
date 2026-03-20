@@ -23,3 +23,42 @@ pub fn to_lower(s: String) -> String {
 pub fn is_empty(s: String) -> Bool {
     length(s) == 0
 }
+
+pub fn char_at(s: String, idx: Int) -> String {
+    slice(s, idx, idx + 1)
+}
+
+pub fn contains(haystack: String, needle: String) -> Bool {
+    index_of(haystack, needle) >= 0
+}
+
+pub fn starts_with(s: String, prefix: String) -> Bool {
+    let plen = length(prefix)
+    case length(s) < plen {
+        True -> False
+        False -> slice(s, 0, plen) == prefix
+    }
+}
+
+pub fn index_of(haystack: String, needle: String) -> Int {
+    let hlen = length(haystack)
+    let nlen = length(needle)
+    index_of_helper(haystack, needle, 0, hlen, nlen)
+}
+
+fn index_of_helper(haystack: String, needle: String, pos: Int, hlen: Int, nlen: Int) -> Int {
+    case pos + nlen > hlen {
+        True -> 0 - 1
+        False -> case slice(haystack, pos, pos + nlen) == needle {
+            True -> pos
+            False -> index_of_helper(haystack, needle, pos + 1, hlen, nlen)
+        }
+    }
+}
+
+pub fn repeat(s: String, n: Int) -> String {
+    case n <= 0 {
+        True -> ""
+        False -> s <> repeat(s, n - 1)
+    }
+}

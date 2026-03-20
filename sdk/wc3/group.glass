@@ -1,0 +1,33 @@
+// Glass SDK: wc3/group — unit group natives
+//
+// Usage:
+//   import wc3/group
+//   let g = group.create()
+//   let _ = group.add_unit(g, my_unit)
+
+@external("jass", "CreateGroup")
+pub fn create() -> Group
+
+@external("jass", "DestroyGroup")
+pub fn destroy(g: Group) -> Int
+
+@external("jass", "GroupAddUnit")
+pub fn add_unit(g: Group, u: Unit) -> Int
+
+@external("jass", "GroupRemoveUnit")
+pub fn remove_unit(g: Group, u: Unit) -> Int
+
+@external("jass", "GroupClear")
+pub fn clear(g: Group) -> Int
+
+@external("jass", "IsUnitInGroup")
+pub fn is_in_group(u: Unit, g: Group) -> Bool
+
+@external("jass", "FirstOfGroup")
+pub fn first(g: Group) -> Unit
+
+@external("jass", "GroupEnumUnitsInRange")
+pub fn enum_in_range(g: Group, x: Float, y: Float, radius: Float, filter: Int) -> Int
+
+@external("jass", "GetHandleId")
+pub fn handle_id(g: Group) -> Int

@@ -1,0 +1,60 @@
+// Smoke test: imports every SDK module to verify they all compile.
+
+import wc3/player
+import wc3/unit
+import wc3/ability
+import wc3/item
+import wc3/timer
+import wc3/group
+import wc3/ui
+import wc3/camera
+import wc3/sfx
+import wc3/math
+import wc3/sound
+import wc3/rect
+import wc3/destructable
+import wc3/multiboard
+import int
+import float
+
+// Use one function from each module to verify linking.
+
+fn test_player(p: Player) -> String {
+    player.get_name(p)
+}
+
+fn test_unit_hp(u: Unit) -> Float {
+    unit.get_hp(u)
+}
+
+fn test_unit_hero(u: Unit) -> Int {
+    unit.get_hero_level(u)
+}
+
+fn test_ability(u: Unit) -> Bool {
+    ability.add(u, 1)
+}
+
+fn test_item(it: Item) -> String {
+    item.get_name(it)
+}
+
+fn test_timer(t: Timer) -> Float {
+    timer.get_remaining(t)
+}
+
+fn test_group(g: Group) -> Bool {
+    group.is_in_group(unit.get_trigger_unit(), g)
+}
+
+fn test_camera() -> Float {
+    camera.get_target_x()
+}
+
+fn test_rect(r: Rect) -> Float {
+    rect.center_x(r)
+}
+
+fn test_math() -> Int {
+    math.random_int(1, 100)
+}

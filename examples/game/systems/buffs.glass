@@ -1,0 +1,32 @@
+// Buff system: timed buffs that tick down each second.
+
+pub struct ActiveBuff {
+    kind: Int,
+    target_id: Int,
+    time_left: Int,
+}
+
+pub fn new_buff(kind: Int, target_id: Int, duration: Int) -> ActiveBuff {
+    ActiveBuff { kind, target_id, time_left: duration }
+}
+
+fn tick(b: ActiveBuff) -> ActiveBuff {
+    ActiveBuff { ..b, time_left: b.time_left - 1 }
+}
+
+fn is_expired(b: ActiveBuff) -> Bool {
+    b.time_left <= 0
+}
+
+pub fn tick_all(bs: List(ActiveBuff)) -> List(ActiveBuff) {
+    case bs {
+        [] -> []
+        [h | t] -> {
+            let updated = tick(h)
+            case is_expired(updated) {
+                True -> tick_all(t)
+                False -> [updated | tick_all(t)]
+            }
+        }
+    }
+}

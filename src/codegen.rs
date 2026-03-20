@@ -37,6 +37,20 @@ pub struct JassCodegen {
     mono_generated: HashSet<String>,
     /// Function definitions by name (for generating specialized copies)
     fn_defs: HashMap<String, FnDef>,
+    /// Glass type names from the current function's parameters (for fallback type resolution).
+    /// E.g. for `fn find(xs: List(PudgeState), uid: Int)` → ["PudgeState", "Int"]
+    current_fn_param_type_names: Vec<String>,
+    /// Known constants: name → inlined JASS value (e.g. "ROT_SPELL" → "'AUau'").
+    /// Constants are fully inlined — no globals emitted.
+    const_values: HashMap<String, String>,
+}
+
+struct ClosureEmitInfo {
+    id: usize,
+    captures: Vec<(String, String)>,
+    param_names: Vec<String>,
+    param_types: Vec<String>,
+    has_captures: bool,
 }
 
 #[derive(Clone)]
@@ -70,6 +84,8 @@ impl JassCodegen {
             mono_param_types: HashMap::new(),
             mono_generated: HashSet::new(),
             fn_defs: HashMap::new(),
+            current_fn_param_type_names: Vec::new(),
+            const_values: HashMap::new(),
         }
     }
 
@@ -82,6 +98,10 @@ impl JassCodegen {
         // Register externals with both unqualified AND qualified (module.name) keys
         for def in &module.definitions {
             match def {
+                Definition::Const(c) => {
+                    let value = self.gen_expr(&c.value.node);
+                    self.const_values.insert(c.name.clone(), value);
+                }
                 Definition::External(e) => {
                     let info = ExternalInfo {
                         jass_name: e.name_in_module.clone(),
@@ -125,14 +145,31 @@ impl JassCodegen {
             }
         }
 
+        // Phase 0b: DCE + topo sort — determine live definitions and their order.
+        // Lambda collection must use the SAME order as codegen (sorted_defs) to keep
+        // lambda_counter in sync between collection and codegen visitation.
+        let imported_count: usize = imports.iter().map(|i| i.definitions.len()).sum();
+        let live_defs = dead_code_eliminate(&module.definitions, imported_count);
+        let sorted_defs = topo_sort_definitions(&live_defs);
+
+        // Re-collect lambdas from sorted definitions (same order as codegen)
+        {
+            let mut fresh_collector = crate::closures::LambdaCollector::new();
+            let sorted_module = crate::ast::Module {
+                definitions: sorted_defs.iter().map(|d| (*d).clone()).collect(),
+            };
+            fresh_collector.collect_module(&sorted_module);
+            self.lambdas = fresh_collector.lambdas;
+        }
+
         // Phase 1: Collect globals and emit functions for SoA types
         self.gen_soa_preamble();
 
         // Phase 1b: List SoA
         self.gen_list_preamble();
 
-        // Phase 1c: Closure infrastructure
-        self.gen_closure_preamble();
+        // Phase 1c: Closure globals + alloc/dealloc (before user functions)
+        self.gen_closure_globals_and_alloc();
 
         // Phase 1c2: Type conversion helpers for dispatch
         self.emit("function glass_i2b takes integer i returns boolean");
@@ -159,15 +196,14 @@ impl JassCodegen {
             result.push_str(&self.output);
             self.output = result;
         }
-
-        // Phase 2: Emit user definitions (DCE + topologically sorted)
-        let imported_count: usize = imports.iter().map(|i| i.definitions.len()).sum();
-        let live_defs = dead_code_eliminate(&module.definitions, imported_count);
-        let sorted_defs = topo_sort_definitions(&live_defs);
         for def in &sorted_defs {
             self.gen_definition(def);
             self.output.push('\n');
         }
+
+        // Phase 2.5: Closure dispatch functions with inlined lambda bodies.
+        // Must be after user functions so lambda bodies can call them without forward references.
+        self.gen_closure_dispatch();
 
         // Phase 3: Emit Elm runtime functions (after user functions)
         if let Some(entry) = elm_entry {
@@ -345,29 +381,8 @@ impl JassCodegen {
         }
     }
 
-    fn gen_closure_preamble(&mut self) {
-        if self.lambdas.is_empty() {
-            // Always generate stub dispatch_void for runtime compatibility
-            self.emit("function glass_dispatch_void takes integer glass_closure returns integer");
-            self.indent += 1;
-            self.emit("return 0");
-            self.indent -= 1;
-            self.emit("endfunction");
-            self.output.push('\n');
-            return;
-        }
-
-        // Collect info to avoid borrow issues
-        struct ClosureEmitInfo {
-            id: usize,
-            captures: Vec<(String, String)>, // (name, jass_type)
-            param_names: Vec<String>,
-            param_types: Vec<String>,
-            has_captures: bool,
-        }
-
-        let infos: Vec<ClosureEmitInfo> = self
-            .lambdas
+    fn collect_closure_infos(&self) -> Vec<ClosureEmitInfo> {
+        self.lambdas
             .iter()
             .map(|l| ClosureEmitInfo {
                 id: l.id,
@@ -395,9 +410,15 @@ impl JassCodegen {
                     .collect(),
                 has_captures: !l.captures.is_empty(),
             })
-            .collect();
+            .collect()
+    }
 
-        // Collect closure globals
+    /// Emit closure globals and alloc/dealloc functions (safe before user code).
+    fn gen_closure_globals_and_alloc(&mut self) {
+        if self.lambdas.is_empty() {
+            return;
+        }
+        let infos = self.collect_closure_infos();
         let has_any_captures = infos.iter().any(|i| i.has_captures);
         if has_any_captures {
             for info in &infos {
@@ -414,8 +435,6 @@ impl JassCodegen {
                     self.add_global(&format!("integer glass_clos{}_count = 0", info.id));
                 }
             }
-
-            // Alloc/dealloc for capturing closures
             for info in &infos {
                 if info.has_captures {
                     let name = format!("clos{}", info.id);
@@ -426,35 +445,65 @@ impl JassCodegen {
                 }
             }
         }
+    }
 
-        // Generate function for each lambda body
-        // Use saved lambda bodies
+    /// Emit dispatch functions with inlined lambda bodies (after user code).
+    fn gen_closure_dispatch(&mut self) {
+        if self.lambdas.is_empty() {
+            // Always generate stub dispatch_void for runtime compatibility
+            self.emit("function glass_dispatch_void takes integer glass_closure returns integer");
+            self.indent += 1;
+            self.emit("return 0");
+            self.indent -= 1;
+            self.emit("endfunction");
+            self.output.push('\n');
+            return;
+        }
+
+        let infos = self.collect_closure_infos();
+
+        // Generate lambda bodies into a map (id → (locals_code, body_code, result_expr))
+        // These will be inlined into dispatch functions to avoid JASS forward-reference issues.
         let lambda_bodies: Vec<Spanned<Expr>> =
             self.lambdas.iter().map(|l| l.body.clone()).collect();
 
+        struct LambdaBodyCode {
+            local_decls: Vec<String>, // "local integer callback"
+            assignments: Vec<String>, // "set callback = glass_clos0_callback[glass_cid]"
+            locals_code: String,      // locals from body expressions
+            body_code: String,
+            result_expr: String,
+        }
+
+        let mut lambda_code: HashMap<usize, LambdaBodyCode> = HashMap::new();
+
         for (info, body) in infos.iter().zip(lambda_bodies.iter()) {
-            // All lambda functions take (integer glass_clos_id) as first param
-            // + their actual params. This unifies capturing and non-capturing lambdas.
-            let mut takes_parts: Vec<String> = vec!["integer glass_clos_id".to_string()];
-            for (pname, ptype) in info.param_names.iter().zip(info.param_types.iter()) {
-                takes_parts.push(format!("{} {}", ptype, pname));
-            }
+            // Generate capture/param declarations and assignments separately.
+            // JASS requires all locals at function top, so declarations are hoisted.
+            // Assignments are emitted inside the if-branch.
+            let mut local_decls = Vec::new(); // "local integer callback"
+            let mut assignments = Vec::new(); // "set callback = glass_clos0_callback[glass_cid]"
 
-            let takes = takes_parts.join(", ");
-
-            self.emit(&format!(
-                "function glass_lambda_{} takes {} returns integer",
-                info.id, takes
-            ));
-            self.indent += 1;
-
-            // Load captured variables from SoA (only for capturing closures)
             if info.has_captures {
                 for (name, jass_type) in &info.captures {
-                    self.emit(&format!(
-                        "local {} {} = glass_clos{}_{}[glass_clos_id]",
-                        jass_type, name, info.id, name
+                    local_decls.push(format!("local {} {}", jass_type, name));
+                    assignments.push(format!(
+                        "set {} = glass_clos{}_{}[glass_cid]",
+                        name, info.id, name
                     ));
+                }
+            }
+
+            for (j, (pname, ptype)) in info
+                .param_names
+                .iter()
+                .zip(info.param_types.iter())
+                .enumerate()
+            {
+                let dispatch_name = format!("glass_p{}", j);
+                if *pname != dispatch_name {
+                    local_decls.push(format!("local {} {}", ptype, pname));
+                    assignments.push(format!("set {} = {}", pname, dispatch_name));
                 }
             }
 
@@ -470,33 +519,40 @@ impl JassCodegen {
             self.indent = 1;
 
             let result = self.gen_expr(&body.node);
-            self.emit(&format!("return {}", result));
 
             let body_output = std::mem::replace(&mut self.output, saved_output);
             let temp_types = std::mem::replace(&mut self.temp_types, saved_temp_types);
             self.temp_counter = saved_temp;
             self.indent = saved_indent;
 
+            let mut locals_code = String::new();
             {
                 let mut seen = std::collections::HashSet::new();
                 for (name, jass_type) in &locals {
                     if seen.insert(name.clone()) {
-                        self.emit(&format!("local {} {}", jass_type, name));
+                        locals_code.push_str(&format!("    local {} {}\n", jass_type, name));
                     }
                 }
             }
             for (i, jass_type) in temp_types.iter().enumerate() {
-                self.emit(&format!("local {} glass_tmp_{}", jass_type, i));
+                locals_code.push_str(&format!("    local {} glass_tmp_{}\n", jass_type, i));
             }
 
-            self.output.push_str(&body_output);
-            self.indent -= 1;
-            self.emit("endfunction");
-            self.output.push('\n');
+            lambda_code.insert(
+                info.id,
+                LambdaBodyCode {
+                    local_decls,
+                    assignments,
+                    locals_code,
+                    body_code: body_output,
+                    result_expr: result,
+                },
+            );
         }
 
         // Generate dispatch functions by arity (0, 1, 2, ...).
-        // All closure params are integer in JASS.
+        // Lambda bodies are inlined into the dispatch to avoid JASS forward-reference issues
+        // (lambda bodies may call glass_dispatch_N for nested closures).
         let mut arity_groups: HashMap<usize, Vec<&ClosureEmitInfo>> = HashMap::new();
         for info in &infos {
             arity_groups
@@ -505,9 +561,10 @@ impl JassCodegen {
                 .push(info);
         }
 
-        // Generate dispatchers for arities 0..=max (ensure common arities exist)
         let max_arity = arity_groups.keys().copied().max().unwrap_or(0).max(2);
-        for arity in 0..=max_arity {
+        // Emit from highest to lowest arity: higher-arity dispatchers are called
+        // by lower-arity lambda bodies (e.g. effect.map's 0-arity lambda calls dispatch_1).
+        for arity in (0..=max_arity).rev() {
             let mut takes_parts = vec!["integer glass_closure".to_string()];
             for i in 0..arity {
                 takes_parts.push(format!("integer glass_p{}", i));
@@ -522,23 +579,47 @@ impl JassCodegen {
             self.emit("local integer glass_tag = glass_closure / 8192");
             self.emit("local integer glass_cid = glass_closure - glass_tag * 8192");
 
+            // Hoist all locals from all lambda bodies in this arity group to the function top.
+            // JASS requires all local declarations before the first statement.
             if let Some(lambdas) = arity_groups.get(&arity) {
+                let mut seen_locals = std::collections::HashSet::new();
+                for info in lambdas {
+                    if let Some(code) = lambda_code.get(&info.id) {
+                        // Hoist capture/param locals
+                        for decl in &code.local_decls {
+                            if seen_locals.insert(decl.clone()) {
+                                self.emit(decl);
+                            }
+                        }
+                        // Hoist body expression locals
+                        for line in code.locals_code.lines() {
+                            let trimmed = line.trim();
+                            if trimmed.starts_with("local ")
+                                && seen_locals.insert(trimmed.to_string())
+                            {
+                                self.emit(trimmed);
+                            }
+                        }
+                    }
+                }
+
                 for (i, info) in lambdas.iter().enumerate() {
                     let kw = if i == 0 { "if" } else { "elseif" };
                     self.emit(&format!("{} glass_tag == {} then", kw, info.id));
-                    self.indent += 1;
 
-                    let mut call_args = vec!["glass_cid".to_string()];
-                    for j in 0..arity {
-                        call_args.push(format!("glass_p{}", j));
+                    if let Some(code) = lambda_code.get(&info.id) {
+                        // Emit capture/param assignments
+                        self.indent += 1;
+                        for assignment in &code.assignments {
+                            self.emit(assignment);
+                        }
+                        self.indent -= 1;
+                        // Emit body code + return
+                        self.output.push_str(&code.body_code);
+                        self.indent += 1;
+                        self.emit(&format!("return {}", code.result_expr));
+                        self.indent -= 1;
                     }
-
-                    self.emit(&format!(
-                        "return glass_lambda_{}({})",
-                        info.id,
-                        call_args.join(", ")
-                    ));
-                    self.indent -= 1;
                 }
                 self.emit("endif");
             }
@@ -685,6 +766,13 @@ impl JassCodegen {
     }
 
     fn gen_fn_def(&mut self, f: &FnDef) {
+        // Track parameter type names for field access disambiguation
+        self.current_fn_param_type_names = f
+            .params
+            .iter()
+            .filter_map(|p| Self::extract_inner_type_name(&p.type_expr))
+            .collect();
+
         let params = f
             .params
             .iter()
@@ -789,16 +877,8 @@ impl JassCodegen {
         // The call sites will use the native name directly.
     }
 
-    fn gen_const_def(&mut self, c: &ConstDef) {
-        let jass_type = match &c.type_expr {
-            Some(t) => self.type_to_jass(t),
-            None => "integer".to_string(),
-        };
-        let value = self.gen_expr(&c.value.node);
-        self.emit(&format!(
-            "globals\n    constant {} glass_{} = {}\nendglobals",
-            jass_type, c.name, value
-        ));
+    fn gen_const_def(&mut self, _c: &ConstDef) {
+        // Constants are fully inlined at use sites — no codegen needed.
     }
 
     // === Expressions ===
@@ -817,7 +897,13 @@ impl JassCodegen {
                     "false".to_string()
                 }
             }
-            Expr::Var(name) => name.clone(),
+            Expr::Var(name) => {
+                // Inline constants at use site
+                if let Some(value) = self.const_values.get(name.as_str()) {
+                    return value.clone();
+                }
+                name.clone()
+            }
 
             Expr::BinOp { op, left, right } => {
                 // Constant folding: evaluate compile-time constants
@@ -927,9 +1013,14 @@ impl JassCodegen {
             }
 
             Expr::FieldAccess { object, field } => {
+                // Check if this is a qualified const access: module.CONST_NAME
+                if let Some(value) = self.const_values.get(field.as_str()) {
+                    return value.clone();
+                }
+
                 let obj = self.gen_expr(&object.node);
                 // Look up the object's type to generate the correct getter name
-                let type_name = self
+                let mut type_name = self
                     .lookup_full_type(object.span)
                     .map(|ty| match &ty {
                         Type::Con(name) => name.clone(),
@@ -941,12 +1032,35 @@ impl JassCodegen {
                     })
                     .unwrap_or_default();
 
+                // Fallback: if type_map gave a primitive or empty name, search TypeRegistry
+                // for a user-defined type that has this field.
+                if type_name.is_empty() || !self.types.types.contains_key(&type_name) {
+                    let mut candidates: Vec<String> = Vec::new();
+                    for (tn, info) in &self.types.types {
+                        for variant in &info.variants {
+                            if variant.fields.iter().any(|f| f.name == *field) {
+                                candidates.push(tn.clone());
+                                break;
+                            }
+                        }
+                    }
+                    if candidates.len() == 1 {
+                        type_name = candidates.into_iter().next().unwrap_or_default();
+                    } else if candidates.len() > 1 {
+                        // Disambiguate: prefer a type that matches a current function parameter
+                        let param_match = candidates
+                            .iter()
+                            .find(|c| self.current_fn_param_type_names.contains(c));
+                        if let Some(matched) = param_match {
+                            type_name = matched.clone();
+                        }
+                    }
+                }
+
                 if type_name.is_empty() {
                     format!("glass_get_{}({})", field, obj)
                 } else {
-                    // Try to find the variant that has this field
                     // For single-constructor types, variant name == type name
-                    // Try type_variant_field pattern first
                     format!("glass_get_{}_{}_{} ({})", type_name, type_name, field, obj)
                 }
             }
@@ -1032,7 +1146,28 @@ impl JassCodegen {
                 let case_jass_type = arms
                     .first()
                     .and_then(|arm| self.lookup_full_type(arm.body.span))
-                    .map(|ty| self.type_to_jass_from_type(&ty))
+                    .map(|ty| {
+                        let jt = self.type_to_jass_from_type(&ty);
+                        // Guard against stale type_map for imported functions.
+                        // Infer the correct type from the arm body expression.
+                        if let Some(arm) = arms.first() {
+                            if jt != "real" && Self::expr_has_float(&arm.body.node) {
+                                return "real".to_string();
+                            }
+                            if jt == "string"
+                                && matches!(
+                                    &arm.body.node,
+                                    Expr::Call { .. }
+                                        | Expr::Constructor { .. }
+                                        | Expr::List(_)
+                                        | Expr::ListCons { .. }
+                                )
+                            {
+                                return "integer".to_string();
+                            }
+                        }
+                        jt
+                    })
                     .unwrap_or_else(|| "integer".to_string());
                 let result_var = self.fresh_temp_typed(&case_jass_type);
 
@@ -1059,7 +1194,7 @@ impl JassCodegen {
                 };
 
                 for (i, arm) in arms.iter().enumerate() {
-                    let condition = Self::gen_pattern_condition_typed(
+                    let condition = self.gen_pattern_condition_typed(
                         &arm.pattern.node,
                         &subj,
                         subject_type_name.as_deref(),
@@ -1174,6 +1309,54 @@ impl JassCodegen {
                     Expr::Var(name) => {
                         format!("glass_{}({})", name, l)
                     }
+                    // x |> module.func → glass_func(x)
+                    // x |> module.func(a, b) → glass_func(x, a, b)
+                    // x |> module.func(a, _) → glass_func(a, x)
+                    Expr::MethodCall {
+                        object,
+                        method,
+                        args,
+                    } => {
+                        // Check for external
+                        let ext_info = if let Expr::Var(module_name) = &object.node {
+                            let qualified = format!("{}.{}", module_name, method);
+                            self.externals
+                                .get(&qualified)
+                                .or_else(|| self.externals.get(method.as_str()))
+                                .cloned()
+                        } else {
+                            None
+                        };
+                        let func_name = match &ext_info {
+                            Some(ext) => ext.jass_name.clone(),
+                            None => format!("glass_{}", method),
+                        };
+                        if args.is_empty() {
+                            format!("{}({})", func_name, l)
+                        } else {
+                            let has_placeholder = args
+                                .iter()
+                                .any(|a| matches!(&a.node, Expr::Var(n) if n == "_"));
+                            let all_args: Vec<String> = if has_placeholder {
+                                args.iter()
+                                    .map(|a| {
+                                        if matches!(&a.node, Expr::Var(n) if n == "_") {
+                                            l.clone()
+                                        } else {
+                                            self.gen_expr(&a.node)
+                                        }
+                                    })
+                                    .collect()
+                            } else {
+                                let mut all = vec![l];
+                                for a in args {
+                                    all.push(self.gen_expr(&a.node));
+                                }
+                                all
+                            };
+                            format!("{}({})", func_name, all_args.join(", "))
+                        }
+                    }
                     _ => {
                         let r = self.gen_expr(&right.node);
                         format!("{}({})", r, l)
@@ -1182,6 +1365,14 @@ impl JassCodegen {
             }
 
             Expr::Constructor { name, args } => {
+                // Check if this is a const reference (nullary, no :: qualifier)
+                if args.is_empty()
+                    && !name.contains("::")
+                    && let Some(value) = self.const_values.get(name.as_str())
+                {
+                    return value.clone();
+                }
+
                 // Look up variant name from types (clone to release borrow)
                 // Strip qualified prefix: "BashResult::Bashed" → "Bashed"
                 let bare_name = name.rsplit("::").next().unwrap_or(name);
@@ -1319,11 +1510,23 @@ impl JassCodegen {
 
     /// Generate pattern condition with type info for correct SoA tag access.
     /// Strip qualified prefix: "BashResult::Bashed" → "Bashed"
+    fn expr_has_float(expr: &Expr) -> bool {
+        match expr {
+            Expr::Float(_) => true,
+            Expr::BinOp { left, right, .. } => {
+                Self::expr_has_float(&left.node) || Self::expr_has_float(&right.node)
+            }
+            Expr::UnaryOp { operand, .. } => Self::expr_has_float(&operand.node),
+            _ => false,
+        }
+    }
+
     fn bare_ctor_name(name: &str) -> &str {
         name.rsplit("::").next().unwrap_or(name)
     }
 
     fn gen_pattern_condition_typed(
+        &self,
         pattern: &Pattern,
         subject: &str,
         type_name: Option<&str>,
@@ -1332,12 +1535,19 @@ impl JassCodegen {
             Pattern::Bool(true) => format!("({} == true)", subject),
             Pattern::Bool(false) => format!("({} == false)", subject),
             Pattern::Int(n) => format!("({} == {})", subject, n),
-            Pattern::Float(n) => format!("({} == {:.1})", subject, n),
+            Pattern::Rawcode(s) => format!("({} == '{}')", subject, s),
             Pattern::String(s) => format!("({} == \"{}\")", subject, s),
             Pattern::Constructor { name, args } => {
                 let bare = Self::bare_ctor_name(name);
                 if args.is_empty() {
-                    format!("({} == glass_TAG_{})", subject, bare)
+                    // Check if this is a named constant (not a constructor).
+                    // Handle qualified names: "setup.ROT_SPELL" → check "ROT_SPELL"
+                    let const_key = bare.rsplit('.').next().unwrap_or(bare);
+                    if let Some(value) = self.const_values.get(const_key) {
+                        format!("({} == {})", subject, value)
+                    } else {
+                        format!("({} == glass_TAG_{})", subject, bare)
+                    }
                 } else {
                     let tag_access = match type_name {
                         Some(tn) => format!("glass_{}_tag[{}]", tn, subject),
@@ -1357,12 +1567,12 @@ impl JassCodegen {
             Pattern::Or(alternatives) => {
                 let conditions: Vec<String> = alternatives
                     .iter()
-                    .map(|alt| Self::gen_pattern_condition_typed(&alt.node, subject, type_name))
+                    .map(|alt| self.gen_pattern_condition_typed(&alt.node, subject, type_name))
                     .collect();
                 format!("({})", conditions.join(" or "))
             }
             Pattern::As { pattern, .. } => {
-                Self::gen_pattern_condition_typed(&pattern.node, subject, type_name)
+                self.gen_pattern_condition_typed(&pattern.node, subject, type_name)
             }
             // Empty list pattern: [] → subject == -1
             Pattern::List(elems) if elems.is_empty() => {
@@ -1403,8 +1613,7 @@ impl JassCodegen {
                 };
 
                 for (i, elem) in elems.iter().enumerate() {
-                    let field_val =
-                        format!("glass_get_{}_{}__{} [{}]", tuple_type, tuple_type, i, tmp);
+                    let field_val = format!("glass_{}_{}__{} [{}]", tuple_type, tuple_type, i, tmp);
                     self.gen_let_pattern_binding(&elem.node, &field_val, value_expr);
                 }
             }
@@ -1550,9 +1759,26 @@ impl JassCodegen {
             Pattern::Var(name) if name != "_" => {
                 locals.push((name.clone(), "integer".to_string()));
             }
-            Pattern::Constructor { args, .. } => {
-                for arg in args {
-                    self.collect_pattern_locals(&arg.node, locals);
+            Pattern::Constructor { name, args } => {
+                // Look up field types from TypeRegistry for correct JASS types
+                let bare = Self::bare_ctor_name(name);
+                let field_types: Vec<String> = self
+                    .types
+                    .get_variant(bare)
+                    .map(|(_, v)| v.fields.iter().map(|f| f.jass_type.clone()).collect())
+                    .unwrap_or_default();
+                for (i, arg) in args.iter().enumerate() {
+                    if let Pattern::Var(vname) = &arg.node {
+                        if vname != "_" {
+                            let jass_type = field_types
+                                .get(i)
+                                .cloned()
+                                .unwrap_or_else(|| "integer".to_string());
+                            locals.push((vname.clone(), jass_type));
+                        }
+                    } else {
+                        self.collect_pattern_locals(&arg.node, locals);
+                    }
                 }
             }
             Pattern::ConstructorNamed { name, fields, .. } => {
@@ -1601,6 +1827,22 @@ impl JassCodegen {
     }
 
     // === Type mapping ===
+
+    /// Extract the innermost type name from a type expression.
+    /// E.g. `List(PudgeState)` → `"PudgeState"`, `Int` → `"Int"`, `fn(...) -> ...` → None
+    fn extract_inner_type_name(ty: &TypeExpr) -> Option<String> {
+        match ty {
+            TypeExpr::Named { name, args } => {
+                if args.is_empty() {
+                    Some(name.clone())
+                } else {
+                    // For List(X), Option(X), etc. — extract X
+                    args.iter().find_map(Self::extract_inner_type_name)
+                }
+            }
+            _ => None,
+        }
+    }
 
     fn type_to_jass(&self, ty: &TypeExpr) -> String {
         let TypeExpr::Named { name, .. } = ty else {

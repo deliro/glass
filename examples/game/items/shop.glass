@@ -1,0 +1,18 @@
+// Item shop: item catalog with prices.
+
+pub struct ShopItem {
+    item_id: Int,
+    name: String,
+    cost: Int,
+}
+
+pub fn find_item(item_id: Int) -> ShopItem {
+    case item_id {
+        1 -> ShopItem { item_id: 1, name: "Boots of Speed", cost: 500 }
+        2 -> ShopItem { item_id: 2, name: "Clarity Potion", cost: 50 }
+        3 -> ShopItem { item_id: 3, name: "Healing Salve", cost: 100 }
+        4 -> ShopItem { item_id: 4, name: "Ring of Protection", cost: 175 }
+        5 -> ShopItem { item_id: 5, name: "Gauntlets of Strength", cost: 150 }
+        _ -> ShopItem { item_id: 0, name: "Unknown", cost: 0 }
+    }
+}

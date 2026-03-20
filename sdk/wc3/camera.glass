@@ -1,0 +1,45 @@
+// Glass SDK: wc3/camera — camera control natives
+//
+// Usage:
+//   import wc3/camera
+//   let _ = camera.pan_to(x, y)
+
+@external("jass", "SetCameraPosition")
+pub fn set_position(x: Float, y: Float) -> Int
+
+@external("jass", "PanCameraTo")
+pub fn pan_to(x: Float, y: Float) -> Int
+
+@external("jass", "PanCameraToTimed")
+pub fn pan_to_timed(x: Float, y: Float, duration: Float) -> Int
+
+@external("jass", "SetCameraField")
+pub fn set_field(field: Int, value: Float, duration: Float) -> Int
+
+@external("jass", "ResetToGameCamera")
+pub fn reset(duration: Float) -> Int
+
+@external("jass", "GetCameraTargetPositionX")
+pub fn get_target_x() -> Float
+
+@external("jass", "GetCameraTargetPositionY")
+pub fn get_target_y() -> Float
+
+pub const FIELD_TARGET_DISTANCE: Int = 0
+pub const FIELD_FARZ: Int = 1
+pub const FIELD_ANGLE_OF_ATTACK: Int = 2
+pub const FIELD_FIELD_OF_VIEW: Int = 3
+pub const FIELD_ROLL: Int = 4
+pub const FIELD_ROTATION: Int = 5
+
+pub fn set_distance(dist: Float, duration: Float) -> Int {
+    set_field(FIELD_TARGET_DISTANCE, dist, duration)
+}
+
+pub fn set_angle_of_attack(angle: Float, duration: Float) -> Int {
+    set_field(FIELD_ANGLE_OF_ATTACK, angle, duration)
+}
+
+pub fn set_rotation(angle: Float, duration: Float) -> Int {
+    set_field(FIELD_ROTATION, angle, duration)
+}

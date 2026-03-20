@@ -1,0 +1,36 @@
+// Glass SDK: wc3/multiboard — scoreboard natives
+//
+// Usage:
+//   import wc3/multiboard
+//   let mb = multiboard.create()
+//   let _ = multiboard.set_title(mb, "Scoreboard")
+
+@external("jass", "CreateMultiboard")
+pub fn create() -> Multiboard
+
+@external("jass", "DestroyMultiboard")
+pub fn destroy(mb: Multiboard) -> Int
+
+@external("jass", "MultiboardDisplay")
+pub fn display(mb: Multiboard, show: Bool) -> Int
+
+@external("jass", "MultiboardSetTitleText")
+pub fn set_title(mb: Multiboard, text: String) -> Int
+
+@external("jass", "MultiboardSetColumnCount")
+pub fn set_columns(mb: Multiboard, count: Int) -> Int
+
+@external("jass", "MultiboardSetRowCount")
+pub fn set_rows(mb: Multiboard, count: Int) -> Int
+
+@external("jass", "MultiboardGetItem")
+pub fn get_item(mb: Multiboard, row: Int, column: Int) -> Int
+
+@external("jass", "MultiboardSetItemValue")
+pub fn set_item_value(item: Int, value: String) -> Int
+
+@external("jass", "MultiboardSetItemWidth")
+pub fn set_item_width(item: Int, width: Float) -> Int
+
+@external("jass", "MultiboardReleaseItem")
+pub fn release_item(item: Int) -> Int

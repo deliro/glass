@@ -3,7 +3,7 @@
 // Wraps JASS math natives. All angles are in radians unless noted.
 //
 // Usage:
-//   import jass/math
+//   import wc3/math
 //   let angle = math.atan2(dy, dx)
 //   let r = math.random_int(1, 100)
 

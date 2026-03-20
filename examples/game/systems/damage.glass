@@ -1,0 +1,7 @@
+// Damage system: game-specific bounty formulas.
+// Attack/damage type constants are in sdk/wc3/unit.
+
+// Bounty: gold reward for killing a creep
+pub fn creep_bounty(wave: Int) -> Int {
+    15 + wave * 3
+}

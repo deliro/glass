@@ -166,7 +166,9 @@ fn check_case_arms(
     let all_ctors: HashSet<String> = constructors
         .constructors
         .iter()
-        .filter(|(name, info)| info.type_name == type_name && !name.contains("::"))
+        .filter(|(name, info)| {
+            info.type_name == type_name && !name.contains("::") && !name.contains('.')
+        })
         .map(|(name, _)| name.clone())
         .collect();
 

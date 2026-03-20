@@ -1,0 +1,43 @@
+// Map setup: rawcodes, spawn points.
+
+import int
+
+// Unit rawcodes
+pub const PALADIN_ID: Int = 'Hpal'
+pub const DREADLORD_ID: Int = 'Udre'
+pub const FOOTMAN_ID: Int = 'hfoo'
+pub const GRUNT_ID: Int = 'ogru'
+
+// Creep spawn location
+pub const CREEP_SPAWN_X: Float = 0.0
+pub const CREEP_SPAWN_Y: Float = 2000.0
+
+// Spawn points per player
+pub fn hero_spawn_x(player_id: Int) -> Float {
+    case player_id {
+        0 -> 0.0 - 1500.0
+        1 -> 1500.0
+        _ -> 0.0
+    }
+}
+
+pub fn hero_spawn_y(player_id: Int) -> Float {
+    case player_id {
+        0 -> 0.0 - 1500.0
+        1 -> 1500.0
+        _ -> 0.0
+    }
+}
+
+pub fn hero_spawn_facing(player_id: Int) -> Float {
+    case player_id {
+        0 -> 45.0
+        1 -> 225.0
+        _ -> 0.0
+    }
+}
+
+// Respawn delay scales with hero level
+pub fn respawn_delay(hero_level: Int) -> Float {
+    5.0 + int.to_float(hero_level) * 2.0
+}

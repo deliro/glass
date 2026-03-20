@@ -1,0 +1,41 @@
+// Glass SDK: wc3/item — item manipulation natives
+//
+// Usage:
+//   import wc3/item
+//   let it = item.create('I000', 0.0, 0.0)
+
+@external("jass", "CreateItem")
+pub fn create(item_id: Int, x: Float, y: Float) -> Item
+
+@external("jass", "RemoveItem")
+pub fn remove(it: Item) -> Int
+
+@external("jass", "UnitAddItem")
+pub fn give_to_unit(u: Unit, it: Item) -> Bool
+
+@external("jass", "UnitAddItemById")
+pub fn give_by_id(u: Unit, item_id: Int) -> Item
+
+@external("jass", "GetItemTypeId")
+pub fn get_type_id(it: Item) -> Int
+
+@external("jass", "GetItemName")
+pub fn get_name(it: Item) -> String
+
+@external("jass", "GetItemCharges")
+pub fn get_charges(it: Item) -> Int
+
+@external("jass", "SetItemCharges")
+pub fn set_charges(it: Item, charges: Int) -> Int
+
+@external("jass", "GetManipulatedItem")
+pub fn get_manipulated() -> Item
+
+@external("jass", "GetItemLevel")
+pub fn get_level(it: Item) -> Int
+
+@external("jass", "SetItemDroppable")
+pub fn set_droppable(it: Item, flag: Bool) -> Int
+
+@external("jass", "GetHandleId")
+pub fn handle_id(it: Item) -> Int

@@ -70,6 +70,24 @@ fn compile_and_validate_with_natives(source: &str) {
     validate_jass_with_natives(&jass, true);
 }
 
+/// Compile a .glass file by path (preserving directory context for imports).
+fn compile_glass_file(path: &std::path::Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_glass"))
+        .arg(path)
+        .arg("--no-check")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("failed to run glass");
+
+    assert!(
+        output.status.success(),
+        "glass compilation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("invalid utf8")
+}
+
 // ============================================================
 // Example files — full compilation cycle + pjass validation
 // ============================================================
@@ -82,11 +100,45 @@ fn compile_and_validate_with_natives(source: &str) {
 #[case("tower_defense.glass")]
 #[case("axes_rexxar.glass")]
 #[case("greater_bash.glass")]
+#[case("invoker.glass")]
+#[case("buff_system.glass")]
+#[case("rune_system.glass")]
+#[case("chain_lightning.glass")]
+#[case("item_combine.glass")]
+#[case("game/main.glass")]
+#[case("sdk_smoke.glass")]
+#[case("stdlib_smoke.glass")]
 fn example_compiles(#[case] filename: &str) {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source =
-        std::fs::read_to_string(manifest.join("examples").join(filename)).expect("read example");
-    compile_and_validate_with_natives(&source);
+    let path = manifest.join("examples").join(filename);
+    let jass = compile_glass_file(&path);
+    validate_jass_with_natives(&jass, true);
+}
+
+// ============================================================
+// Game example — full compilation WITH type checking (no --no-check)
+// ============================================================
+
+#[test]
+fn game_compiles_with_type_checking() {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest.join("examples").join("game/main.glass");
+    // Compile WITHOUT --no-check to ensure type checker passes
+    let output = Command::new(env!("CARGO_BIN_EXE_glass"))
+        .arg(&path)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("failed to run glass");
+
+    assert!(
+        output.status.success(),
+        "game/main.glass failed type checking:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let jass = String::from_utf8(output.stdout).expect("invalid utf8");
+    validate_jass_with_natives(&jass, true);
 }
 
 // ============================================================

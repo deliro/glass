@@ -1,0 +1,92 @@
+// Paladin — Holy Light (heal) and Divine Shield (invulnerability).
+// Owns its own PaladinMsg and update function.
+
+import int
+import effect
+
+pub struct PaladinState {
+    unit_id: Int,
+    holy_light_level: Int,
+    divine_shield_level: Int,
+    divine_shield_active: Bool,
+    divine_shield_ticks: Int,
+}
+
+pub fn new_paladin(unit_id: Int) -> PaladinState {
+    PaladinState {
+        unit_id,
+        holy_light_level: 1,
+        divine_shield_level: 1,
+        divine_shield_active: False,
+        divine_shield_ticks: 0,
+    }
+}
+
+// --- State lookup ---
+
+pub fn find_paladin(xs: List(PaladinState), uid: Int) -> PaladinState {
+    case xs {
+        [] -> new_paladin(uid)
+        [h | t] -> case h.unit_id == uid { True -> h  False -> find_paladin(t, uid) }
+    }
+}
+
+pub fn set_paladin(xs: List(PaladinState), s: PaladinState) -> List(PaladinState) {
+    case xs {
+        [] -> [s]
+        [h | t] -> case h.unit_id == s.unit_id { True -> [s | t]  False -> [h | set_paladin(t, s)] }
+    }
+}
+
+// --- Msg ---
+
+pub enum PaladinMsg {
+    CastHolyLight { target_id: Int }
+    ActivateShield
+    ShieldTick
+}
+
+// --- Update ---
+
+pub fn on_msg(s: PaladinState, msg: PaladinMsg) -> #(PaladinState, List(effect.Effect(PaladinMsg))) {
+    case msg {
+        CastHolyLight(target_id) -> {
+            let amount = holy_light_amount(s.holy_light_level)
+            #(s, [
+                effect.display_text(0, "+" <> int.to_string(amount) <> " HP", 2.0),
+                effect.set_unit_hp(target_id, int.to_float(amount)),
+            ])
+        }
+        ActivateShield -> {
+            let ds = PaladinState {
+                ..s,
+                divine_shield_active: True,
+                divine_shield_ticks: divine_shield_duration(s.divine_shield_level),
+            }
+            #(ds, [
+                effect.display_text(0, "Divine Shield!", 3.0),
+                effect.after(1.0, fn() { PaladinMsg::ShieldTick }),
+            ])
+        }
+        ShieldTick -> case s.divine_shield_active {
+            True -> case s.divine_shield_ticks <= 1 {
+                True -> #(PaladinState { ..s, divine_shield_active: False, divine_shield_ticks: 0 }, [])
+                False -> #(
+                    PaladinState { ..s, divine_shield_ticks: s.divine_shield_ticks - 1 },
+                    [effect.after(1.0, fn() { PaladinMsg::ShieldTick })]
+                )
+            }
+            False -> #(s, [])
+        }
+    }
+}
+
+// --- Helpers ---
+
+pub fn holy_light_amount(level: Int) -> Int {
+    case level { 1 -> 200  2 -> 400  3 -> 600  _ -> 0 }
+}
+
+fn divine_shield_duration(level: Int) -> Int {
+    case level { 1 -> 5  2 -> 10  3 -> 15  _ -> 0 }
+}

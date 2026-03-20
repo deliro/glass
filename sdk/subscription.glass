@@ -1,0 +1,84 @@
+// Glass standard library: Subscription(M)
+// Subscriptions connect WC3 events to Glass messages.
+// Returned from the `subscriptions` function, the runtime registers
+// the appropriate WC3 triggers and dispatches messages.
+//
+// Handler closures receive WC3 handle IDs (Int) and return a message.
+
+pub enum Subscription(M) {
+    OnAttack { handler: fn(Int, Int) -> M }
+    OnDeath { handler: fn(Int, Int) -> M }
+    OnTimer { interval: Float, handler: fn() -> M }
+    OnSpellEffect { handler: fn(Int, Int, Int) -> M }
+    OnSpellCast { handler: fn(Int, Int) -> M }
+    OnSpellChannel { handler: fn(Int, Int) -> M }
+    OnDamage { handler: fn(Int, Int, Int) -> M }
+    OnItemPickup { handler: fn(Int, Int) -> M }
+    OnItemUse { handler: fn(Int, Int) -> M }
+    OnItemDrop { handler: fn(Int, Int) -> M }
+    OnUnitEntersRegion { region_id: Int, handler: fn(Int) -> M }
+    OnChat { handler: fn(Int, String) -> M }
+    OnPlayerLeave { handler: fn(Int) -> M }
+    OnHeroLevelUp { handler: fn(Int) -> M }
+    OnConstructionFinish { handler: fn(Int) -> M }
+}
+
+pub fn on_attack(handler: fn(Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnAttack { handler }
+}
+
+pub fn on_death(handler: fn(Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnDeath { handler }
+}
+
+pub fn on_timer(interval: Float, handler: fn() -> m) -> Subscription(m) {
+    Subscription::OnTimer { interval, handler }
+}
+
+pub fn on_spell_effect(handler: fn(Int, Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnSpellEffect { handler }
+}
+
+pub fn on_spell_cast(handler: fn(Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnSpellCast { handler }
+}
+
+pub fn on_spell_channel(handler: fn(Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnSpellChannel { handler }
+}
+
+pub fn on_damage(handler: fn(Int, Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnDamage { handler }
+}
+
+pub fn on_item_pickup(handler: fn(Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnItemPickup { handler }
+}
+
+pub fn on_item_use(handler: fn(Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnItemUse { handler }
+}
+
+pub fn on_item_drop(handler: fn(Int, Int) -> m) -> Subscription(m) {
+    Subscription::OnItemDrop { handler }
+}
+
+pub fn on_unit_enters_region(region_id: Int, handler: fn(Int) -> m) -> Subscription(m) {
+    Subscription::OnUnitEntersRegion { region_id, handler }
+}
+
+pub fn on_chat(handler: fn(Int, String) -> m) -> Subscription(m) {
+    Subscription::OnChat { handler }
+}
+
+pub fn on_player_leave(handler: fn(Int) -> m) -> Subscription(m) {
+    Subscription::OnPlayerLeave { handler }
+}
+
+pub fn on_hero_level_up(handler: fn(Int) -> m) -> Subscription(m) {
+    Subscription::OnHeroLevelUp { handler }
+}
+
+pub fn on_construction_finish(handler: fn(Int) -> m) -> Subscription(m) {
+    Subscription::OnConstructionFinish { handler }
+}

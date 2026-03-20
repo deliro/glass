@@ -1,0 +1,41 @@
+// Glass SDK: wc3/ui — user interface natives
+//
+// Usage:
+//   import wc3/ui
+//   import wc3/player
+//   let _ = ui.display_text(player.get(0), 0.0, 0.0, 10.0, "Hello!")
+
+@external("jass", "DisplayTimedTextToPlayer")
+pub fn display_text(p: Player, x: Float, y: Float, duration: Float, message: String) -> Int
+
+@external("jass", "ClearTextMessages")
+pub fn clear_text() -> Int
+
+// --- Floating text (texttag) ---
+
+@external("jass", "CreateTextTag")
+pub fn create_texttag() -> Texttag
+
+@external("jass", "DestroyTextTag")
+pub fn destroy_texttag(t: Texttag) -> Int
+
+@external("jass", "SetTextTagText")
+pub fn set_texttag_text(t: Texttag, text: String, height: Float) -> Int
+
+@external("jass", "SetTextTagPos")
+pub fn set_texttag_pos(t: Texttag, x: Float, y: Float, z: Float) -> Int
+
+@external("jass", "SetTextTagColor")
+pub fn set_texttag_color(t: Texttag, red: Int, green: Int, blue: Int, alpha: Int) -> Int
+
+@external("jass", "SetTextTagVelocity")
+pub fn set_texttag_velocity(t: Texttag, xvel: Float, yvel: Float) -> Int
+
+@external("jass", "SetTextTagLifespan")
+pub fn set_texttag_lifespan(t: Texttag, lifespan: Float) -> Int
+
+@external("jass", "SetTextTagPermanent")
+pub fn set_texttag_permanent(t: Texttag, flag: Bool) -> Int
+
+@external("jass", "SetTextTagFadepoint")
+pub fn set_texttag_fadepoint(t: Texttag, fadepoint: Float) -> Int

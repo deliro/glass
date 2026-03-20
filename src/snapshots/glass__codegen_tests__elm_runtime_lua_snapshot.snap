@@ -10,17 +10,46 @@ local glass_timer_ht = nil
 function glass_exec_effect(fx)
     if fx.tag == glass_TAG_After then
         local t = CreateTimer()
-        SaveInteger(glass_timer_ht, GetHandleId(t), 0, fx.callback)
+        local cb = fx.callback
         TimerStart(t, fx.duration, false, function()
             local expired = GetExpiredTimer()
-            local cb = LoadInteger(glass_timer_ht, GetHandleId(expired), 0)
-            FlushChildHashtable(glass_timer_ht, GetHandleId(expired))
             DestroyTimer(expired)
             local msg = cb()
             glass_send_msg(msg)
         end)
     elseif fx.tag == glass_TAG_DisplayText then
         DisplayTimedTextToPlayer(Player(fx.player_id), 0, 0, fx.duration, fx.text)
+    elseif fx.tag == glass_TAG_DamageUnit then
+        UnitDamageTarget(glass_handle_lookup_unit(fx.source_id), glass_handle_lookup_unit(fx.target_id), fx.amount, true, false, fx.attack_type, fx.damage_type, 0)
+    elseif fx.tag == glass_TAG_CreateUnit then
+        CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)
+    elseif fx.tag == glass_TAG_RemoveUnit then
+        RemoveUnit(glass_handle_lookup_unit(fx.unit_id))
+    elseif fx.tag == glass_TAG_MoveUnit then
+        SetUnitPosition(glass_handle_lookup_unit(fx.unit_id), fx.x, fx.y)
+    elseif fx.tag == glass_TAG_PlayAnimation then
+        SetUnitAnimation(glass_handle_lookup_unit(fx.unit_id), fx.anim)
+    elseif fx.tag == glass_TAG_AddAbility then
+        UnitAddAbility(glass_handle_lookup_unit(fx.unit_id), fx.ability_id)
+    elseif fx.tag == glass_TAG_AddSfx then
+        DestroyEffect(AddSpecialEffect(fx.model, fx.x, fx.y))
+    elseif fx.tag == glass_TAG_SetUnitHp then
+        SetUnitState(glass_handle_lookup_unit(fx.unit_id), UNIT_STATE_LIFE, fx.hp)
+    elseif fx.tag == glass_TAG_SetUnitMana then
+        SetUnitState(glass_handle_lookup_unit(fx.unit_id), UNIT_STATE_MANA, fx.mana)
+    elseif fx.tag == glass_TAG_PanCamera then
+        if GetLocalPlayer() == Player(fx.player_id) then
+            PanCameraTo(fx.x, fx.y)
+        end
+    elseif fx.tag == glass_TAG_ShowFloatingText then
+        local tt = CreateTextTag()
+        SetTextTagText(tt, fx.text, fx.size)
+        SetTextTagPos(tt, fx.x, fx.y, 0.0)
+        SetTextTagLifespan(tt, 3.0)
+        SetTextTagPermanent(tt, false)
+        SetTextTagVelocity(tt, 0.0, 0.04)
+    elseif fx.tag == glass_TAG_PlaySound then
+        -- PlaySound not yet implemented
     end
 end
 

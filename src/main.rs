@@ -103,7 +103,7 @@ fn cmd_gen_bindings(jass_file: &str) {
 fn cmd_check(input: &str) {
     let source = read_file(input);
     let module = parse_source(input, &source);
-    let (module, imports, _imported_count) = resolve_imports(input, module);
+    let (module, imports, _imported_count, _) = resolve_imports(input, module);
     let error_count = run_checks(input, &source, &module, &imports);
     if error_count > 0 {
         eprintln!("{} error(s) found", error_count);
@@ -115,11 +115,11 @@ fn cmd_check(input: &str) {
 fn cmd_compile(input: &str, output: Option<&str>, no_check: bool, target: Target) {
     let source = read_file(input);
     let module = parse_source(input, &source);
-    let (module, imports, imported_count) = resolve_imports(input, module);
+    let (module, imports, imported_count, def_module_map) = resolve_imports(input, module);
 
     // Always run inference (needed for type_map in codegen)
     let mut inferencer = infer::Inferencer::new();
-    let infer_result = inferencer.infer_module_with_imports(&module, &imports);
+    let infer_result = inferencer.infer_module_with_imports(&module, &imports, &def_module_map);
 
     if !no_check {
         let error_count = run_checks_with_result(
@@ -225,7 +225,8 @@ fn run_checks(
     imports: &[modules::ResolvedImport],
 ) -> usize {
     let mut inferencer = infer::Inferencer::new();
-    let infer_result = inferencer.infer_module_with_imports(module, imports);
+    let empty_map = std::collections::HashMap::new();
+    let infer_result = inferencer.infer_module_with_imports(module, imports, &empty_map);
     let imported_count: usize = imports.iter().map(|i| i.definitions.len()).sum();
     run_checks_with_result(
         filename,
@@ -259,11 +260,18 @@ fn emit_warning(
 fn resolve_imports(
     input: &str,
     module: ast::Module,
-) -> (ast::Module, Vec<modules::ResolvedImport>, usize) {
+) -> (
+    ast::Module,
+    Vec<modules::ResolvedImport>,
+    usize,
+    std::collections::HashMap<usize, String>,
+) {
     let input_path = std::path::Path::new(input);
     let mut resolver = modules::ModuleResolver::new(input_path);
     match resolver.resolve_module(&module) {
-        Ok((resolved, imports, imported_count)) => (resolved, imports, imported_count),
+        Ok((resolved, imports, imported_count, def_module_map)) => {
+            (resolved, imports, imported_count, def_module_map)
+        }
         Err(errors) => {
             for e in &errors {
                 eprintln!("  × {}", e.message);

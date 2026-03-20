@@ -1,0 +1,48 @@
+// Gold / economy system.
+
+import int
+
+pub struct PlayerGold {
+    player_id: Int,
+    gold: Int,
+    total_earned: Int,
+}
+
+pub fn new_gold(player_id: Int) -> PlayerGold {
+    PlayerGold { player_id, gold: 625, total_earned: 625 }
+}
+
+pub fn add(pg: PlayerGold, amount: Int) -> PlayerGold {
+    PlayerGold { ..pg, gold: pg.gold + amount, total_earned: pg.total_earned + amount }
+}
+
+pub fn spend(pg: PlayerGold, cost: Int) -> PlayerGold {
+    case pg.gold >= cost {
+        True -> PlayerGold { ..pg, gold: pg.gold - cost }
+        False -> pg
+    }
+}
+
+pub fn can_afford(pg: PlayerGold, cost: Int) -> Bool {
+    pg.gold >= cost
+}
+
+pub fn find_player(pgs: List(PlayerGold), pid: Int) -> PlayerGold {
+    case pgs {
+        [] -> new_gold(pid)
+        [h | t] -> case h.player_id == pid {
+            True -> h
+            False -> find_player(t, pid)
+        }
+    }
+}
+
+pub fn set_player(pgs: List(PlayerGold), pg: PlayerGold) -> List(PlayerGold) {
+    case pgs {
+        [] -> [pg]
+        [h | t] -> case h.player_id == pg.player_id {
+            True -> [pg | t]
+            False -> [h | set_player(t, pg)]
+        }
+    }
+}

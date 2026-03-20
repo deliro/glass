@@ -27,9 +27,9 @@
 
 import effect
 import int
-import jass/math
-import jass/unit
-import jass/sfx
+import wc3/math
+import wc3/unit
+import wc3/sfx
 
 // === Constants ===
 

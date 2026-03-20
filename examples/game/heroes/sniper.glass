@@ -1,0 +1,63 @@
+// Sniper — Headshot (passive ministun on attack, PRD with real random).
+
+import int
+import wc3/math
+
+pub struct SniperState {
+    unit_id: Int,
+    headshot_level: Int,
+    headshot_streak: Int,
+}
+
+pub fn new_sniper(unit_id: Int) -> SniperState {
+    SniperState { unit_id, headshot_level: 1, headshot_streak: 0 }
+}
+
+// --- State lookup ---
+
+pub fn find_sniper(xs: List(SniperState), uid: Int) -> SniperState {
+    case xs {
+        [] -> new_sniper(uid)
+        [h | t] -> case h.unit_id == uid { True -> h  False -> find_sniper(t, uid) }
+    }
+}
+
+pub fn set_sniper(xs: List(SniperState), s: SniperState) -> List(SniperState) {
+    case xs {
+        [] -> [s]
+        [h | t] -> case h.unit_id == s.unit_id { True -> [s | t]  False -> [h | set_sniper(t, s)] }
+    }
+}
+
+// --- Headshot ---
+
+fn headshot_damage(level: Int) -> Int {
+    case level { 1 -> 90  2 -> 120  3 -> 150  4 -> 180  _ -> 0 }
+}
+
+fn headshot_chance(level: Int) -> Int {
+    case level { 1 -> 40  2 -> 40  3 -> 40  4 -> 40  _ -> 0 }
+}
+
+fn prd_chance(streak: Int, base_pct: Int) -> Int {
+    int.min((streak + 1) * base_pct / 4, 100)
+}
+
+pub enum HeadshotResult {
+    Procced { damage: Int, new_state: SniperState }
+    Missed { new_state: SniperState }
+}
+
+pub fn roll_headshot(s: SniperState) -> HeadshotResult {
+    let chance = prd_chance(s.headshot_streak, headshot_chance(s.headshot_level))
+    let rng = math.random_int(1, 100)
+    case rng <= chance {
+        True -> HeadshotResult::Procced {
+            damage: headshot_damage(s.headshot_level),
+            new_state: SniperState { ..s, headshot_streak: 0 },
+        }
+        False -> HeadshotResult::Missed {
+            new_state: SniperState { ..s, headshot_streak: s.headshot_streak + 1 },
+        }
+    }
+}

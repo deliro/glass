@@ -1,0 +1,177 @@
+// Glass SDK: wc3/unit — unit manipulation natives
+//
+// Wraps WC3 unit natives for position, creation, removal, combat, heroes.
+//
+// Usage:
+//   import wc3/unit
+//   let x = unit.get_x(my_unit)
+//   let _ = unit.set_x(my_unit, x + 100.0)
+
+// --- Position ---
+
+@external("jass", "GetUnitX")
+pub fn get_x(u: Unit) -> Float
+
+@external("jass", "GetUnitY")
+pub fn get_y(u: Unit) -> Float
+
+@external("jass", "SetUnitX")
+pub fn set_x(u: Unit, x: Float) -> Int
+
+@external("jass", "SetUnitY")
+pub fn set_y(u: Unit, y: Float) -> Int
+
+@external("jass", "SetUnitPosition")
+pub fn set_pos(u: Unit, x: Float, y: Float) -> Int
+
+@external("jass", "GetUnitFacing")
+pub fn get_facing(u: Unit) -> Float
+
+@external("jass", "SetUnitFacing")
+pub fn set_facing(u: Unit, facing: Float) -> Int
+
+// --- Creation / removal ---
+
+@external("jass", "CreateUnit")
+pub fn create(owner: Player, type_id: Int, x: Float, y: Float, facing: Float) -> Unit
+
+@external("jass", "RemoveUnit")
+pub fn remove(u: Unit) -> Int
+
+@external("jass", "GetHandleId")
+pub fn handle_id(u: Unit) -> Int
+
+@external("jass", "GetUnitTypeId")
+pub fn get_type_id(u: Unit) -> Int
+
+// --- State (HP / mana) ---
+
+pub const STATE_LIFE: Int = 0
+pub const STATE_MAX_LIFE: Int = 2
+pub const STATE_MANA: Int = 3
+pub const STATE_MAX_MANA: Int = 4
+
+@external("jass", "GetUnitState")
+pub fn get_state(u: Unit, state: Int) -> Float
+
+@external("jass", "SetUnitState")
+pub fn set_state(u: Unit, state: Int, value: Float) -> Int
+
+pub fn get_hp(u: Unit) -> Float { get_state(u, STATE_LIFE) }
+pub fn set_hp(u: Unit, hp: Float) -> Int { set_state(u, STATE_LIFE, hp) }
+pub fn get_max_hp(u: Unit) -> Float { get_state(u, STATE_MAX_LIFE) }
+pub fn get_mana(u: Unit) -> Float { get_state(u, STATE_MANA) }
+pub fn set_mana(u: Unit, mana: Float) -> Int { set_state(u, STATE_MANA, mana) }
+pub fn get_max_mana(u: Unit) -> Float { get_state(u, STATE_MAX_MANA) }
+
+// --- Combat ---
+
+// Attack type constants (for UnitDamageTarget)
+pub const ATTACK_NORMAL: Int = 0
+pub const ATTACK_MELEE: Int = 1
+pub const ATTACK_PIERCE: Int = 2
+pub const ATTACK_SIEGE: Int = 3
+pub const ATTACK_MAGIC: Int = 4
+pub const ATTACK_CHAOS: Int = 5
+pub const ATTACK_HERO: Int = 6
+pub const ATTACK_SPELL: Int = 5
+
+// Damage type constants
+pub const DAMAGE_UNKNOWN: Int = 0
+pub const DAMAGE_NORMAL: Int = 4
+pub const DAMAGE_ENHANCED: Int = 5
+pub const DAMAGE_FIRE: Int = 8
+pub const DAMAGE_COLD: Int = 9
+pub const DAMAGE_LIGHTNING: Int = 10
+pub const DAMAGE_POISON: Int = 11
+pub const DAMAGE_DISEASE: Int = 12
+pub const DAMAGE_DIVINE: Int = 13
+pub const DAMAGE_MAGIC: Int = 5
+pub const DAMAGE_SONIC: Int = 14
+pub const DAMAGE_ACID: Int = 15
+
+// Weapon type constants
+pub const WEAPON_NONE: Int = 0
+
+// Unit type constants (for IsUnitType)
+pub const UNIT_TYPE_HERO: Int = 0
+pub const UNIT_TYPE_DEAD: Int = 11
+pub const UNIT_TYPE_STRUCTURE: Int = 12
+pub const UNIT_TYPE_FLYING: Int = 14
+pub const UNIT_TYPE_MECHANICAL: Int = 25
+
+@external("jass", "UnitDamageTarget")
+pub fn damage_target(source: Unit, target: Unit, amount: Float, attack: Bool, ranged: Bool, attack_type: Int, damage_type: Int, weapon_type: Int) -> Bool
+
+@external("jass", "KillUnit")
+pub fn kill(u: Unit) -> Int
+
+@external("jass", "SetUnitOwner")
+pub fn set_owner(u: Unit, p: Player, change_color: Bool) -> Int
+
+// --- Animation / visibility ---
+
+@external("jass", "SetUnitAnimation")
+pub fn set_animation(u: Unit, anim: String) -> Int
+
+@external("jass", "PauseUnit")
+pub fn pause(u: Unit, flag: Bool) -> Int
+
+@external("jass", "ShowUnit")
+pub fn show(u: Unit, flag: Bool) -> Int
+
+@external("jass", "SetUnitInvulnerable")
+pub fn set_invulnerable(u: Unit, flag: Bool) -> Int
+
+// --- Event response ---
+
+@external("jass", "GetTriggerUnit")
+pub fn get_trigger_unit() -> Unit
+
+@external("jass", "GetAttacker")
+pub fn get_attacker() -> Unit
+
+@external("jass", "GetKillingUnit")
+pub fn get_killing_unit() -> Unit
+
+// --- Hero ---
+
+@external("jass", "GetHeroLevel")
+pub fn get_hero_level(u: Unit) -> Int
+
+@external("jass", "SetHeroLevel")
+pub fn set_hero_level(u: Unit, level: Int, show_eye: Bool) -> Int
+
+@external("jass", "GetHeroXP")
+pub fn get_hero_xp(u: Unit) -> Int
+
+@external("jass", "AddHeroXP")
+pub fn add_hero_xp(u: Unit, xp: Int, show_eye: Bool) -> Int
+
+@external("jass", "GetHeroStr")
+pub fn get_hero_str(u: Unit, include_bonuses: Bool) -> Int
+
+@external("jass", "GetHeroAgi")
+pub fn get_hero_agi(u: Unit, include_bonuses: Bool) -> Int
+
+@external("jass", "GetHeroInt")
+pub fn get_hero_int(u: Unit, include_bonuses: Bool) -> Int
+
+@external("jass", "SetHeroStr")
+pub fn set_hero_str(u: Unit, value: Int, permanent: Bool) -> Int
+
+@external("jass", "SetHeroAgi")
+pub fn set_hero_agi(u: Unit, value: Int, permanent: Bool) -> Int
+
+@external("jass", "SetHeroInt")
+pub fn set_hero_int(u: Unit, value: Int, permanent: Bool) -> Int
+
+@external("jass", "ReviveHero")
+pub fn revive_hero(u: Unit, x: Float, y: Float, do_eye: Bool) -> Bool
+
+@external("jass", "IsUnitType")
+pub fn is_type(u: Unit, unit_type: Int) -> Bool
+
+pub fn is_alive(u: Unit) -> Bool {
+    is_type(u, UNIT_TYPE_DEAD) == False
+}

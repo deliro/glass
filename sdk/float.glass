@@ -36,3 +36,36 @@ pub fn min(a: Float, b: Float) -> Float {
 pub fn clamp(n: Float, low: Float, high: Float) -> Float {
     max(low, min(n, high))
 }
+
+pub fn pi() -> Float { 3.14159265 }
+
+pub fn lerp(a: Float, b: Float, t: Float) -> Float {
+    a + (b - a) * t
+}
+
+pub fn floor(n: Float) -> Int {
+    to_int(n)
+}
+
+// Ceiling: smallest integer >= n.
+// R2I truncates toward zero, so for positive numbers with fractional part we add 1.
+@external("jass", "R2I")
+fn r2i(n: Float) -> Int
+
+@external("jass", "I2R")
+fn i2r(n: Int) -> Float
+
+pub fn ceil(n: Float) -> Int {
+    let i = r2i(n)
+    case i2r(i) == n {
+        True -> i
+        False -> case n > 0.0 {
+            True -> i + 1
+            False -> i
+        }
+    }
+}
+
+pub fn round(n: Float) -> Int {
+    to_int(n + 0.5)
+}

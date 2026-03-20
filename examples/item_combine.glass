@@ -1,0 +1,285 @@
+// Item combination system — combining component items into recipes.
+//
+// When a hero picks up an item, the system checks if they now hold all
+// components of any recipe. If so, the components are removed and the
+// combined item is granted.
+//
+// Demonstrates: deep list processing, multi-level pattern matching,
+// recursive contains/length, complex boolean logic,
+// custom Maybe enum, association lists, record update, pipe.
+
+import effect
+import int
+
+// --- Item IDs ---
+// Using integer IDs for items (like WC3 rawcodes mapped to Int).
+
+fn item_name(id: Int) -> String {
+    case id {
+        // Components
+        1 -> "Gauntlets of Strength"
+        2 -> "Circlet"
+        3 -> "Mantle of Intelligence"
+        4 -> "Slippers of Agility"
+        5 -> "Robe of the Magi"
+        6 -> "Belt of Strength"
+        7 -> "Boots of Speed"
+        8 -> "Blades of Attack"
+        9 -> "Chainmail"
+        10 -> "Broadsword"
+        11 -> "Claymore"
+        12 -> "Ring of Health"
+        13 -> "Void Stone"
+        14 -> "Staff of Wizardry"
+        15 -> "Ogre Axe"
+        16 -> "Blade of Alacrity"
+        17 -> "Point Booster"
+        // Combined items
+        100 -> "Bracer"
+        101 -> "Wraith Band"
+        102 -> "Null Talisman"
+        103 -> "Phase Boots"
+        104 -> "Blade Mail"
+        105 -> "Perseverance"
+        106 -> "Aghanim's Scepter"
+        _ -> "Unknown Item"
+    }
+}
+
+// --- Recipes ---
+// A recipe is a list of component item IDs and the resulting item ID.
+
+pub struct Recipe {
+    components: List(Int),
+    result: Int,
+}
+
+fn all_recipes() -> List(Recipe) {
+    [
+        // Bracer = Gauntlets + Circlet
+        Recipe { components: [1, 2], result: 100 },
+        // Wraith Band = Slippers + Circlet
+        Recipe { components: [4, 2], result: 101 },
+        // Null Talisman = Mantle + Circlet
+        Recipe { components: [3, 2], result: 102 },
+        // Phase Boots = Boots + Blades of Attack + Chainmail
+        Recipe { components: [7, 8, 9], result: 103 },
+        // Blade Mail = Broadsword + Chainmail
+        Recipe { components: [10, 9], result: 104 },
+        // Perseverance = Ring of Health + Void Stone
+        Recipe { components: [12, 13], result: 105 },
+        // Aghanim's Scepter = Staff + Ogre Axe + Blade of Alacrity + Point Booster
+        Recipe { components: [14, 15, 16, 17], result: 106 },
+    ]
+}
+
+// --- Hero inventory ---
+
+pub struct HeroInventory {
+    hero_id: Int,
+    items: List(Int),
+}
+
+// --- Maybe enum (replaces Option) ---
+
+pub enum MaybeRecipe {
+    FoundRecipe { value: Recipe }
+    NoRecipe
+}
+
+pub enum MaybeInt {
+    FoundInt { value: Int }
+    NoInt
+}
+
+// --- Combine result struct (replaces tuple) ---
+
+pub struct CombineResult {
+    inventory: HeroInventory,
+    combined: MaybeInt,
+}
+
+// --- List helpers ---
+
+fn contains_int(items: List(Int), target: Int) -> Bool {
+    case items {
+        [] -> False
+        [h | t] -> case h == target {
+            True -> True
+            False -> contains_int(t, target)
+        }
+    }
+}
+
+fn length_ints(items: List(Int)) -> Int {
+    case items {
+        [] -> 0
+        [_ | t] -> 1 + length_ints(t)
+    }
+}
+
+// --- Check if a hero has all components for a recipe ---
+
+fn has_component(items: List(Int), component: Int) -> Bool {
+    contains_int(items, component)
+}
+
+// Remove the first occurrence of an item from the list.
+fn remove_first(items: List(Int), target: Int) -> List(Int) {
+    case items {
+        [] -> []
+        [h | t] -> case h == target {
+            True -> t
+            False -> [h | remove_first(t, target)]
+        }
+    }
+}
+
+fn check_components(available: List(Int), needed: List(Int)) -> Bool {
+    case needed {
+        [] -> True
+        [c | rest] -> case has_component(available, c) {
+            True -> {
+                let remaining = remove_first(available, c)
+                check_components(remaining, rest)
+            }
+            False -> False
+        }
+    }
+}
+
+fn has_all_components(items: List(Int), components: List(Int)) -> Bool {
+    check_components(items, components)
+}
+
+// Remove all components of a recipe from the item list.
+fn remove_components(items: List(Int), components: List(Int)) -> List(Int) {
+    case components {
+        [] -> items
+        [c | rest] -> remove_components(remove_first(items, c), rest)
+    }
+}
+
+// --- Find a matching recipe ---
+
+fn find_matching_recipe(items: List(Int), recipes: List(Recipe)) -> MaybeRecipe {
+    case recipes {
+        [] -> MaybeRecipe::NoRecipe
+        [r | rest] -> case has_all_components(items, r.components) {
+            True -> MaybeRecipe::FoundRecipe(r)
+            False -> find_matching_recipe(items, rest)
+        }
+    }
+}
+
+// Try to combine items. Returns updated inventory and optionally the combined item.
+fn try_combine(inv: HeroInventory) -> CombineResult {
+    let recipe_opt = find_matching_recipe(inv.items, all_recipes())
+    case recipe_opt {
+        MaybeRecipe::NoRecipe -> CombineResult { inventory: inv, combined: MaybeInt::NoInt }
+        MaybeRecipe::FoundRecipe(recipe) -> {
+            let after_remove = remove_components(inv.items, recipe.components)
+            let new_items = [recipe.result | after_remove]
+            let new_inv = HeroInventory { hero_id: inv.hero_id, items: new_items }
+            // Recursively try again — might chain-combine
+            let final_result = try_combine(new_inv)
+            CombineResult { inventory: final_result.inventory, combined: MaybeInt::FoundInt(recipe.result) }
+        }
+    }
+}
+
+// --- Model ---
+
+pub struct Model {
+    inventories: List(HeroInventory),
+}
+
+pub enum Msg {
+    PickupItem { hero_id: Int, item_id: Int }
+    DropItem { hero_id: Int, item_id: Int }
+    QueryInventory { hero_id: Int }
+}
+
+// --- Inventory helpers ---
+
+fn lookup_inventory(invs: List(HeroInventory), hid: Int) -> HeroInventory {
+    case invs {
+        [] -> HeroInventory { hero_id: hid, items: [] }
+        [h | t] -> case h.hero_id == hid {
+            True -> h
+            False -> lookup_inventory(t, hid)
+        }
+    }
+}
+
+fn upsert_inventory(invs: List(HeroInventory), inv: HeroInventory) -> List(HeroInventory) {
+    case invs {
+        [] -> [inv]
+        [h | t] -> case h.hero_id == inv.hero_id {
+            True -> [inv | t]
+            False -> [h | upsert_inventory(t, inv)]
+        }
+    }
+}
+
+fn format_rest(items: List(Int)) -> String {
+    case items {
+        [] -> ""
+        [h | t] -> ", " <> item_name(h) <> format_rest(t)
+    }
+}
+
+fn format_inventory(items: List(Int)) -> String {
+    case items {
+        [] -> "(empty)"
+        [h | t] -> item_name(h) <> format_rest(t)
+    }
+}
+
+// --- Handlers ---
+
+fn handle_pickup(model: Model, hero_id: Int, item_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+    let inv = lookup_inventory(model.inventories, hero_id)
+    let new_inv = HeroInventory { hero_id, items: [item_id | inv.items] }
+    let result = try_combine(new_inv)
+    let new_invs = upsert_inventory(model.inventories, result.inventory)
+    let fx = case result.combined {
+        MaybeInt::FoundInt(result_id) -> [
+            effect.display_text(0, "Combined into " <> item_name(result_id) <> "!", 3.0)
+        ]
+        MaybeInt::NoInt -> [
+            effect.display_text(0, "Picked up " <> item_name(item_id), 2.0)
+        ]
+    }
+    #(Model { inventories: new_invs }, fx)
+}
+
+fn handle_drop(model: Model, hero_id: Int, item_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+    let inv = lookup_inventory(model.inventories, hero_id)
+    let new_items = remove_first(inv.items, item_id)
+    let new_inv = HeroInventory { hero_id, items: new_items }
+    let new_invs = upsert_inventory(model.inventories, new_inv)
+    let fx = [effect.display_text(0, "Dropped " <> item_name(item_id), 2.0)]
+    #(Model { inventories: new_invs }, fx)
+}
+
+fn handle_query(model: Model, hero_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+    let inv = lookup_inventory(model.inventories, hero_id)
+    let count = length_ints(inv.items)
+    let text = "Inventory (" <> int.to_string(count) <> "): " <> format_inventory(inv.items)
+    #(model, [effect.display_text(0, text, 5.0)])
+}
+
+// --- Elm architecture ---
+
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+    #(Model { inventories: [] }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+    case msg {
+        PickupItem(hid, iid) -> handle_pickup(model, hid, iid)
+        DropItem(hid, iid) -> handle_drop(model, hid, iid)
+        QueryInventory(hid) -> handle_query(model, hid)
+    }
+}

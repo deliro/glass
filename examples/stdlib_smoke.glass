@@ -1,0 +1,76 @@
+// Smoke test for standard library expansions.
+
+import list
+import int
+import float
+import string
+import color
+import math
+
+fn test_list_take() -> List(Int) {
+    list.take([1, 2, 3, 4, 5], 3)
+}
+
+fn test_list_drop() -> List(Int) {
+    list.drop([1, 2, 3, 4, 5], 2)
+}
+
+fn test_list_sum() -> Int {
+    list.sum([1, 2, 3, 4, 5])
+}
+
+fn test_list_product() -> Int {
+    list.product([1, 2, 3, 4])
+}
+
+fn test_list_concat() -> List(Int) {
+    list.concat([[1, 2], [3, 4], [5]])
+}
+
+fn test_int_pow() -> Int {
+    int.pow(2, 10)
+}
+
+fn test_int_sign() -> Int {
+    int.sign(0 - 5)
+}
+
+fn test_int_even() -> Bool {
+    int.is_even(4)
+}
+
+fn test_float_lerp() -> Float {
+    float.lerp(0.0, 100.0, 0.5)
+}
+
+fn test_float_round() -> Int {
+    float.round(3.7)
+}
+
+fn test_float_pi() -> Float {
+    float.pi()
+}
+
+fn test_string_repeat() -> String {
+    string.repeat("ha", 3)
+}
+
+fn test_string_starts_with() -> Bool {
+    string.starts_with("hello world", "hello")
+}
+
+fn test_color() -> String {
+    color.red("CRITICAL") <> " " <> color.gold("Gold: 100")
+}
+
+fn test_distance() -> Float {
+    math.distance(0.0, 0.0, 3.0, 4.0)
+}
+
+fn test_angle() -> Float {
+    math.angle_between(0.0, 0.0, 1.0, 1.0)
+}
+
+fn test_move() -> Float {
+    math.move_point_x(0.0, 0.0, 100.0)
+}

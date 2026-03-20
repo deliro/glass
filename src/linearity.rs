@@ -24,7 +24,7 @@ const HANDLE_TYPES: &[&str] = &[
     "Trigger",
     "Force",
     "Sound",
-    "Effect",
+    "Sfx",
     "Location",
     "Region",
     "Rect",

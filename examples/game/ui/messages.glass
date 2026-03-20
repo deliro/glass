@@ -1,0 +1,44 @@
+// UI messages: formatted colored text for game events.
+
+import int
+import color
+
+pub fn kill_msg(killer_name: String, victim_name: String) -> String {
+    color.red(killer_name) <> " killed " <> color.gray(victim_name) <> "!"
+}
+
+pub fn gold_msg(amount: Int) -> String {
+    color.gold("+" <> int.to_string(amount) <> " gold")
+}
+
+pub fn level_up_msg(hero_name: String, level: Int) -> String {
+    color.yellow(hero_name) <> " reached level " <> color.white(int.to_string(level))
+}
+
+pub fn wave_msg(wave: Int) -> String {
+    color.red("== Wave " <> int.to_string(wave) <> " ==")
+}
+
+pub fn headshot_msg(damage: Int) -> String {
+    color.yellow("HEADSHOT!") <> " " <> color.red("+" <> int.to_string(damage))
+}
+
+pub fn heal_msg(amount: Int) -> String {
+    color.green("+" <> int.to_string(amount) <> " HP")
+}
+
+pub fn shield_msg() -> String {
+    color.yellow("Divine Shield activated!")
+}
+
+pub fn dagon_msg(level: Int, damage: Int) -> String {
+    color.blue("Dagon " <> int.to_string(level)) <> " -> " <> color.red(int.to_string(damage) <> " damage")
+}
+
+pub fn game_start_msg() -> String {
+    color.gold("=== Glass Arena ===") <> " " <> color.white("Game started!")
+}
+
+pub fn respawn_msg(name: String) -> String {
+    color.green(name <> " has respawned!")
+}

@@ -1,0 +1,277 @@
+// Invoker — DotA spell combination system.
+//
+// Three orbs (Quas, Wex, Exort) can be combined into 10 unique spells.
+// The current orb combination determines which spell is invoked.
+// Demonstrates: deep pattern matching, large enums, import list (map/filter),
+// import option (Some/None), import string, pipe operator.
+
+import effect
+import int
+import list
+import option { Option }
+import string
+
+// --- Orb types ---
+
+pub enum Orb { Quas Wex Exort }
+
+// --- Invoked spells (10 combinations) ---
+
+pub enum Spell {
+    ColdSnap
+    GhostWalk
+    IceWall
+    Tornado
+    EMP
+    Alacrity
+    SunStrike
+    ForgeSpirit
+    ChaosMeteor
+    DeafeningBlast
+}
+
+// --- Per-unit invoker state ---
+
+pub struct OrbSlots { first: Orb, second: Orb, third: Orb }
+
+pub struct InvokerState {
+    unit_id: Int,
+    orbs: OrbSlots,
+    active_spell: Option(Spell),
+    quas_level: Int,
+    wex_level: Int,
+    exort_level: Int,
+}
+
+pub struct Model {
+    invokers: List(InvokerState),
+}
+
+pub enum Msg {
+    Register { unit_id: Int }
+    CastOrb { unit_id: Int, orb: Orb }
+    Invoke { unit_id: Int }
+    LevelUp { unit_id: Int, orb: Orb }
+}
+
+// --- Orb → Spell resolution ---
+// Sorted triple: count each orb type, match the signature.
+
+pub struct OrbCount { q: Int, w: Int, e: Int }
+
+fn count_orbs(a: Orb, b: Orb, c: Orb) -> OrbCount {
+    OrbCount {
+        q: orb_is_quas(a) + orb_is_quas(b) + orb_is_quas(c),
+        w: orb_is_wex(a) + orb_is_wex(b) + orb_is_wex(c),
+        e: orb_is_exort(a) + orb_is_exort(b) + orb_is_exort(c),
+    }
+}
+
+fn orb_is_quas(o: Orb) -> Int {
+    case o { Quas -> 1  Wex -> 0  Exort -> 0 }
+}
+
+fn orb_is_wex(o: Orb) -> Int {
+    case o { Quas -> 0  Wex -> 1  Exort -> 0 }
+}
+
+fn orb_is_exort(o: Orb) -> Int {
+    case o { Quas -> 0  Wex -> 0  Exort -> 1 }
+}
+
+fn resolve_spell(orb_a: Orb, orb_b: Orb, orb_c: Orb) -> Option(Spell) {
+    let counts = count_orbs(orb_a, orb_b, orb_c)
+    let q = counts.q
+    let w = counts.w
+    let e = counts.e
+    // QQQ=ColdSnap, QQW=GhostWalk, QQE=IceWall
+    // WWW=EMP, QWW=Tornado, WWE=Alacrity
+    // EEE=SunStrike, QEE=ForgeSpirit, WEE=ChaosMeteor
+    // QWE=DeafeningBlast
+    case q {
+        3 -> Option::Some(Spell::ColdSnap)
+        2 -> case w {
+            1 -> Option::Some(Spell::GhostWalk)
+            0 -> Option::Some(Spell::IceWall)
+            _ -> Option::None
+        }
+        1 -> case w {
+            2 -> Option::Some(Spell::Tornado)
+            1 -> case e {
+                1 -> Option::Some(Spell::DeafeningBlast)
+                _ -> Option::None
+            }
+            0 -> Option::Some(Spell::ForgeSpirit)
+            _ -> Option::None
+        }
+        0 -> case w {
+            3 -> Option::Some(Spell::EMP)
+            2 -> Option::Some(Spell::Alacrity)
+            1 -> Option::Some(Spell::ChaosMeteor)
+            0 -> Option::Some(Spell::SunStrike)
+            _ -> Option::None
+        }
+        _ -> Option::None
+    }
+}
+
+fn spell_name(s: Spell) -> String {
+    case s {
+        ColdSnap -> "Cold Snap"
+        GhostWalk -> "Ghost Walk"
+        IceWall -> "Ice Wall"
+        Tornado -> "Tornado"
+        EMP -> "EMP"
+        Alacrity -> "Alacrity"
+        SunStrike -> "Sun Strike"
+        ForgeSpirit -> "Forge Spirit"
+        ChaosMeteor -> "Chaos Meteor"
+        DeafeningBlast -> "Deafening Blast"
+    }
+}
+
+fn spell_damage_base(s: Spell, exort_level: Int) -> Int {
+    case s {
+        SunStrike -> 100 + exort_level * 62
+        ChaosMeteor -> 50 + exort_level * 35
+        DeafeningBlast -> 40 + exort_level * 40
+        ColdSnap -> 7 + exort_level * 6
+        EMP -> 0
+        _ -> 0
+    }
+}
+
+// --- Association list helpers ---
+
+fn lookup_invoker(invokers: List(InvokerState), uid: Int) -> InvokerState {
+    case invokers {
+        [] -> InvokerState {
+            unit_id: uid,
+            orbs: OrbSlots { first: Orb::Quas, second: Orb::Quas, third: Orb::Quas },
+            active_spell: Option::None,
+            quas_level: 1,
+            wex_level: 0,
+            exort_level: 0,
+        }
+        [h | t] -> case h.unit_id == uid {
+            True -> h
+            False -> lookup_invoker(t, uid)
+        }
+    }
+}
+
+fn upsert_invoker(invokers: List(InvokerState), state: InvokerState) -> List(InvokerState) {
+    case invokers {
+        [] -> [state]
+        [h | t] -> case h.unit_id == state.unit_id {
+            True -> [state | t]
+            False -> [h | upsert_invoker(t, state)]
+        }
+    }
+}
+
+// --- Handlers ---
+
+fn handle_register(model: Model, unit_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+    let state = InvokerState {
+        unit_id,
+        orbs: OrbSlots { first: Orb::Quas, second: Orb::Quas, third: Orb::Quas },
+        active_spell: Option::None,
+        quas_level: 1,
+        wex_level: 0,
+        exort_level: 0,
+    }
+    let new_invokers = upsert_invoker(model.invokers, state)
+    #(Model { invokers: new_invokers }, [])
+}
+
+fn handle_cast_orb(model: Model, unit_id: Int, orb: Orb) -> #(Model, List(effect.Effect(Msg))) {
+    let state = lookup_invoker(model.invokers, unit_id)
+    let new_orbs = OrbSlots { first: state.orbs.second, second: state.orbs.third, third: orb }
+    let new_state = InvokerState {
+        unit_id: state.unit_id,
+        orbs: new_orbs,
+        active_spell: state.active_spell,
+        quas_level: state.quas_level,
+        wex_level: state.wex_level,
+        exort_level: state.exort_level,
+    }
+    let new_invokers = upsert_invoker(model.invokers, new_state)
+    #(Model { invokers: new_invokers }, [])
+}
+
+fn handle_invoke(model: Model, unit_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+    let state = lookup_invoker(model.invokers, unit_id)
+    let spell_opt = resolve_spell(state.orbs.first, state.orbs.second, state.orbs.third)
+    let new_state = InvokerState {
+        unit_id: state.unit_id,
+        orbs: state.orbs,
+        active_spell: spell_opt,
+        quas_level: state.quas_level,
+        wex_level: state.wex_level,
+        exort_level: state.exort_level,
+    }
+    let new_invokers = upsert_invoker(model.invokers, new_state)
+    let fx = case spell_opt {
+        Option::Some(spell) -> [
+            effect.display_text(0, "Invoked: " <> spell_name(spell), 3.0)
+        ]
+        Option::None -> []
+    }
+    #(Model { invokers: new_invokers }, fx)
+}
+
+fn handle_level_up(model: Model, unit_id: Int, orb: Orb) -> #(Model, List(effect.Effect(Msg))) {
+    let state = lookup_invoker(model.invokers, unit_id)
+    let new_state = case orb {
+        Quas -> InvokerState {
+            unit_id: state.unit_id,
+            orbs: state.orbs,
+            active_spell: state.active_spell,
+            quas_level: int.min(state.quas_level + 1, 7),
+            wex_level: state.wex_level,
+            exort_level: state.exort_level,
+        }
+        Wex -> InvokerState {
+            unit_id: state.unit_id,
+            orbs: state.orbs,
+            active_spell: state.active_spell,
+            quas_level: state.quas_level,
+            wex_level: int.min(state.wex_level + 1, 7),
+            exort_level: state.exort_level,
+        }
+        Exort -> InvokerState {
+            unit_id: state.unit_id,
+            orbs: state.orbs,
+            active_spell: state.active_spell,
+            quas_level: state.quas_level,
+            wex_level: state.wex_level,
+            exort_level: int.min(state.exort_level + 1, 7),
+        }
+    }
+    let dmg = case new_state.active_spell {
+        Option::Some(spell) -> spell_damage_base(spell, new_state.exort_level)
+        Option::None -> 0
+    }
+    let fx = case dmg > 0 {
+        True -> [effect.display_text(0, "Damage now: " <> int.to_string(dmg), 2.0)]
+        False -> []
+    }
+    let new_invokers = upsert_invoker(model.invokers, new_state)
+    #(Model { invokers: new_invokers }, fx)
+}
+
+// --- Elm architecture ---
+
+pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+    #(Model { invokers: [] }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+    case msg {
+        Register(uid) -> handle_register(model, uid)
+        CastOrb(uid, orb) -> handle_cast_orb(model, uid, orb)
+        Invoke(uid) -> handle_invoke(model, uid)
+        LevelUp(uid, orb) -> handle_level_up(model, uid, orb)
+    }
+}

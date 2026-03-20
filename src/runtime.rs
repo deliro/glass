@@ -71,6 +71,8 @@ pub fn collect_runtime_globals(globals: &mut Vec<String>) {
     }
     // Timer data hashtable for closure dispatch
     globals.push("    hashtable glass_timer_ht = null".into());
+    // Handle lookup hashtable (unit handle ID → unit)
+    globals.push("    hashtable glass_handle_ht = null".into());
 }
 
 /// Generate the Elm runtime JASS functions (after user code).
@@ -82,11 +84,12 @@ pub fn gen_elm_runtime_functions(
     output.push_str("// ========== Glass Elm Runtime Functions ==========\n\n");
 
     // Order matters in JASS: callees must be defined before callers.
-    // JASS requires callees defined before callers.
-    // Circular dep broken by: timer_callback inlines update+effect processing.
-    // Order: rt_tuple → dispatch_update → timer_callback → exec_effect → process_effects → send_msg
+    // timer_callback is self-contained (inlines effect processing).
+    // exec_effect references `function glass_timer_callback`, so must come after.
+    // Order: rt_tuple → dispatch_update → handle_lookup → timer_callback → exec_effect → process_effects → send_msg
     gen_rt_tuple_helpers(output);
     gen_msg_dispatch(entry, output);
+    gen_handle_lookup(output);
     gen_timer_callback(output);
     gen_exec_effect(output);
     gen_process_effects(output);
@@ -97,6 +100,7 @@ pub fn gen_elm_runtime_functions(
     output.push_str("    local integer glass_result\n");
     output.push_str("    local integer glass_effects\n");
     output.push_str("    set glass_timer_ht = InitHashtable()\n");
+    output.push_str("    set glass_handle_ht = InitHashtable()\n");
     output.push_str("    set glass_result = glass_init()\n");
     output.push_str("    set glass_model = glass_rt_tuple_0(glass_result)\n");
     output.push_str("    set glass_effects = glass_rt_tuple_1(glass_result)\n");
@@ -111,29 +115,96 @@ pub fn gen_elm_runtime_functions(
     output.push_str("endfunction\n\n");
 }
 
+/// Handle lookup helper — convert integer handle ID back to unit via hashtable.
+fn gen_handle_lookup(output: &mut String) {
+    // glass_handle_ht stores handle_id → unit handle via SaveUnitHandle/LoadUnitHandle
+    output.push_str("function glass_handle_register_unit takes unit u returns nothing\n");
+    output.push_str("    call SaveUnitHandle(glass_handle_ht, GetHandleId(u), 0, u)\n");
+    output.push_str("endfunction\n\n");
+
+    output.push_str("function glass_handle_lookup_unit takes integer hid returns unit\n");
+    output.push_str("    return LoadUnitHandle(glass_handle_ht, hid, 0)\n");
+    output.push_str("endfunction\n\n");
+}
+
 /// Execute a single effect by reading its tag and fields from the Effect SoA.
-/// SoA layout generated from `sdk/effect.glass`:
-///   Effect_tag[id]                   — variant tag
-///   Effect_After_duration[id]        — real
-///   Effect_After_callback[id]        — integer (closure ID)
-///   Effect_DisplayText_player_id[id] — integer
-///   Effect_DisplayText_text[id]      — string
-///   Effect_DisplayText_duration[id]  — real
-///   Effect_Batch__0[id]              — integer (List(Effect) ID)
 fn gen_exec_effect(output: &mut String) {
-    // Note: this must be defined BEFORE glass_process_effects (which calls it).
-    // Batch handling: we don't recurse into glass_process_effects (circular dep).
-    // Instead, Batch is handled by glass_process_effects directly.
     output.push_str("function glass_exec_effect takes integer fx_id returns nothing\n");
     output.push_str("    local integer fx_tag = glass_Effect_tag[fx_id]\n");
     output.push_str("    local timer t\n");
+    output.push_str("    local unit u\n");
+    output.push_str("    local effect sfx\n");
+    output.push_str("    local texttag tt\n");
+
+    // After — timer-based delayed callback
     output.push_str("    if fx_tag == glass_TAG_After then\n");
     output.push_str("        set t = CreateTimer()\n");
     output.push_str("        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_After_callback[fx_id])\n");
     output.push_str("        call TimerStart(t, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)\n");
     output.push_str("        set t = null\n");
+
+    // DisplayText
     output.push_str("    elseif fx_tag == glass_TAG_DisplayText then\n");
     output.push_str("        call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])\n");
+
+    // DamageUnit
+    output.push_str("    elseif fx_tag == glass_TAG_DamageUnit then\n");
+    output.push_str("        call UnitDamageTarget(glass_handle_lookup_unit(glass_Effect_DamageUnit_source_id[fx_id]), glass_handle_lookup_unit(glass_Effect_DamageUnit_target_id[fx_id]), glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)\n");
+
+    // CreateUnit — creates and registers in handle table
+    output.push_str("    elseif fx_tag == glass_TAG_CreateUnit then\n");
+    output.push_str("        set u = CreateUnit(Player(glass_Effect_CreateUnit_owner[fx_id]), glass_Effect_CreateUnit_type_id[fx_id], glass_Effect_CreateUnit_x[fx_id], glass_Effect_CreateUnit_y[fx_id], glass_Effect_CreateUnit_facing[fx_id])\n");
+    output.push_str("        call glass_handle_register_unit(u)\n");
+    output.push_str("        set u = null\n");
+
+    // RemoveUnit
+    output.push_str("    elseif fx_tag == glass_TAG_RemoveUnit then\n");
+    output.push_str("        call RemoveUnit(glass_handle_lookup_unit(glass_Effect_RemoveUnit_unit_id[fx_id]))\n");
+
+    // MoveUnit
+    output.push_str("    elseif fx_tag == glass_TAG_MoveUnit then\n");
+    output.push_str("        call SetUnitPosition(glass_handle_lookup_unit(glass_Effect_MoveUnit_unit_id[fx_id]), glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])\n");
+
+    // PlayAnimation
+    output.push_str("    elseif fx_tag == glass_TAG_PlayAnimation then\n");
+    output.push_str("        call SetUnitAnimation(glass_handle_lookup_unit(glass_Effect_PlayAnimation_unit_id[fx_id]), glass_Effect_PlayAnimation_anim[fx_id])\n");
+
+    // AddAbility
+    output.push_str("    elseif fx_tag == glass_TAG_AddAbility then\n");
+    output.push_str("        call UnitAddAbility(glass_handle_lookup_unit(glass_Effect_AddAbility_unit_id[fx_id]), glass_Effect_AddAbility_ability_id[fx_id])\n");
+
+    // AddSfx
+    output.push_str("    elseif fx_tag == glass_TAG_AddSfx then\n");
+    output.push_str("        set sfx = AddSpecialEffect(glass_Effect_AddSfx_model[fx_id], glass_Effect_AddSfx_x[fx_id], glass_Effect_AddSfx_y[fx_id])\n");
+    output.push_str("        call DestroyEffect(sfx)\n");
+    output.push_str("        set sfx = null\n");
+
+    // SetUnitHp
+    output.push_str("    elseif fx_tag == glass_TAG_SetUnitHp then\n");
+    output.push_str("        call SetUnitState(glass_handle_lookup_unit(glass_Effect_SetUnitHp_unit_id[fx_id]), UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])\n");
+
+    // SetUnitMana
+    output.push_str("    elseif fx_tag == glass_TAG_SetUnitMana then\n");
+    output.push_str("        call SetUnitState(glass_handle_lookup_unit(glass_Effect_SetUnitMana_unit_id[fx_id]), UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])\n");
+
+    // PanCamera
+    output.push_str("    elseif fx_tag == glass_TAG_PanCamera then\n");
+    output.push_str(
+        "        if GetLocalPlayer() == Player(glass_Effect_PanCamera_player_id[fx_id]) then\n",
+    );
+    output.push_str("            call PanCameraTo(glass_Effect_PanCamera_x[fx_id], glass_Effect_PanCamera_y[fx_id])\n");
+    output.push_str("        endif\n");
+
+    // ShowFloatingText
+    output.push_str("    elseif fx_tag == glass_TAG_ShowFloatingText then\n");
+    output.push_str("        set tt = CreateTextTag()\n");
+    output.push_str("        call SetTextTagText(tt, glass_Effect_ShowFloatingText_text[fx_id], glass_Effect_ShowFloatingText_size[fx_id])\n");
+    output.push_str("        call SetTextTagPos(tt, glass_Effect_ShowFloatingText_x[fx_id], glass_Effect_ShowFloatingText_y[fx_id], 0.0)\n");
+    output.push_str("        call SetTextTagLifespan(tt, 3.0)\n");
+    output.push_str("        call SetTextTagPermanent(tt, false)\n");
+    output.push_str("        call SetTextTagVelocity(tt, 0.0, 0.04)\n");
+    output.push_str("        set tt = null\n");
+
     output.push_str("    endif\n");
     output.push_str("    call glass_Effect_dealloc(fx_id)\n");
     output.push_str("endfunction\n\n");
@@ -152,9 +223,9 @@ fn gen_process_effects(output: &mut String) {
     output.push_str("endfunction\n\n");
 }
 
-/// Timer callback: fully self-contained — no calls to other runtime functions.
-/// Inlines: dispatch closure → update → extract model+effects → walk effect list.
-/// This avoids the JASS forward reference cycle.
+/// Timer callback: fully self-contained to avoid JASS forward reference cycle.
+/// Inlines effect processing because `glass_exec_effect` references
+/// `function glass_timer_callback` for After effects (circular dependency).
 fn gen_timer_callback(output: &mut String) {
     output.push_str("function glass_timer_callback takes nothing returns nothing\n");
     output.push_str("    local timer t = GetExpiredTimer()\n");
@@ -167,6 +238,9 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("    local integer fx_id\n");
     output.push_str("    local integer fx_tag\n");
     output.push_str("    local timer t2\n");
+    output.push_str("    local unit u\n");
+    output.push_str("    local effect sfx\n");
+    output.push_str("    local texttag tt\n");
     // Dispatch closure → get Msg
     output.push_str("    set msg_result = glass_dispatch_void(closure_id)\n");
     // Cleanup expired timer
@@ -180,19 +254,35 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("    set glass_result = glass_dispatch_update()\n");
     output.push_str("    set glass_model = glass_rt_tuple_0(glass_result)\n");
     output.push_str("    set glass_effects = glass_rt_tuple_1(glass_result)\n");
-    // Walk effect list (inlined process_effects + exec_effect for non-Batch)
+    // Walk effect list (inlined — cannot call glass_exec_effect due to forward ref)
     output.push_str("    set current = glass_effects\n");
     output.push_str("    loop\n");
     output.push_str("        exitwhen current == -1\n");
     output.push_str("        set fx_id = glass_List_integer_head[current]\n");
     output.push_str("        set fx_tag = glass_Effect_tag[fx_id]\n");
+    // After — self-referencing timer
     output.push_str("        if fx_tag == glass_TAG_After then\n");
     output.push_str("            set t2 = CreateTimer()\n");
     output.push_str("            call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_After_callback[fx_id])\n");
     output.push_str("            call TimerStart(t2, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)\n");
     output.push_str("            set t2 = null\n");
+    // DisplayText
     output.push_str("        elseif fx_tag == glass_TAG_DisplayText then\n");
     output.push_str("            call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])\n");
+    // CreateUnit
+    output.push_str("        elseif fx_tag == glass_TAG_CreateUnit then\n");
+    output.push_str("            set u = CreateUnit(Player(glass_Effect_CreateUnit_owner[fx_id]), glass_Effect_CreateUnit_type_id[fx_id], glass_Effect_CreateUnit_x[fx_id], glass_Effect_CreateUnit_y[fx_id], glass_Effect_CreateUnit_facing[fx_id])\n");
+    output.push_str("            call glass_handle_register_unit(u)\n");
+    output.push_str("            set u = null\n");
+    // DamageUnit
+    output.push_str("        elseif fx_tag == glass_TAG_DamageUnit then\n");
+    output.push_str("            call UnitDamageTarget(glass_handle_lookup_unit(glass_Effect_DamageUnit_source_id[fx_id]), glass_handle_lookup_unit(glass_Effect_DamageUnit_target_id[fx_id]), glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)\n");
+    // AddSfx
+    output.push_str("        elseif fx_tag == glass_TAG_AddSfx then\n");
+    output.push_str("            set sfx = AddSpecialEffect(glass_Effect_AddSfx_model[fx_id], glass_Effect_AddSfx_x[fx_id], glass_Effect_AddSfx_y[fx_id])\n");
+    output.push_str("            call DestroyEffect(sfx)\n");
+    output.push_str("            set sfx = null\n");
+    // Other effects handled via glass_exec_effect in non-timer paths
     output.push_str("        endif\n");
     output.push_str("        call glass_Effect_dealloc(fx_id)\n");
     output.push_str("        set current = glass_List_integer_tail[current]\n");
