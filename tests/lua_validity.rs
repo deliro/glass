@@ -4,7 +4,7 @@ use std::process::Command;
 fn compile_glass_lua(source: &str) -> String {
     let tmp = std::env::temp_dir().join(format!(
         "glass_lua_src_{:?}.glass",
-        std::thread::current().id()
+        std::process::id()
     ));
     std::fs::write(&tmp, source).expect("write temp file");
 
@@ -42,7 +42,7 @@ fn validate_lua(lua_code: &str) {
     }
     let tmp = std::env::temp_dir().join(format!(
         "glass_lua_test_{:?}.lua",
-        std::thread::current().id()
+        std::process::id()
     ));
     std::fs::write(&tmp, lua_code).expect("write temp file");
 

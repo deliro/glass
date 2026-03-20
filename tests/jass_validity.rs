@@ -3,7 +3,7 @@ use std::process::Command;
 
 fn compile_glass(source: &str) -> String {
     let tmp =
-        std::env::temp_dir().join(format!("glass_src_{:?}.glass", std::thread::current().id()));
+        std::env::temp_dir().join(format!("glass_src_{:?}.glass", std::process::id()));
     std::fs::write(&tmp, source).expect("write temp file");
 
     let output = Command::new(env!("CARGO_BIN_EXE_glass"))
@@ -40,7 +40,7 @@ fn validate_jass_with_natives(jass_code: &str, use_common_stub: bool) {
         eprintln!("pjass not found at {:?}, skipping validation", pjass);
         return;
     }
-    let tmp = std::env::temp_dir().join(format!("glass_test_{:?}.j", std::thread::current().id()));
+    let tmp = std::env::temp_dir().join(format!("glass_test_{:?}.j", std::process::id()));
     std::fs::write(&tmp, jass_code).expect("write temp file");
 
     let mut cmd = Command::new(&pjass);
