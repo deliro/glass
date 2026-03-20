@@ -329,15 +329,8 @@ impl JassCodegen {
             }
         }
 
-        // Field getters
-        for info in &type_infos {
-            for variant in &info.variants {
-                for (fname, ftype) in &variant.fields {
-                    self.gen_field_getter_from(&info.name, &variant.name, fname, ftype);
-                    self.output.push('\n');
-                }
-            }
-        }
+        // Field getters — inlined as direct array access at call sites
+        for _info in &type_infos {}
     }
 
     fn gen_list_preamble(&mut self) {
@@ -734,26 +727,6 @@ impl JassCodegen {
         self.emit("endfunction");
     }
 
-    fn gen_field_getter_from(
-        &mut self,
-        type_name: &str,
-        variant_name: &str,
-        field_name: &str,
-        jass_type: &str,
-    ) {
-        self.emit(&format!(
-            "function glass_get_{}_{}_{} takes integer id returns {}",
-            type_name, variant_name, field_name, jass_type
-        ));
-        self.indent += 1;
-        self.emit(&format!(
-            "return glass_{}_{}_{} [id]",
-            type_name, variant_name, field_name
-        ));
-        self.indent -= 1;
-        self.emit("endfunction");
-    }
-
     // === Definitions ===
 
     fn gen_definition(&mut self, def: &Definition) {
@@ -853,7 +826,8 @@ impl JassCodegen {
         self.indent += 1;
 
         {
-            let mut seen = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<String> =
+                f.params.iter().map(|p| p.name.clone()).collect();
             for (name, jass_type) in &locals {
                 if seen.insert(name.clone()) {
                     self.emit(&format!("local {} {}", jass_type, name));
@@ -1184,8 +1158,7 @@ impl JassCodegen {
                 if type_name.is_empty() {
                     format!("glass_get_{}({})", field, obj)
                 } else {
-                    // For single-constructor types, variant name == type name
-                    format!("glass_get_{}_{}_{} ({})", type_name, type_name, field, obj)
+                    format!("glass_{}_{}_{} [{}]", type_name, type_name, field, obj)
                 }
             }
 
@@ -1776,7 +1749,7 @@ impl JassCodegen {
                                 .get(i)
                                 .cloned()
                                 .unwrap_or_else(|| format!("_{}", i));
-                            format!("glass_get_{}_{}_{} ({})", tn, bare, fname, subject)
+                            format!("glass_{}_{}_{} [{}]", tn, bare, fname, subject)
                         }
                         None => format!("glass_field_{}({})", i, subject),
                     };
@@ -1797,7 +1770,7 @@ impl JassCodegen {
                 };
                 for fp in fields {
                     let var = fp.binding.as_ref().unwrap_or(&fp.field_name);
-                    let field = format!("glass_get_{}_{}({})", prefix, fp.field_name, subject);
+                    let field = format!("glass_{}_{}[{}]", prefix, fp.field_name, subject);
                     self.emit(&format!("set {} = {}", var, field));
                 }
             }
@@ -1877,12 +1850,52 @@ impl JassCodegen {
                     self.collect_locals(&val.node, locals);
                 }
             }
-            Expr::TcoLoop { body } => {
+            Expr::TcoLoop { body } | Expr::Lambda { body, .. } => {
                 self.collect_locals(&body.node, locals);
             }
             Expr::TcoContinue { args } => {
                 for (_, val) in args {
                     self.collect_locals(&val.node, locals);
+                }
+            }
+            Expr::Call { function, args } => {
+                self.collect_locals(&function.node, locals);
+                for a in args {
+                    self.collect_locals(&a.node, locals);
+                }
+            }
+            Expr::BinOp { left, right, .. } | Expr::Pipe { left, right } => {
+                self.collect_locals(&left.node, locals);
+                self.collect_locals(&right.node, locals);
+            }
+            Expr::UnaryOp { operand, .. } | Expr::Clone(operand) => {
+                self.collect_locals(&operand.node, locals);
+            }
+            Expr::ListCons { head, tail } => {
+                self.collect_locals(&head.node, locals);
+                self.collect_locals(&tail.node, locals);
+            }
+            Expr::Tuple(elems) | Expr::List(elems) => {
+                for e in elems {
+                    self.collect_locals(&e.node, locals);
+                }
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.collect_locals(&object.node, locals);
+            }
+            Expr::MethodCall { object, args, .. } => {
+                self.collect_locals(&object.node, locals);
+                for a in args {
+                    self.collect_locals(&a.node, locals);
+                }
+            }
+            Expr::Constructor { args, .. } => {
+                for a in args {
+                    match a {
+                        ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => {
+                            self.collect_locals(&e.node, locals);
+                        }
+                    }
                 }
             }
             _ => {}

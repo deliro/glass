@@ -38,18 +38,6 @@ function glass_new_Tuple3_integer_integer_integer takes integer p__0, integer p_
     return id
 endfunction
 
-function glass_get_Tuple3_integer_integer_integer_Tuple3_integer_integer_integer__0 takes integer id returns integer
-    return glass_Tuple3_integer_integer_integer_Tuple3_integer_integer_integer__0 [id]
-endfunction
-
-function glass_get_Tuple3_integer_integer_integer_Tuple3_integer_integer_integer__1 takes integer id returns integer
-    return glass_Tuple3_integer_integer_integer_Tuple3_integer_integer_integer__1 [id]
-endfunction
-
-function glass_get_Tuple3_integer_integer_integer_Tuple3_integer_integer_integer__2 takes integer id returns integer
-    return glass_Tuple3_integer_integer_integer_Tuple3_integer_integer_integer__2 [id]
-endfunction
-
 function glass_i2b takes integer i returns boolean
     return i != 0
 endfunction

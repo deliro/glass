@@ -48,18 +48,6 @@ function glass_new_Rect takes real p_w, real p_h returns integer
     return id
 endfunction
 
-function glass_get_Shape_Circle_radius takes integer id returns real
-    return glass_Shape_Circle_radius [id]
-endfunction
-
-function glass_get_Shape_Rect_w takes integer id returns real
-    return glass_Shape_Rect_w [id]
-endfunction
-
-function glass_get_Shape_Rect_h takes integer id returns real
-    return glass_Shape_Rect_h [id]
-endfunction
-
 function glass_i2b takes integer i returns boolean
     return i != 0
 endfunction
@@ -70,11 +58,11 @@ function glass_area takes integer s returns real
     local real h
     local real glass_tmp_0
     if ((glass_Shape_tag[s] == glass_TAG_Circle)) then
-        set r = glass_get_Shape_Circle_radius (s)
+        set r = glass_Shape_Circle_radius [s]
         set glass_tmp_0 = ((r * r) * 3.1)
     elseif ((glass_Shape_tag[s] == glass_TAG_Rect)) then
-        set w = glass_get_Shape_Rect_w (s)
-        set h = glass_get_Shape_Rect_h (s)
+        set w = glass_Shape_Rect_w [s]
+        set h = glass_Shape_Rect_h [s]
         set glass_tmp_0 = (w * h)
     endif
     return glass_tmp_0

@@ -292,18 +292,19 @@
 
 ### Phase 2 — Lambda lifting + Inlining
 
-- [ ] **18.4 Lambda lifting** — closures → top-level functions with explicit capture args
-  - No-capture lambdas → plain functions (zero overhead)
-  - Captured vars become extra parameters
-  - Eliminates closure allocation + dispatch when combined with inlining
+- [x] **18.4 Lambda lifting** — closures → top-level functions with explicit capture args
+  - Lambda bodies extracted to `lifted_N` top-level functions, captures become extra parameters
+  - Lambda node stays (for closure encoding), body replaced with forwarding call to lifted fn
+  - `--no-lift` opt-out flag, 402 tests green
 
-- [ ] **18.5 Inlining** — inline small / single-use functions at call sites
-  - **Порядок: lambda lifting → inlining → DCE** (lifting делает closures видимыми как обычные функции, inlining подставляет HOF на call site, аргумент-функция становится известна статически → dispatch заменяется прямым вызовом, DCE убирает неиспользуемые lifted функции)
-  - **Всегда инлайнить (без бюджета):** single-use функции (любой размер тела), тривиальные обёртки (тело = 1 вызов/переменная), конструкторы (`Some(x)`, `Ok(x)`)
-  - **По размеру тела (не по числу вызовов):** маленькая функция дешевле инлайнить 50 раз, чем 50 раз дёргать call/dispatch
-  - **Никогда:** рекурсивные функции, `@external`
-  - **Модель стоимости:** Var/Int/Float/Bool/String=0, BinOp/UnaryOp=1, Constructor/Let=1, Call/Case=2. Порог ~10-15
-  - **Результат с lifting:** HOF (List.map, List.filter и т.д.) инлайнятся на call site → аргумент-функция известна → прямой вызов вместо `glass_dispatch_N` → closure allocation и dispatch исчезают. Оставшиеся closures — только реально динамические (функция выбирается в runtime)
+- [x] **18.5 Inlining** — inline small / single-use functions at call sites
+  - **Порядок: TCO → lambda lifting → inlining → DCE** (codegen DCE убирает неиспользуемые lifted функции)
+  - **Всегда инлайнить:** single-use функции (любой размер тела)
+  - **По стоимости тела (порог 12):** Var/Int/Float/Bool/String=0, BinOp/UnaryOp=1, Constructor/Let=1, Call/Case=2
+  - **Никогда:** рекурсивные, `@external`, TCO'd функции, codegen-generated (`glass_new_*`, `glass_get_*`)
+  - Alpha-renaming при инлайне (суффикс `_iN`) предотвращает конфликты локалей в JASS
+  - Параметры с type annotation для корректных JASS-типов locals
+  - `--no-inline` opt-out flag, `collect_locals` расширен для всех expr-контекстов, 402 tests green
 
 - [ ] **18.6 Closure cleanup** — defunctionalize remaining closures
   - After lifting + inlining, only truly dynamic dispatch remains

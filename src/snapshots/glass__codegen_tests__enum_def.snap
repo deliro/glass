@@ -53,14 +53,6 @@ function glass_new_Victory takes integer p_winner returns integer
     return id
 endfunction
 
-function glass_get_Phase_Playing_wave takes integer id returns integer
-    return glass_Phase_Playing_wave [id]
-endfunction
-
-function glass_get_Phase_Victory_winner takes integer id returns integer
-    return glass_Phase_Victory_winner [id]
-endfunction
-
 function glass_i2b takes integer i returns boolean
     return i != 0
 endfunction

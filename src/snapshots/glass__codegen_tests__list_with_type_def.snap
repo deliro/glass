@@ -40,10 +40,6 @@ function glass_new_Model takes integer p_wave returns integer
     return id
 endfunction
 
-function glass_get_Model_Model_wave takes integer id returns integer
-    return glass_Model_Model_wave [id]
-endfunction
-
 function glass_List_integer_alloc takes nothing returns integer
     local integer id
     if glass_List_integer_free_top > 0 then

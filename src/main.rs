@@ -5,7 +5,9 @@ mod codegen;
 mod codegen_tests;
 mod exhaustive;
 mod infer;
+mod inline;
 mod jass_parser;
+mod lift;
 mod linearity;
 mod lua_codegen;
 mod lua_runtime;
@@ -72,6 +74,14 @@ struct Cli {
     /// Disable tail call optimization
     #[arg(long)]
     no_tco: bool,
+
+    /// Disable lambda lifting
+    #[arg(long)]
+    no_lift: bool,
+
+    /// Disable function inlining
+    #[arg(long)]
+    no_inline: bool,
 }
 
 #[derive(Subcommand)]
@@ -107,6 +117,8 @@ fn main() {
                 mangle: !cli.no_mangle,
                 strip: !cli.no_strip,
                 tco: !cli.no_tco,
+                lift: !cli.no_lift,
+                inline: !cli.no_inline,
             };
             cmd_compile(
                 &input,
@@ -170,6 +182,12 @@ fn cmd_compile(
     // Optimizations
     if opt.tco {
         tco::apply_tco(&mut module);
+    }
+    if opt.lift {
+        lift::apply_lambda_lifting(&mut module);
+    }
+    if opt.inline {
+        inline::apply_inlining(&mut module);
     }
 
     // Codegen

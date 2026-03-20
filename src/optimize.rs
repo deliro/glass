@@ -10,6 +10,8 @@ pub struct OptFlags {
     pub mangle: bool,
     pub strip: bool,
     pub tco: bool,
+    pub lift: bool,
+    pub inline: bool,
 }
 
 impl Default for OptFlags {
@@ -18,6 +20,8 @@ impl Default for OptFlags {
             mangle: true,
             strip: true,
             tco: true,
+            lift: true,
+            inline: true,
         }
     }
 }
