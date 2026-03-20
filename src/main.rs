@@ -11,6 +11,7 @@ mod lua_codegen;
 mod lua_runtime;
 mod modules;
 mod mono;
+mod optimize;
 mod parser;
 mod runtime;
 mod token;
@@ -58,6 +59,14 @@ struct Cli {
     /// Compilation target
     #[arg(long, value_enum, default_value_t = Target::Jass)]
     target: Target,
+
+    /// Disable name mangling (emit readable glass_* names)
+    #[arg(long)]
+    no_mangle: bool,
+
+    /// Keep blank lines and comments in output
+    #[arg(long)]
+    no_strip: bool,
 }
 
 #[derive(Subcommand)]
@@ -89,7 +98,17 @@ fn main() {
                 eprintln!("       glass check <INPUT>");
                 std::process::exit(1);
             };
-            cmd_compile(&input, cli.output.as_deref(), cli.no_check, cli.target);
+            let opt = optimize::OptFlags {
+                mangle: !cli.no_mangle,
+                strip: !cli.no_strip,
+            };
+            cmd_compile(
+                &input,
+                cli.output.as_deref(),
+                cli.no_check,
+                cli.target,
+                &opt,
+            );
         }
     }
 }
@@ -112,7 +131,13 @@ fn cmd_check(input: &str) {
     eprintln!("No errors found.");
 }
 
-fn cmd_compile(input: &str, output: Option<&str>, no_check: bool, target: Target) {
+fn cmd_compile(
+    input: &str,
+    output: Option<&str>,
+    no_check: bool,
+    target: Target,
+    opt: &optimize::OptFlags,
+) {
     let source = read_file(input);
     let module = parse_source(input, &source);
     let (module, imports, imported_count, def_module_map) = resolve_imports(input, module);
@@ -141,7 +166,18 @@ fn cmd_compile(input: &str, output: Option<&str>, no_check: bool, target: Target
     let mut lambda_collector = closures::LambdaCollector::new();
     lambda_collector.collect_module(&module);
 
-    let result = match target {
+    // Build name table from AST frequency analysis (before codegen consumes the data)
+    let name_table = if opt.mangle {
+        Some(optimize::build_name_table(
+            &module,
+            &type_registry,
+            &lambda_collector.lambdas,
+        ))
+    } else {
+        None
+    };
+
+    let mut result = match target {
         Target::Jass => JassCodegen::new(
             type_registry,
             lambda_collector.lambdas,
@@ -157,6 +193,13 @@ fn cmd_compile(input: &str, output: Option<&str>, no_check: bool, target: Target
         )
         .generate(&module, &imports),
     };
+
+    if let Some(table) = &name_table {
+        result = table.apply(&result);
+    }
+    if opt.strip {
+        result = optimize::strip_whitespace_and_comments(&result);
+    }
 
     match output {
         Some(path) => {

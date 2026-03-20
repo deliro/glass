@@ -89,6 +89,163 @@ fn compile_glass_file(path: &std::path::Path) -> String {
 }
 
 // ============================================================
+// Name mangling safety
+// ============================================================
+
+/// Stress test: function params use many single-letter names (a-z).
+/// After mangling, no global should shadow these locals.
+#[test]
+fn mangle_no_conflict_with_single_letter_params() {
+    compile_and_validate(
+        r#"
+pub struct Data { a: Int, b: Int, c: Int, d: Int, e: Int }
+
+fn make(a: Int, b: Int, c: Int, d: Int, e: Int) -> Data {
+    Data { a, b, c, d, e }
+}
+
+fn sum(f: Int, g: Int, h: Int) -> Int {
+    f + g + h
+}
+
+fn use_data(p: Data) -> Int {
+    p.a + p.b + p.c + p.d + p.e
+}
+
+pub fn test(j: Int, k: Int, l: Int, m: Int, n: Int) -> Int {
+    let o = make(j, k, l, m, n)
+    let q = use_data(o)
+    let r = sum(j, k, l)
+    q + r
+}
+"#,
+    );
+}
+
+/// Verify that a function name is never mangled to the same name as one of
+/// its own parameters (e.g. fn func(a:Int) must not become `function a takes integer a`).
+#[test]
+fn mangle_function_name_never_equals_own_param() {
+    let jass = compile_glass(
+        r#"
+fn func(a: Int) -> Int { a + 1 }
+fn other(b: Int) -> Int { func(b) }
+"#,
+    );
+    // Parse JASS output: find every "function NAME takes TYPE PARAM" and check NAME != PARAM
+    for line in jass.lines() {
+        if let Some(rest) = line.strip_prefix("function ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            // parts[0] = function name, parts[1] = "takes"
+            // then pairs of (type, param_name)
+            if parts.len() >= 4 && parts[1] == "takes" && parts[2] != "nothing" {
+                let fn_name = parts[0];
+                // Collect param names: every odd index after index 2
+                let mut i = 3;
+                while i < parts.len() {
+                    let param_name = parts[i].trim_end_matches(',');
+                    assert_ne!(
+                        fn_name, param_name,
+                        "function '{}' has same name as its param '{}' in JASS output:\n{}",
+                        fn_name, param_name, line
+                    );
+                    i += 2; // skip next type
+                    if i < parts.len() && parts[i - 1] == "returns" {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Cross-function scenario: function `foo` is called from `bar`,
+/// and `bar` has a parameter with a name that could collide.
+#[test]
+fn mangle_cross_function_no_shadow() {
+    let jass = compile_glass(
+        r#"
+pub struct Pair { x: Int, y: Int }
+
+fn make(x: Int, y: Int) -> Pair { Pair { x, y } }
+fn sum_pair(p: Pair) -> Int { p.x + p.y }
+
+fn go(c: Int, d: Int, e: Int, f: Int, g: Int, h: Int) -> Int {
+    let p = make(c, d)
+    sum_pair(p) + e + f + g + h
+}
+"#,
+    );
+    validate_jass_with_natives(&jass, false);
+
+    // Additionally: parse all globals and locals, verify no overlap within any function
+    let mut globals: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut in_globals = false;
+    for line in jass.lines() {
+        let trimmed = line.trim();
+        if trimmed == "globals" {
+            in_globals = true;
+            continue;
+        }
+        if trimmed == "endglobals" {
+            in_globals = false;
+            continue;
+        }
+        if in_globals {
+            // Extract global name: "integer array NAME" or "integer NAME = 0"
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let name_part = if parts.len() >= 3 && parts[1] == "array" {
+                    parts[2]
+                } else {
+                    parts[1]
+                };
+                globals.insert(name_part.to_string());
+            }
+        }
+    }
+
+    // Check that no local variable in any function has the same name as a global
+    let mut current_locals: Vec<String> = Vec::new();
+    for line in jass.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("function ") {
+            current_locals.clear();
+            // Extract param names
+            if let Some(takes_part) = trimmed.split(" takes ").nth(1) {
+                let before_returns = takes_part.split(" returns ").next().unwrap_or("");
+                if before_returns != "nothing" {
+                    for chunk in before_returns.split(',') {
+                        let parts: Vec<&str> = chunk.trim().split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            current_locals.push(parts[1].to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if trimmed.starts_with("local ") {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let var_name = parts[2].trim_end_matches(|c| c == '=' || c == ' ');
+                current_locals.push(var_name.to_string());
+            }
+        }
+        if trimmed == "endfunction" {
+            for local in &current_locals {
+                assert!(
+                    !globals.contains(local),
+                    "local '{}' shadows global '{}' — mangling conflict!",
+                    local,
+                    local
+                );
+            }
+            current_locals.clear();
+        }
+    }
+}
+
+// ============================================================
 // Example files — full compilation cycle + pjass validation
 // ============================================================
 

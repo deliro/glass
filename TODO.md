@@ -260,3 +260,67 @@
 ### 17.10 Финал
 - [x] **17.10.1** Полная компиляция game/main.glass в JASS + Lua, pjass/luac validation
 - [x] **17.10.2** Всё собрано, тесты зелёные, clippy clean
+
+---
+
+## Milestone 18: Optimizations
+
+### Phase 1 — Quick wins (no IR needed)
+
+- [x] **18.1 Name mangling** — frequency-based AST analysis, shortest names (a,b,...,z,aa,...) for most-used identifiers
+  - `--no-mangle` opt-out flag, reserved set (keywords + all user vars), no global/local shadowing
+  - JASS + Lua, 3 conflict-prevention tests, 386 tests green
+
+- [x] **18.1b Strip** — remove blank lines + comment lines from output (`--no-strip` opt-out)
+
+- [ ] **18.1c Mangle residuals** *(low priority)* — some `glass_*` names survive mangling:
+  - `glass_tmp_N` — codegen temp locals (not in AST frequency table)
+  - `glass_closure`, `glass_tag`, `glass_cid`, `glass_pN` — dispatch function params (hardcoded in codegen)
+  - `glass_Tuple2_integer_integer_*` — monomorphized tuple SoA names (generated during mono, not in AST)
+  - `glass_msg_*`, `glass_timer_ht`, `glass_handle_ht`, `glass_closN_*` — runtime/closure infra
+  - Fix: either predict these names during AST analysis, or add a second mangling pass on codegen-internal names
+
+- [ ] **18.2 Tail Call Optimization** — tail-recursive functions → loops
+  - Critical: без TCO рекурсия на 200+ элементов = stack overflow в JASS
+  - JASS: detect tail-recursive calls → emit `loop`/`exitwhen`
+  - Lua: ensure `return f(...)` form (native TCO)
+
+- [ ] **18.3 Beta reduction** — inline immediately-applied lambdas
+  - `(\x -> x + 1)(5)` → `5 + 1`
+  - Simple AST pass
+
+### Phase 2 — Lambda lifting + Inlining
+
+- [ ] **18.4 Lambda lifting** — closures → top-level functions with explicit capture args
+  - No-capture lambdas → plain functions (zero overhead)
+  - Captured vars become extra parameters
+  - Eliminates closure allocation + dispatch when combined with inlining
+
+- [ ] **18.5 Inlining** — inline small / single-use functions at call sites
+  - **Порядок: lambda lifting → inlining → DCE** (lifting делает closures видимыми как обычные функции, inlining подставляет HOF на call site, аргумент-функция становится известна статически → dispatch заменяется прямым вызовом, DCE убирает неиспользуемые lifted функции)
+  - **Всегда инлайнить (без бюджета):** single-use функции (любой размер тела), тривиальные обёртки (тело = 1 вызов/переменная), конструкторы (`Some(x)`, `Ok(x)`)
+  - **По размеру тела (не по числу вызовов):** маленькая функция дешевле инлайнить 50 раз, чем 50 раз дёргать call/dispatch
+  - **Никогда:** рекурсивные функции, `@external`
+  - **Модель стоимости:** Var/Int/Float/Bool/String=0, BinOp/UnaryOp=1, Constructor/Let=1, Call/Case=2. Порог ~10-15
+  - **Результат с lifting:** HOF (List.map, List.filter и т.д.) инлайнятся на call site → аргумент-функция известна → прямой вызов вместо `glass_dispatch_N` → closure allocation и dispatch исчезают. Оставшиеся closures — только реально динамические (функция выбирается в runtime)
+
+- [ ] **18.6 Closure cleanup** — defunctionalize remaining closures
+  - After lifting + inlining, only truly dynamic dispatch remains
+  - Known call sites → direct calls instead of `glass_dispatch_N`
+
+- [ ] **18.7 Constant propagation** — propagate let-bound constants
+  - `let x = 5 in ... x ...` → substitute 5
+  - Extend from top-level `const` to `let` bindings
+
+### Phase 3 — Advanced (introduce ANF IR here)
+
+- [ ] **18.8 List fusion / deforestation** — eliminate intermediate lists
+  - `list |> List.map f |> List.filter g` → single pass
+  - Critical for JASS: each intermediate list = SoA allocations
+
+- [ ] **18.9 Case simplification** — pattern match → decision trees
+  - Eliminate redundant tag checks in nested matches
+
+- [ ] **18.10 Common subexpression elimination**
+  - `f(x) + f(x)` → `let tmp = f(x) in tmp + tmp`
+  - Glass functions are pure (except externals) → safe
