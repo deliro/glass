@@ -810,14 +810,34 @@ impl JassCodegen {
         let saved_indent = self.indent;
         self.indent = 1;
 
-        let result = self.gen_expr(&f.body.node);
+        let is_tco = matches!(&f.body.node, Expr::TcoLoop { .. });
 
-        for name in &handle_params {
-            self.emit(&format!("set {} = null", name));
-        }
-
-        if f.return_type.is_some() {
-            self.emit(&format!("return {}", result));
+        if is_tco {
+            if let Expr::TcoLoop { body } = &f.body.node {
+                self.emit("loop");
+                self.indent += 1;
+                self.gen_tco_body(&body.node);
+                self.indent -= 1;
+                self.emit("endloop");
+                // Unreachable: pjass requires a return after endloop
+                if let Some(ret_type) = &f.return_type {
+                    let default = match self.type_to_jass(ret_type).as_str() {
+                        "real" => "0.0",
+                        "boolean" => "false",
+                        "string" => "\"\"",
+                        _ => "0",
+                    };
+                    self.emit(&format!("return {}", default));
+                }
+            }
+        } else {
+            let result = self.gen_expr(&f.body.node);
+            for name in &handle_params {
+                self.emit(&format!("set {} = null", name));
+            }
+            if f.return_type.is_some() {
+                self.emit(&format!("return {}", result));
+            }
         }
 
         let body_output = std::mem::replace(&mut self.output, saved_output);
@@ -843,10 +863,114 @@ impl JassCodegen {
         for (i, jass_type) in temp_types.iter().enumerate() {
             self.emit(&format!("local {} glass_tmp_{}", jass_type, i));
         }
+        // TCO temp locals for safe parameter reassignment
+        if is_tco {
+            for (i, p) in f.params.iter().enumerate() {
+                self.emit(&format!(
+                    "local {} glass_tco_{}",
+                    self.type_to_jass(&p.type_expr),
+                    i
+                ));
+            }
+        }
 
         self.output.push_str(&body_output);
         self.indent -= 1;
         self.emit("endfunction");
+    }
+
+    /// Generate expression in tail position for TCO functions.
+    /// Instead of returning a value, emits either:
+    /// - `return VALUE` for base cases
+    /// - parameter reassignment for tail calls (TcoContinue)
+    fn gen_tco_body(&mut self, expr: &Expr) {
+        match expr {
+            Expr::TcoContinue { args } => {
+                // Evaluate all new values into TCO temps (must happen before any assignment)
+                for (i, (_, value)) in args.iter().enumerate() {
+                    let val = self.gen_expr(&value.node);
+                    self.emit(&format!("set glass_tco_{} = {}", i, val));
+                }
+                // Assign TCO temps to params
+                for (i, (param_name, _)) in args.iter().enumerate() {
+                    self.emit(&format!("set {} = glass_tco_{}", param_name, i));
+                }
+                // No return — loop continues naturally
+            }
+            Expr::Case { subject, arms } => {
+                let subj = self.gen_expr(&subject.node);
+
+                let subject_type_name =
+                    self.lookup_full_type(subject.span)
+                        .and_then(|ty| match &ty {
+                            Type::Con(name) => Some(name.clone()),
+                            Type::App(con, _) => match con.as_ref() {
+                                Type::Con(name) => Some(name.clone()),
+                                _ => None,
+                            },
+                            _ => None,
+                        });
+
+                let subj = if subject_type_name.as_deref() == Some("Bool")
+                    && subj.contains("glass_dispatch_")
+                {
+                    format!("glass_i2b({})", subj)
+                } else {
+                    subj
+                };
+
+                for (i, arm) in arms.iter().enumerate() {
+                    let condition = self.gen_pattern_condition_typed(
+                        &arm.pattern.node,
+                        &subj,
+                        subject_type_name.as_deref(),
+                    );
+                    let guard = arm
+                        .guard
+                        .as_ref()
+                        .map(|g| format!(" and ({})", self.gen_expr(&g.node)))
+                        .unwrap_or_default();
+
+                    if i == 0 {
+                        self.emit(&format!("if ({}{}) then", condition, guard));
+                    } else if condition == "true" {
+                        self.emit("else");
+                    } else {
+                        self.emit(&format!("elseif ({}{}) then", condition, guard));
+                    }
+
+                    self.indent += 1;
+                    self.gen_pattern_bindings(&arm.pattern.node, &subj);
+                    self.gen_tco_body(&arm.body.node);
+                    self.indent -= 1;
+                }
+                self.emit("endif");
+            }
+            Expr::Let {
+                pattern,
+                value,
+                body,
+                ..
+            } => {
+                let val = self.gen_expr(&value.node);
+                self.gen_let_pattern_binding(&pattern.node, &val, &value.node);
+                self.gen_tco_body(&body.node);
+            }
+            Expr::Block(exprs) => {
+                for (i, e) in exprs.iter().enumerate() {
+                    if i < exprs.len() - 1 {
+                        self.gen_expr(&e.node);
+                    } else {
+                        self.gen_tco_body(&e.node);
+                    }
+                }
+            }
+            _ => {
+                // Non-tail expression — evaluate and return
+                let val = self.gen_expr(expr);
+                self.emit(&format!("return {}", val));
+            }
+        }
     }
 
     /// Returns the JASS destroy function for a handle type, if applicable.
@@ -1505,6 +1629,9 @@ impl JassCodegen {
                     .unwrap_or_else(|| "\"todo\"".to_string());
                 format!("glass_panic({})", msg_str)
             }
+
+            // TCO nodes should not appear in gen_expr — they are handled by gen_tco_body
+            Expr::TcoLoop { .. } | Expr::TcoContinue { .. } => "0".to_string(),
         }
     }
 
@@ -1747,6 +1874,14 @@ impl JassCodegen {
             Expr::RecordUpdate { base, updates, .. } => {
                 self.collect_locals(&base.node, locals);
                 for (_, val) in updates {
+                    self.collect_locals(&val.node, locals);
+                }
+            }
+            Expr::TcoLoop { body } => {
+                self.collect_locals(&body.node, locals);
+            }
+            Expr::TcoContinue { args } => {
+                for (_, val) in args {
                     self.collect_locals(&val.node, locals);
                 }
             }
@@ -2530,6 +2665,14 @@ fn collect_calls_in_expr(
             collect_calls_in_expr(base, fn_map, out);
             for (_, e) in updates {
                 collect_calls_in_expr(e, fn_map, out);
+            }
+        }
+        Expr::TcoLoop { body } => {
+            collect_calls_in_expr(body, fn_map, out);
+        }
+        Expr::TcoContinue { args } => {
+            for (_, val) in args {
+                collect_calls_in_expr(val, fn_map, out);
             }
         }
         _ => {}

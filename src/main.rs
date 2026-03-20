@@ -14,6 +14,7 @@ mod mono;
 mod optimize;
 mod parser;
 mod runtime;
+mod tco;
 mod token;
 mod type_env;
 mod type_repr;
@@ -67,6 +68,10 @@ struct Cli {
     /// Keep blank lines and comments in output
     #[arg(long)]
     no_strip: bool,
+
+    /// Disable tail call optimization
+    #[arg(long)]
+    no_tco: bool,
 }
 
 #[derive(Subcommand)]
@@ -101,6 +106,7 @@ fn main() {
             let opt = optimize::OptFlags {
                 mangle: !cli.no_mangle,
                 strip: !cli.no_strip,
+                tco: !cli.no_tco,
             };
             cmd_compile(
                 &input,
@@ -140,7 +146,7 @@ fn cmd_compile(
 ) {
     let source = read_file(input);
     let module = parse_source(input, &source);
-    let (module, imports, imported_count, def_module_map) = resolve_imports(input, module);
+    let (mut module, imports, imported_count, def_module_map) = resolve_imports(input, module);
 
     // Always run inference (needed for type_map in codegen)
     let mut inferencer = infer::Inferencer::new();
@@ -159,6 +165,11 @@ fn cmd_compile(
         if error_count > 0 {
             std::process::exit(1);
         }
+    }
+
+    // Optimizations
+    if opt.tco {
+        tco::apply_tco(&mut module);
     }
 
     // Codegen

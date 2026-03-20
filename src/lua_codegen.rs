@@ -194,12 +194,92 @@ impl LuaCodegen {
 
         self.emit(&format!("function glass_{}({})", f.name, params.join(", ")));
         self.indent += 1;
-        let result = self.gen_expr(&f.body.node);
-        if f.return_type.is_some() {
-            self.emit(&format!("return {}", result));
+
+        if let Expr::TcoLoop { body } = &f.body.node {
+            // Lua has native TCO: emit body with `return f(...)` for tail calls
+            self.gen_tco_body(&body.node, &f.name);
+        } else {
+            let result = self.gen_expr(&f.body.node);
+            if f.return_type.is_some() {
+                self.emit(&format!("return {}", result));
+            }
         }
+
         self.indent -= 1;
         self.emit("end");
+    }
+
+    /// Generate expression in tail position for TCO.
+    /// Lua has native TCO: emit `return f(...)` for tail calls.
+    fn gen_tco_body(&mut self, expr: &Expr, fn_name: &str) {
+        match expr {
+            Expr::TcoContinue { args } => {
+                // Emit proper tail call: return glass_fn(new_args)
+                let arg_strs: Vec<String> = args
+                    .iter()
+                    .map(|(_, value)| self.gen_expr(&value.node))
+                    .collect();
+                self.emit(&format!(
+                    "return glass_{}({})",
+                    fn_name,
+                    arg_strs.join(", ")
+                ));
+            }
+            Expr::Case { subject, arms } => {
+                let subj = self.gen_expr(&subject.node);
+                let subj_var = format!("__case_{}", self.indent);
+                self.emit(&format!("local {} = {}", subj_var, subj));
+
+                for (i, arm) in arms.iter().enumerate() {
+                    let condition = self.gen_pattern_condition(&arm.pattern.node, &subj_var);
+                    let guard = arm
+                        .guard
+                        .as_ref()
+                        .map(|g| format!(" and ({})", self.gen_expr(&g.node)))
+                        .unwrap_or_default();
+
+                    if i == 0 {
+                        self.emit(&format!("if {}{} then", condition, guard));
+                    } else if condition == "true" {
+                        self.emit("else");
+                    } else {
+                        self.emit(&format!("elseif {}{} then", condition, guard));
+                    }
+
+                    self.indent += 1;
+                    self.gen_pattern_bindings(&arm.pattern.node, &subj_var);
+                    self.gen_tco_body(&arm.body.node, fn_name);
+                    self.indent -= 1;
+                }
+                self.emit("end");
+            }
+            Expr::Let {
+                pattern,
+                value,
+                body,
+                ..
+            } => {
+                let val = self.gen_expr(&value.node);
+                if let Pattern::Var(name) = &pattern.node {
+                    self.emit(&format!("local {} = {}", name, val));
+                }
+                self.gen_tco_body(&body.node, fn_name);
+            }
+            Expr::Block(exprs) => {
+                for (i, e) in exprs.iter().enumerate() {
+                    if i < exprs.len() - 1 {
+                        self.gen_expr(&e.node);
+                    } else {
+                        self.gen_tco_body(&e.node, fn_name);
+                    }
+                }
+            }
+            _ => {
+                // Non-tail expression — evaluate and return
+                let val = self.gen_expr(expr);
+                self.emit(&format!("return {}", val));
+            }
+        }
     }
 
     fn gen_const_def(&mut self, _c: &ConstDef) {
@@ -690,6 +770,9 @@ impl LuaCodegen {
                     .unwrap_or_else(|| "\"todo\"".to_string());
                 format!("error({})", msg_str)
             }
+
+            // TCO nodes handled by gen_tco_body
+            Expr::TcoLoop { .. } | Expr::TcoContinue { .. } => "0".to_string(),
         }
     }
 

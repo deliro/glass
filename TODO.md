@@ -280,10 +280,11 @@
   - `glass_msg_*`, `glass_timer_ht`, `glass_handle_ht`, `glass_closN_*` — runtime/closure infra
   - Fix: either predict these names during AST analysis, or add a second mangling pass on codegen-internal names
 
-- [ ] **18.2 Tail Call Optimization** — tail-recursive functions → loops
-  - Critical: без TCO рекурсия на 200+ элементов = stack overflow в JASS
-  - JASS: detect tail-recursive calls → emit `loop`/`exitwhen`
-  - Lua: ensure `return f(...)` form (native TCO)
+- [x] **18.2 Tail Call Optimization** — tail-recursive functions → loops
+  - AST pass: detect all self-calls in tail position, transform to `TcoLoop`/`TcoContinue`
+  - JASS: `loop`/`endloop` with temp-based param reassignment (safe evaluation order)
+  - Lua: native TCO via `return f(...)` in tail position
+  - `--no-tco` opt-out, topo sort handles TCO'd function dependencies, 391 tests green
 
 - [ ] **18.3 Beta reduction** — inline immediately-applied lambdas
   - `(\x -> x + 1)(5)` → `5 + 1`

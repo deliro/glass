@@ -974,8 +974,11 @@ impl Inferencer {
             // Clone
             Expr::Clone(inner) => self.infer_expr(inner, env),
 
-            // Todo
-            Expr::Todo(_) => self.var_gen.fresh(),
+            // TCO nodes (appear after TCO pass, which runs after inference)
+            Expr::TcoLoop { body } => self.infer_expr(body, env),
+
+            // Todo and TcoContinue are opaque — produce a fresh type variable
+            Expr::Todo(_) | Expr::TcoContinue { .. } => self.var_gen.fresh(),
         }
     }
 

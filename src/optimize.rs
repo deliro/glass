@@ -9,6 +9,7 @@ use crate::types::TypeRegistry;
 pub struct OptFlags {
     pub mangle: bool,
     pub strip: bool,
+    pub tco: bool,
 }
 
 impl Default for OptFlags {
@@ -16,6 +17,7 @@ impl Default for OptFlags {
         Self {
             mangle: true,
             strip: true,
+            tco: true,
         }
     }
 }
@@ -310,6 +312,14 @@ fn count_expr(
         Expr::Clone(inner) => {
             count_expr(inner, freq, variant_to_type, type_registry);
         }
+        Expr::TcoLoop { body } => {
+            count_expr(body, freq, variant_to_type, type_registry);
+        }
+        Expr::TcoContinue { args } => {
+            for (_, val) in args {
+                count_expr(val, freq, variant_to_type, type_registry);
+            }
+        }
         _ => {}
     }
 }
@@ -577,6 +587,14 @@ fn collect_vars_from_expr(expr: &Spanned<Expr>, vars: &mut HashSet<String>) {
                     ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => e,
                 };
                 collect_vars_from_expr(e, vars);
+            }
+        }
+        Expr::TcoLoop { body } => {
+            collect_vars_from_expr(body, vars);
+        }
+        Expr::TcoContinue { args } => {
+            for (_, val) in args {
+                collect_vars_from_expr(val, vars);
             }
         }
         _ => {}

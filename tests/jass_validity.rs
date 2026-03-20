@@ -246,6 +246,126 @@ fn go(c: Int, d: Int, e: Int, f: Int, g: Int, h: Int) -> Int {
 }
 
 // ============================================================
+// Tail Call Optimization
+// ============================================================
+
+/// Tail-recursive function should compile to loop/endloop in JASS.
+#[test]
+fn tco_tail_recursive_becomes_loop() {
+    let jass = compile_glass(
+        r#"
+fn sum_acc(n: Int, acc: Int) -> Int {
+    case n == 0 {
+        True -> acc
+        False -> sum_acc(n - 1, acc + n)
+    }
+}
+
+pub fn total() -> Int {
+    sum_acc(100, 0)
+}
+"#,
+    );
+    validate_jass_with_natives(&jass, false);
+
+    // The TCO'd function must contain loop/endloop
+    assert!(
+        jass.contains("loop") && jass.contains("endloop"),
+        "TCO function should use loop/endloop, got:\n{}",
+        jass
+    );
+    // Must NOT contain a recursive call to itself (replaced by param reassignment)
+    // The function name is mangled, but glass_tco_ temps should be present
+    assert!(
+        jass.contains("glass_tco_"),
+        "TCO function should have glass_tco_ temp vars for param reassignment"
+    );
+}
+
+/// Non-tail-recursive function should NOT get loop/endloop.
+#[test]
+fn tco_non_tail_recursive_no_loop() {
+    let jass = compile_glass(
+        r#"
+fn length(xs: List(Int)) -> Int {
+    case xs {
+        [] -> 0
+        [_ | rest] -> 1 + length(rest)
+    }
+}
+
+pub fn test() -> Int {
+    length([1, 2, 3])
+}
+"#,
+    );
+    validate_jass_with_natives(&jass, false);
+
+    // length is NOT tail-recursive (1 + length(rest)), so no loop
+    assert!(
+        !jass.contains("loop"),
+        "Non-tail-recursive function should not use loop:\n{}",
+        jass
+    );
+}
+
+/// TCO with let bindings before the tail call.
+#[test]
+fn tco_let_before_tail_call() {
+    let jass = compile_glass(
+        r#"
+fn find(xs: List(Int), target: Int) -> Bool {
+    case xs {
+        [] -> False
+        [h | rest] ->
+            let matches = h == target
+            case matches {
+                True -> True
+                False -> find(rest, target)
+            }
+    }
+}
+
+pub fn test() -> Bool {
+    find([1, 2, 3], 2)
+}
+"#,
+    );
+    validate_jass_with_natives(&jass, false);
+    assert!(
+        jass.contains("loop") && jass.contains("endloop"),
+        "TCO with let binding should produce loop"
+    );
+}
+
+/// TCO parameter reassignment order: new values must be computed
+/// before any parameter is modified (glass_tco_N temps).
+#[test]
+fn tco_param_reassignment_uses_temps() {
+    let jass = compile_glass(
+        r#"
+fn swap_loop(a: Int, b: Int, n: Int) -> Int {
+    case n == 0 {
+        True -> a
+        False -> swap_loop(b, a, n - 1)
+    }
+}
+
+pub fn test() -> Int {
+    swap_loop(1, 2, 10)
+}
+"#,
+    );
+    validate_jass_with_natives(&jass, false);
+    assert!(jass.contains("loop"), "Should be TCO'd");
+    // Must have at least glass_tco_0 and glass_tco_1 for safe swap
+    assert!(
+        jass.contains("glass_tco_0") && jass.contains("glass_tco_1"),
+        "Must use temp vars for safe parameter reassignment"
+    );
+}
+
+// ============================================================
 // Example files — full compilation cycle + pjass validation
 // ============================================================
 

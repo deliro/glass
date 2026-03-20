@@ -223,6 +223,17 @@ pub enum Expr {
 
     // Todo placeholder
     Todo(Option<String>),
+
+    // TCO: loop wrapper for tail-recursive function body
+    TcoLoop {
+        body: Box<Spanned<Expr>>,
+    },
+
+    // TCO: tail call replaced by parameter reassignment
+    // args: (param_name, new_value) pairs
+    TcoContinue {
+        args: Vec<(String, Box<Spanned<Expr>>)>,
+    },
 }
 
 #[derive(Debug, Clone)]
