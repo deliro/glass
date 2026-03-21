@@ -59,7 +59,7 @@ impl LambdaCollector {
                 }
 
                 let mut free_vars: Vec<String> = Vec::new();
-                Self::find_free_vars(&body.node, &lambda_scope, &mut free_vars);
+                crate::free_vars::find_free_vars(&body.node, &lambda_scope, &mut free_vars);
                 // Only keep vars that are actually in the outer scope (not globals/builtins)
                 free_vars.retain(|v| scope.contains(v));
                 free_vars.sort();
@@ -100,14 +100,14 @@ impl LambdaCollector {
             } => {
                 self.collect_expr(value, scope);
                 let mut new_scope = scope.clone();
-                Self::bind_pattern(&pattern.node, &mut new_scope);
+                crate::free_vars::bind_pattern(&pattern.node, &mut new_scope);
                 self.collect_expr(body, &new_scope);
             }
             Expr::Case { subject, arms } => {
                 self.collect_expr(subject, scope);
                 for arm in arms {
                     let mut arm_scope = scope.clone();
-                    Self::bind_pattern(&arm.pattern.node, &mut arm_scope);
+                    crate::free_vars::bind_pattern(&arm.pattern.node, &mut arm_scope);
                     self.collect_expr(&arm.body, &arm_scope);
                 }
             }
@@ -139,7 +139,7 @@ impl LambdaCollector {
                     self.collect_expr(e, &block_scope);
                     // Let bindings in blocks extend scope for subsequent exprs
                     if let Expr::Let { pattern, .. } = &e.node {
-                        Self::bind_pattern(&pattern.node, &mut block_scope);
+                        crate::free_vars::bind_pattern(&pattern.node, &mut block_scope);
                     }
                 }
             }
@@ -161,121 +161,6 @@ impl LambdaCollector {
                 self.collect_expr(base, scope);
                 for (_, e) in updates {
                     self.collect_expr(e, scope);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn bind_pattern(pattern: &crate::ast::Pattern, scope: &mut HashSet<String>) {
-        match pattern {
-            crate::ast::Pattern::Var(name) => {
-                scope.insert(name.clone());
-            }
-            crate::ast::Pattern::Constructor { args, .. } => {
-                for arg in args {
-                    Self::bind_pattern(&arg.node, scope);
-                }
-            }
-            crate::ast::Pattern::Tuple(elems) => {
-                for e in elems {
-                    Self::bind_pattern(&e.node, scope);
-                }
-            }
-            crate::ast::Pattern::ListCons { head, tail } => {
-                Self::bind_pattern(&head.node, scope);
-                Self::bind_pattern(&tail.node, scope);
-            }
-            crate::ast::Pattern::As { pattern, name } => {
-                Self::bind_pattern(&pattern.node, scope);
-                scope.insert(name.clone());
-            }
-            _ => {}
-        }
-    }
-
-    fn find_free_vars(expr: &Expr, scope: &HashSet<String>, free: &mut Vec<String>) {
-        match expr {
-            Expr::Var(name) => {
-                if !scope.contains(name) {
-                    free.push(name.clone());
-                }
-            }
-            Expr::Let {
-                value,
-                body,
-                pattern,
-                ..
-            } => {
-                Self::find_free_vars(&value.node, scope, free);
-                let mut new_scope = scope.clone();
-                Self::bind_pattern(&pattern.node, &mut new_scope);
-                Self::find_free_vars(&body.node, &new_scope, free);
-            }
-            Expr::Case { subject, arms } => {
-                Self::find_free_vars(&subject.node, scope, free);
-                for arm in arms {
-                    let mut arm_scope = scope.clone();
-                    Self::bind_pattern(&arm.pattern.node, &mut arm_scope);
-                    Self::find_free_vars(&arm.body.node, &arm_scope, free);
-                }
-            }
-            Expr::BinOp { left, right, .. } | Expr::Pipe { left, right } => {
-                Self::find_free_vars(&left.node, scope, free);
-                Self::find_free_vars(&right.node, scope, free);
-            }
-            Expr::UnaryOp { operand, .. } | Expr::Clone(operand) => {
-                Self::find_free_vars(&operand.node, scope, free);
-            }
-            Expr::Call { function, args } => {
-                Self::find_free_vars(&function.node, scope, free);
-                for a in args {
-                    Self::find_free_vars(&a.node, scope, free);
-                }
-            }
-            Expr::FieldAccess { object, .. } => {
-                Self::find_free_vars(&object.node, scope, free);
-            }
-            Expr::MethodCall { object, args, .. } => {
-                Self::find_free_vars(&object.node, scope, free);
-                for a in args {
-                    Self::find_free_vars(&a.node, scope, free);
-                }
-            }
-            Expr::Block(exprs) => {
-                let mut block_scope = scope.clone();
-                for e in exprs {
-                    Self::find_free_vars(&e.node, &block_scope, free);
-                    if let Expr::Let { pattern, .. } = &e.node {
-                        Self::bind_pattern(&pattern.node, &mut block_scope);
-                    }
-                }
-            }
-            Expr::Tuple(elems) | Expr::List(elems) => {
-                for e in elems {
-                    Self::find_free_vars(&e.node, scope, free);
-                }
-            }
-            Expr::Lambda { params, body, .. } => {
-                let mut inner: HashSet<String> = scope.clone();
-                for p in params {
-                    inner.insert(p.name.clone());
-                }
-                Self::find_free_vars(&body.node, &inner, free);
-            }
-            Expr::Constructor { args, .. } => {
-                for a in args {
-                    match a {
-                        ast::ConstructorArg::Positional(e) | ast::ConstructorArg::Named(_, e) => {
-                            Self::find_free_vars(&e.node, scope, free);
-                        }
-                    }
-                }
-            }
-            Expr::RecordUpdate { base, updates, .. } => {
-                Self::find_free_vars(&base.node, scope, free);
-                for (_, e) in updates {
-                    Self::find_free_vars(&e.node, scope, free);
                 }
             }
             _ => {}

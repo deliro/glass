@@ -1,9 +1,12 @@
 mod ast;
+mod beta;
 mod closures;
 mod codegen;
 #[cfg(test)]
 mod codegen_tests;
+mod const_prop;
 mod exhaustive;
+mod free_vars;
 mod infer;
 mod inline;
 mod jass_parser;
@@ -82,6 +85,14 @@ struct Cli {
     /// Disable function inlining
     #[arg(long)]
     no_inline: bool,
+
+    /// Disable beta reduction (inline immediately-applied lambdas)
+    #[arg(long)]
+    no_beta: bool,
+
+    /// Disable constant propagation for let bindings
+    #[arg(long)]
+    no_const_prop: bool,
 }
 
 #[derive(Subcommand)]
@@ -119,6 +130,8 @@ fn main() {
                 tco: !cli.no_tco,
                 lift: !cli.no_lift,
                 inline: !cli.no_inline,
+                beta: !cli.no_beta,
+                const_prop: !cli.no_const_prop,
             };
             cmd_compile(
                 &input,
@@ -185,6 +198,12 @@ fn cmd_compile(
     }
     if opt.lift {
         lift::apply_lambda_lifting(&mut module);
+    }
+    if opt.beta {
+        beta::apply_beta_reduction(&mut module);
+    }
+    if opt.const_prop {
+        const_prop::apply_const_propagation(&mut module);
     }
     if opt.inline {
         inline::apply_inlining(&mut module);
