@@ -50,8 +50,8 @@ pub struct Inferencer {
     /// For each generic function, maps type param names to their TypeVarIds.
     /// e.g. "insert" → {"k" → 42, "v" → 43}
     pub type_param_vars: HashMap<String, HashMap<String, TypeVarId>>,
-    /// Const name → inferred type (for qualified const access: module.CONST)
     const_types: HashMap<String, Type>,
+    pub ambiguous_names: HashMap<String, Vec<String>>,
 }
 
 impl Inferencer {
@@ -65,6 +65,7 @@ impl Inferencer {
             type_map_raw: HashMap::new(),
             type_param_vars: HashMap::new(),
             const_types: HashMap::new(),
+            ambiguous_names: HashMap::new(),
         }
     }
 
@@ -165,7 +166,11 @@ impl Inferencer {
                 if !collides {
                     env.bind(f.name.clone(), scheme.clone());
                 }
-                // Register qualified name for THIS def's source module only
+                if collides && let Some(imps) = name_to_modules.get(f.name.as_str()) {
+                    let modules: Vec<String> =
+                        imps.iter().map(|i| i.module_name.clone()).collect();
+                    self.ambiguous_names.insert(f.name.clone(), modules);
+                }
                 if let Some(src_mod) = def_module_map.get(&def_idx) {
                     let qname = format!("{}.{}", src_mod, f.name);
                     env.bind(qname, scheme);
@@ -207,6 +212,11 @@ impl Inferencer {
                     .is_some_and(|imps| imps.len() > 1);
                 if !collides {
                     env.bind(e.fn_name.clone(), scheme.clone());
+                }
+                if collides && let Some(imps) = name_to_modules.get(e.fn_name.as_str()) {
+                    let modules: Vec<String> =
+                        imps.iter().map(|i| i.module_name.clone()).collect();
+                    self.ambiguous_names.insert(e.fn_name.clone(), modules);
                 }
                 if let Some(src_mod) = def_module_map.get(&def_idx) {
                     let qname = format!("{}.{}", src_mod, e.fn_name);
@@ -513,19 +523,32 @@ impl Inferencer {
     fn infer_expr_inner(&mut self, expr: &Spanned<Expr>, env: &mut TypeEnv) -> Type {
         match &expr.node {
             // Literals
-            Expr::Int(_) => Type::int(),
+            Expr::Int(_) | Expr::Rawcode(_) => Type::int(),
             Expr::Float(_) => Type::float(),
-            Expr::String(_) | Expr::Rawcode(_) => Type::string(),
+            Expr::String(_) => Type::string(),
             Expr::Bool(_) => Type::bool(),
 
             // Variable
             Expr::Var(name) => match env.lookup(name) {
                 Some(scheme) => env.instantiate(scheme, &mut self.var_gen),
                 None => {
-                    self.errors.push(TypeError {
-                        message: format!("undefined variable '{name}'"),
-                        span: expr.span,
-                    });
+                    if let Some(modules) = self.ambiguous_names.get(name) {
+                        let qualified: Vec<String> =
+                            modules.iter().map(|m| format!("{m}.{name}")).collect();
+                        self.errors.push(TypeError {
+                            message: format!(
+                                "ambiguous name `{name}` — defined in modules: {}. Use qualified syntax: {}",
+                                modules.join(", "),
+                                qualified.join(" or "),
+                            ),
+                            span: expr.span,
+                        });
+                    } else {
+                        self.errors.push(TypeError {
+                            message: format!("undefined variable '{name}'"),
+                            span: expr.span,
+                        });
+                    }
                     self.var_gen.fresh()
                 }
             },
@@ -700,7 +723,6 @@ impl Inferencer {
                     _ => None,
                 };
                 if let Some(tn) = type_name {
-                    // Search all constructors of this type for the field
                     for info in self.constructors.all() {
                         if info.type_name == tn
                             && let Some((_, ft)) = info.field_types.iter().find(|(n, _)| n == field)
@@ -708,6 +730,10 @@ impl Inferencer {
                             return ft.apply(&self.subst);
                         }
                     }
+                    self.errors.push(TypeError {
+                        message: format!("type '{}' has no field '{}'", tn, field),
+                        span: object.span,
+                    });
                 }
                 self.var_gen.fresh()
             }
@@ -767,13 +793,35 @@ impl Inferencer {
                 updates,
             } => {
                 let base_type = self.infer_expr(base, env);
-                for (_, val) in updates {
-                    self.infer_expr(val, env);
-                }
-                // Result type = same as base
                 let expected = Type::Con(name.clone());
                 if let Err(e) = unify::unify(&base_type.apply(&self.subst), &expected, expr.span) {
                     self.errors.push(e.into());
+                }
+                for (field_name, val) in updates {
+                    let val_type = self.infer_expr(val, env);
+                    let mut found = false;
+                    for info in self.constructors.all() {
+                        if info.type_name == *name
+                            && let Some((_, ft)) =
+                                info.field_types.iter().find(|(n, _)| n == field_name)
+                        {
+                            found = true;
+                            if let Err(e) = unify::unify(
+                                &val_type.apply(&self.subst),
+                                &ft.apply(&self.subst),
+                                val.span,
+                            ) {
+                                self.errors.push(e.into());
+                            }
+                            break;
+                        }
+                    }
+                    if !found {
+                        self.errors.push(TypeError {
+                            message: format!("type '{}' has no field '{}'", name, field_name),
+                            span: val.span,
+                        });
+                    }
                 }
                 expected
             }
@@ -889,7 +937,95 @@ impl Inferencer {
                             }
                         }
                     }
-                    // a |> f → f(a): right is just a function name
+                    Expr::MethodCall {
+                        object,
+                        method,
+                        args,
+                    } => {
+                        let _obj_type = self.infer_expr(object, env);
+                        let func_type = if let Some(scheme) = env.lookup(method).cloned() {
+                            env.instantiate(&scheme, &mut self.var_gen)
+                        } else {
+                            self.var_gen.fresh()
+                        };
+
+                        let has_placeholder = args
+                            .iter()
+                            .any(|a| matches!(&a.node, Expr::Var(n) if n == "_"));
+
+                        let all_arg_types: Vec<Type> = if has_placeholder {
+                            args.iter()
+                                .map(|arg| {
+                                    if matches!(&arg.node, Expr::Var(n) if n == "_") {
+                                        left_type.apply(&self.subst)
+                                    } else {
+                                        self.infer_expr(arg, env)
+                                    }
+                                })
+                                .collect()
+                        } else {
+                            let mut all = vec![left_type.apply(&self.subst)];
+                            for arg in args {
+                                all.push(self.infer_expr(arg, env));
+                            }
+                            all
+                        };
+
+                        let ret_type = self.var_gen.fresh();
+                        let expected_fn = Type::Fn(all_arg_types, Box::new(ret_type.clone()));
+
+                        match unify::unify(
+                            &func_type.apply(&self.subst),
+                            &expected_fn.apply(&self.subst),
+                            expr.span,
+                        ) {
+                            Ok(s) => {
+                                self.subst = self.subst.compose(&s);
+                                ret_type.apply(&self.subst)
+                            }
+                            Err(e) => {
+                                self.errors.push(e.into());
+                                ret_type
+                            }
+                        }
+                    }
+                    Expr::FieldAccess { object, field } if matches!(&object.node, Expr::Var(_)) => {
+                        let module_name = match &object.node {
+                            Expr::Var(n) => n,
+                            _ => "",
+                        };
+                        let qualified = format!("{}.{}", module_name, field);
+                        let func_type = if let Some(scheme) = env.lookup(&qualified).cloned() {
+                            env.instantiate(&scheme, &mut self.var_gen)
+                        } else if let Some(scheme) = env.lookup(field).cloned() {
+                            env.instantiate(&scheme, &mut self.var_gen)
+                        } else {
+                            self.errors.push(TypeError {
+                                message: format!("undefined function '{}'", qualified),
+                                span: right.span,
+                            });
+                            self.var_gen.fresh()
+                        };
+                        let ret_type = self.var_gen.fresh();
+                        let expected = Type::Fn(
+                            vec![left_type.apply(&self.subst)],
+                            Box::new(ret_type.clone()),
+                        );
+                        match unify::unify(
+                            &func_type.apply(&self.subst),
+                            &expected.apply(&self.subst),
+                            expr.span,
+                        ) {
+                            Ok(s) => {
+                                self.subst = self.subst.compose(&s);
+                                ret_type.apply(&self.subst)
+                            }
+                            Err(e) => {
+                                self.errors.push(e.into());
+                                ret_type
+                            }
+                        }
+                    }
                     _ => {
                         let right_type = self.infer_expr(right, env);
                         let ret_type = self.var_gen.fresh();
@@ -1065,14 +1201,34 @@ impl Inferencer {
                     ) {
                         self.errors.push(e.into());
                     }
-                    // Bind each named field
                     for fp in fields {
                         if let Some((_, ftype)) =
                             info.field_types.iter().find(|(n, _)| *n == fp.field_name)
                         {
                             let ft = ftype.apply(&fresh_subst);
-                            let var_name = fp.binding.as_ref().unwrap_or(&fp.field_name);
-                            env.bind(var_name.clone(), TypeScheme::mono(ft.apply(&self.subst)));
+                            if let Some(nested_pat) = &fp.pattern {
+                                match &nested_pat.node {
+                                    Pattern::Var(var_name) => {
+                                        env.bind(
+                                            var_name.clone(),
+                                            TypeScheme::mono(ft.apply(&self.subst)),
+                                        );
+                                    }
+                                    _ => {
+                                        self.check_pattern(
+                                            &nested_pat.node,
+                                            &ft.apply(&self.subst),
+                                            env,
+                                            nested_pat.span,
+                                        );
+                                    }
+                                }
+                            } else {
+                                env.bind(
+                                    fp.field_name.clone(),
+                                    TypeScheme::mono(ft.apply(&self.subst)),
+                                );
+                            }
                         } else {
                             self.errors.push(TypeError {
                                 message: format!(
@@ -1461,12 +1617,12 @@ fn test() -> Int { add(1, "two") }
 
     #[test]
     fn tuple_type() {
-        infer_ok("fn test() -> #(Int, String) { #(1, \"hello\") }");
+        infer_ok("fn test() -> (Int, String) { (1, \"hello\") }");
     }
 
     #[test]
     fn tuple_mismatch() {
-        let errs = infer_errors("fn test() -> #(Int, Int) { #(1, \"hello\") }");
+        let errs = infer_errors("fn test() -> (Int, Int) { (1, \"hello\") }");
         assert!(!errs.is_empty());
     }
 
