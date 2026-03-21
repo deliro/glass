@@ -159,7 +159,7 @@ impl Parser {
         self.expect(&Token::Fn)?;
         let (name, _) = self.expect_lower_ident()?;
         self.expect(&Token::LParen)?;
-        let params = self.parse_params()?;
+        let (params, pattern_bindings) = self.parse_params_with_patterns()?;
         self.expect(&Token::RParen)?;
 
         let return_type = if self.at(&Token::Arrow) {
@@ -169,7 +169,20 @@ impl Parser {
             None
         };
 
-        let body = self.parse_block()?;
+        let mut body = self.parse_block()?;
+
+        for dp in pattern_bindings.into_iter().rev() {
+            body = Spanned::new(
+                Expr::Let {
+                    pattern: dp.pattern,
+                    type_annotation: Some(dp.type_annotation),
+                    value: Box::new(Spanned::new(Expr::Var(dp.param_name), dp.span)),
+                    body: Box::new(body),
+                },
+                dp.span,
+            );
+        }
+
         let span = start.merge(body.span);
 
         Ok(Definition::Function(FnDef {
@@ -181,6 +194,76 @@ impl Parser {
             body,
             span,
         }))
+    }
+
+    fn parse_params_with_patterns(&mut self) -> ParseResult<(Vec<Param>, Vec<DestructuredParam>)> {
+        let mut params = Vec::new();
+        let mut pattern_bindings = Vec::new();
+        let mut destr_counter = 0;
+
+        if self.at(&Token::RParen) {
+            return Ok((params, pattern_bindings));
+        }
+
+        let (param, binding) = self.parse_param_or_pattern(&mut destr_counter)?;
+        params.push(param);
+        if let Some(b) = binding {
+            pattern_bindings.push(b);
+        }
+
+        while self.at(&Token::Comma) {
+            self.advance();
+            if self.at(&Token::RParen) {
+                break;
+            }
+            let (param, binding) = self.parse_param_or_pattern(&mut destr_counter)?;
+            params.push(param);
+            if let Some(b) = binding {
+                pattern_bindings.push(b);
+            }
+        }
+        Ok((params, pattern_bindings))
+    }
+
+    fn parse_param_or_pattern(
+        &mut self,
+        destr_counter: &mut usize,
+    ) -> ParseResult<(Param, Option<DestructuredParam>)> {
+        if matches!(
+            self.peek(),
+            Some(Token::UpperIdent(_)) | Some(Token::LParen)
+        ) {
+            let start = self.peek_span();
+            let pattern = self.parse_pattern()?;
+            self.expect(&Token::Colon)?;
+            let type_expr = self.parse_type_expr()?;
+            let span = start.merge(self.prev_span());
+            let param_name = match &pattern.node {
+                Pattern::As { name, .. } => name.clone(),
+                _ => {
+                    let name = format!("glass_dp{}", destr_counter);
+                    *destr_counter += 1;
+                    name
+                }
+            };
+            let param = Param {
+                name: param_name.clone(),
+                type_expr: type_expr.clone(),
+                span,
+            };
+            Ok((
+                param,
+                Some(DestructuredParam {
+                    pattern,
+                    type_annotation: type_expr,
+                    param_name,
+                    span,
+                }),
+            ))
+        } else {
+            let param = self.parse_param()?;
+            Ok((param, None))
+        }
     }
 
     fn parse_params(&mut self) -> ParseResult<Vec<Param>> {
@@ -366,7 +449,10 @@ impl Parser {
     fn parse_const_def(&mut self, is_pub: bool) -> ParseResult<Definition> {
         let start = self.peek_span();
         self.expect(&Token::Const)?;
-        let (name, _) = self.expect_upper_ident()?;
+        let (name, _) = match self.peek() {
+            Some(Token::LowerIdent(_)) => self.expect_lower_ident()?,
+            _ => self.expect_upper_ident()?,
+        };
 
         let type_expr = if self.at(&Token::Colon) {
             self.advance();
@@ -747,23 +833,20 @@ impl Parser {
     fn parse_case_arm(&mut self) -> ParseResult<CaseArm> {
         let start = self.peek_span();
 
-        // Parse or_pattern [ "as" name ] [ "if" guard ] "->" body
-        let pattern = self.parse_or_pattern()?;
-
-        // `as` binding wraps entire OR pattern
+        let or_pattern = self.parse_or_pattern()?;
         let pattern = if self.at(&Token::As) {
             self.advance();
             let (name, name_span) = self.expect_lower_ident()?;
-            let span = pattern.span.merge(name_span);
+            let span = or_pattern.span.merge(name_span);
             Spanned::new(
                 Pattern::As {
-                    pattern: Box::new(pattern),
+                    pattern: Box::new(or_pattern),
                     name,
                 },
                 span,
             )
         } else {
-            pattern
+            or_pattern
         };
 
         // Guard clause: `if expr`
@@ -797,7 +880,7 @@ impl Parser {
         let mut left = self.parse_or_expr()?;
         while self.at(&Token::Pipe) {
             self.advance();
-            let right = self.parse_or_expr()?;
+            let right = self.parse_unary_expr()?;
             let span = left.span.merge(right.span);
             left = Spanned::new(
                 Expr::Pipe {
@@ -950,11 +1033,18 @@ impl Parser {
         }
     }
 
+    fn is_callable(expr: &Expr) -> bool {
+        matches!(
+            expr,
+            Expr::Var(_) | Expr::FieldAccess { .. } | Expr::Lambda { .. }
+        )
+    }
+
     fn parse_call_expr(&mut self) -> ParseResult<Spanned<Expr>> {
         let mut expr = self.parse_primary()?;
 
         loop {
-            if self.at(&Token::LParen) {
+            if self.at(&Token::LParen) && Self::is_callable(&expr.node) {
                 // Function call
                 self.advance();
                 let args = self.parse_args()?;
@@ -1082,24 +1172,7 @@ impl Parser {
                 };
                 Ok(Spanned::new(Expr::Todo(msg), start.merge(self.prev_span())))
             }
-            // Tuple: #(a, b, c)
-            Some(Token::HashParen) => {
-                let start = self.peek_span();
-                self.advance();
-                let mut elems = Vec::new();
-                if !self.at(&Token::RParen) {
-                    elems.push(self.parse_expr()?);
-                    while self.at(&Token::Comma) {
-                        self.advance();
-                        if self.at(&Token::RParen) {
-                            break;
-                        }
-                        elems.push(self.parse_expr()?);
-                    }
-                }
-                let end = self.expect(&Token::RParen)?;
-                Ok(Spanned::new(Expr::Tuple(elems), start.merge(end)))
-            }
+            // (removed — tuples now use LParen below)
             // List: [a, b, c] or [head | tail]
             Some(Token::LBracket) => {
                 let start = self.peek_span();
@@ -1140,9 +1213,26 @@ impl Parser {
             Some(Token::LParen) => {
                 let start = self.peek_span();
                 self.advance();
-                let inner = self.parse_expr()?;
-                let end = self.expect(&Token::RParen)?;
-                Ok(Spanned::new(inner.node, start.merge(end)))
+                if self.at(&Token::RParen) {
+                    let end = self.expect(&Token::RParen)?;
+                    return Ok(Spanned::new(Expr::Tuple(Vec::new()), start.merge(end)));
+                }
+                let first = self.parse_expr()?;
+                if self.at(&Token::Comma) {
+                    let mut elems = vec![first];
+                    while self.at(&Token::Comma) {
+                        self.advance();
+                        if self.at(&Token::RParen) {
+                            break;
+                        }
+                        elems.push(self.parse_expr()?);
+                    }
+                    let end = self.expect(&Token::RParen)?;
+                    Ok(Spanned::new(Expr::Tuple(elems), start.merge(end)))
+                } else {
+                    let end = self.expect(&Token::RParen)?;
+                    Ok(Spanned::new(first.node, start.merge(end)))
+                }
             }
             // Block: { ... }
             Some(Token::LBrace) => self.parse_block(),
@@ -1272,7 +1362,6 @@ impl Parser {
     ) -> ParseResult<Spanned<Expr>> {
         self.expect(&Token::LBrace)?;
 
-        // Check for record update: Name { ..expr, field: val }
         if self.at(&Token::DotDot) {
             self.advance();
             let base = self.parse_expr()?;
@@ -1282,10 +1371,15 @@ impl Parser {
                 if self.at(&Token::RBrace) {
                     break;
                 }
-                let (field_name, _) = self.expect_lower_ident()?;
-                self.expect(&Token::Colon)?;
-                let value = self.parse_expr()?;
-                updates.push((field_name, value));
+                let (field_name, field_span) = self.expect_lower_ident()?;
+                if self.at(&Token::Colon) {
+                    self.advance();
+                    let value = self.parse_expr()?;
+                    updates.push((field_name, value));
+                } else {
+                    let var_expr = Spanned::new(Expr::Var(field_name.clone()), field_span);
+                    updates.push((field_name, var_expr));
+                }
             }
             let end = self.expect(&Token::RBrace)?;
             return Ok(Spanned::new(
@@ -1377,7 +1471,21 @@ impl Parser {
 
     /// Parse a single pattern used in let bindings and inside OR.
     fn parse_pattern(&mut self) -> ParseResult<Spanned<Pattern>> {
-        self.parse_single_pattern()
+        let pattern = self.parse_single_pattern()?;
+        if self.at(&Token::As) {
+            self.advance();
+            let (name, name_span) = self.expect_lower_ident()?;
+            let span = pattern.span.merge(name_span);
+            Ok(Spanned::new(
+                Pattern::As {
+                    pattern: Box::new(pattern),
+                    name,
+                },
+                span,
+            ))
+        } else {
+            Ok(pattern)
+        }
     }
 
     fn parse_single_pattern(&mut self) -> ParseResult<Spanned<Pattern>> {
@@ -1515,13 +1623,17 @@ impl Parser {
                 let (_, span) = self.advance();
                 Ok(Spanned::new(Pattern::Bool(false), span))
             }
-            // Tuple pattern: #(a, b)
-            Some(Token::HashParen) => {
+            // Tuple pattern: (a, b)
+            Some(Token::LParen) => {
                 let start = self.peek_span();
                 self.advance();
-                let mut elems = Vec::new();
-                if !self.at(&Token::RParen) {
-                    elems.push(self.parse_pattern()?);
+                if self.at(&Token::RParen) {
+                    let end = self.expect(&Token::RParen)?;
+                    return Ok(Spanned::new(Pattern::Tuple(Vec::new()), start.merge(end)));
+                }
+                let first = self.parse_pattern()?;
+                if self.at(&Token::Comma) {
+                    let mut elems = vec![first];
                     while self.at(&Token::Comma) {
                         self.advance();
                         if self.at(&Token::RParen) {
@@ -1529,9 +1641,12 @@ impl Parser {
                         }
                         elems.push(self.parse_pattern()?);
                     }
+                    let end = self.expect(&Token::RParen)?;
+                    Ok(Spanned::new(Pattern::Tuple(elems), start.merge(end)))
+                } else {
+                    let end = self.expect(&Token::RParen)?;
+                    Ok(Spanned::new(first.node, start.merge(end)))
                 }
-                let end = self.expect(&Token::RParen)?;
-                Ok(Spanned::new(Pattern::Tuple(elems), start.merge(end)))
             }
             // List pattern: [a, b | tail]
             Some(Token::LBracket) => {
@@ -1583,19 +1698,25 @@ impl Parser {
         }
     }
 
-    /// Parse a named field pattern: `field_name` or `field_name as var_name`
+    /// Parse a named field pattern:
+    /// - `field_name` — shorthand, binds to field_name
+    /// - `field_name as var_name` — binds to var_name
+    /// - `field_name: pattern` — nested pattern destructuring
     fn parse_field_pattern(&mut self) -> ParseResult<FieldPattern> {
-        let (field_name, _) = self.expect_lower_ident()?;
-        let binding = if self.at(&Token::As) {
+        let (field_name, _span) = self.expect_lower_ident()?;
+        let pattern = if self.at(&Token::As) {
             self.advance();
-            let (var_name, _) = self.expect_lower_ident()?;
-            Some(var_name)
+            let (var_name, var_span) = self.expect_lower_ident()?;
+            Some(Spanned::new(Pattern::Var(var_name), var_span))
+        } else if self.at(&Token::Colon) {
+            self.advance();
+            Some(self.parse_pattern()?)
         } else {
             None
         };
         Ok(FieldPattern {
             field_name,
-            binding,
+            pattern,
         })
     }
 
@@ -1622,18 +1743,28 @@ impl Parser {
                     ret: Box::new(ret),
                 })
             }
-            Some(Token::HashParen) => {
+            Some(Token::LParen) => {
                 self.advance();
-                let mut elems = Vec::new();
-                if !self.at(&Token::RParen) {
-                    elems.push(self.parse_type_expr()?);
+                if self.at(&Token::RParen) {
+                    self.advance();
+                    return Ok(TypeExpr::Tuple(Vec::new()));
+                }
+                let first = self.parse_type_expr()?;
+                if self.at(&Token::Comma) {
+                    let mut elems = vec![first];
                     while self.at(&Token::Comma) {
                         self.advance();
+                        if self.at(&Token::RParen) {
+                            break;
+                        }
                         elems.push(self.parse_type_expr()?);
                     }
+                    self.expect(&Token::RParen)?;
+                    Ok(TypeExpr::Tuple(elems))
+                } else {
+                    self.expect(&Token::RParen)?;
+                    Ok(first)
                 }
-                self.expect(&Token::RParen)?;
-                Ok(TypeExpr::Tuple(elems))
             }
             Some(Token::UpperIdent(_)) | Some(Token::LowerIdent(_)) => {
                 // UpperIdent = concrete type (Int, String, Option, ...)
@@ -1826,7 +1957,7 @@ mod tests {
 
     #[test]
     fn tuple() {
-        insta::assert_debug_snapshot!(parse_expr_str("#(1, 2, 3)"));
+        insta::assert_debug_snapshot!(parse_expr_str("(1, 2, 3)"));
     }
 
     #[test]
@@ -1946,10 +2077,10 @@ pub enum Msg {
     UnitDied { killer: Player, bounty: Int }
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
     case msg {
-        Msg::Tick -> #(model, [])
-        Msg::UnitDied(killer, bounty) -> #(model, [])
+        Msg::Tick -> (model, [])
+        Msg::UnitDied(killer, bounty) -> (model, [])
     }
 }
 "#;

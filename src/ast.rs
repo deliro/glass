@@ -51,6 +51,14 @@ pub struct Param {
 }
 
 #[derive(Debug, Clone)]
+pub struct DestructuredParam {
+    pub pattern: Spanned<Pattern>,
+    pub type_annotation: TypeExpr,
+    pub param_name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct TypeDef {
     pub is_pub: bool,
     pub name: String,
@@ -190,7 +198,7 @@ pub enum Expr {
         updates: Vec<(String, Spanned<Expr>)>,
     },
 
-    // Tuple: #(a, b, c)
+    // Tuple: (a, b, c)
     Tuple(Vec<Spanned<Expr>>),
 
     // List: [a, b, c]
@@ -310,11 +318,33 @@ pub enum Pattern {
     },
 }
 
-/// Named field in a constructor pattern: `from as p` or just `from`
+/// Named field in a constructor pattern:
+/// - `field` — binds field value to `field`
+/// - `field as name` — binds field value to `name` (sugar for `field: name`)
+/// - `field: pattern` — nested pattern destructuring
 #[derive(Debug, Clone)]
 pub struct FieldPattern {
     pub field_name: String,
-    pub binding: Option<String>, // None = use field_name as binding
+    pub pattern: Option<Spanned<Pattern>>,
+}
+
+impl FieldPattern {
+    pub fn binding_name(&self) -> &str {
+        match &self.pattern {
+            None => &self.field_name,
+            Some(p) => match &p.node {
+                Pattern::Var(name) => name,
+                _ => &self.field_name,
+            },
+        }
+    }
+
+    pub fn has_nested_pattern(&self) -> bool {
+        match &self.pattern {
+            None => false,
+            Some(p) => !matches!(p.node, Pattern::Var(_)),
+        }
+    }
 }
 
 // === Type expressions ===
