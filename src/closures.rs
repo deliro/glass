@@ -1,7 +1,3 @@
-// Closure fields used progressively across milestones.
-
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 
 use crate::ast::{self, Expr, Param, Spanned};
