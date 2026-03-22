@@ -8,6 +8,9 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 struct DocumentState {
     source: String,
+    type_map: HashMap<(usize, usize), crate::type_repr::Type>,
+    type_registry: crate::types::TypeRegistry,
+    definitions: Vec<crate::ast::Definition>,
 }
 
 struct GlassLsp {
@@ -42,9 +45,7 @@ impl GlassLsp {
             }
         };
 
-        let input_path = uri
-            .to_file_path()
-            .unwrap_or_default();
+        let input_path = uri.to_file_path().unwrap_or_default();
         let mut resolver = crate::modules::ModuleResolver::new(&input_path);
         let (resolved_module, imports, _imported_count, def_module_map) =
             match resolver.resolve_module(&module) {
@@ -100,6 +101,17 @@ impl GlassLsp {
             });
         }
 
+        let type_registry = crate::types::TypeRegistry::from_module(&resolved_module);
+
+        {
+            let mut docs = self.documents.write().await;
+            if let Some(doc) = docs.get_mut(uri) {
+                doc.type_map = infer_result.type_map;
+                doc.type_registry = type_registry;
+                doc.definitions = resolved_module.definitions;
+            }
+        }
+
         self.client
             .publish_diagnostics(uri.clone(), diagnostics, None)
             .await;
@@ -116,6 +128,7 @@ impl LanguageServer for GlassLsp {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions::default()),
+                definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -140,6 +153,9 @@ impl LanguageServer for GlassLsp {
                 uri.clone(),
                 DocumentState {
                     source: params.text_document.text,
+                    type_map: HashMap::new(),
+                    type_registry: empty_registry(),
+                    definitions: Vec::new(),
                 },
             );
         }
@@ -155,6 +171,9 @@ impl LanguageServer for GlassLsp {
                     uri.clone(),
                     DocumentState {
                         source: change.text,
+                        type_map: HashMap::new(),
+                        type_registry: empty_registry(),
+                        definitions: Vec::new(),
                     },
                 );
             }
@@ -162,25 +181,232 @@ impl LanguageServer for GlassLsp {
         }
     }
 
-    async fn hover(&self, _params: HoverParams) -> Result<Option<Hover>> {
-        Ok(None)
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+
+        let docs = self.documents.read().await;
+        let Some(doc) = docs.get(uri) else {
+            return Ok(None);
+        };
+
+        let offset = position_to_offset(&doc.source, pos);
+
+        let mut best: Option<(&(usize, usize), &crate::type_repr::Type)> = None;
+        for (span, ty) in &doc.type_map {
+            if span.0 <= offset && offset <= span.1 {
+                match best {
+                    Some((best_span, _)) if (span.1 - span.0) < (best_span.1 - best_span.0) => {
+                        best = Some((span, ty));
+                    }
+                    None => {
+                        best = Some((span, ty));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        match best {
+            Some((span, ty)) => {
+                let range = span_to_range(
+                    &doc.source,
+                    crate::token::Span {
+                        start: span.0,
+                        end: span.1,
+                    },
+                );
+                Ok(Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(format!("{ty}"))),
+                    range: Some(range),
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
-    async fn completion(&self, _params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let keywords = [
-            "fn", "let", "case", "struct", "enum", "pub", "import", "const", "clone", "todo",
-            "True", "False",
-        ];
-        let items: Vec<CompletionItem> = keywords
-            .iter()
-            .map(|kw| CompletionItem {
-                label: (*kw).to_string(),
-                kind: Some(CompletionItemKind::KEYWORD),
-                ..Default::default()
-            })
-            .collect();
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+
+        let docs = self.documents.read().await;
+        let Some(doc) = docs.get(uri) else {
+            return Ok(None);
+        };
+
+        let offset = position_to_offset(&doc.source, pos);
+        let mut items = Vec::new();
+
+        let before = if offset > 0 {
+            doc.source.as_bytes().get(offset - 1).copied()
+        } else {
+            None
+        };
+
+        match before {
+            Some(b'.') => {
+                let mut seen = std::collections::HashSet::new();
+                for type_info in doc.type_registry.types.values() {
+                    for variant in &type_info.variants {
+                        for field in &variant.fields {
+                            if seen.insert(field.name.clone()) {
+                                items.push(CompletionItem {
+                                    label: field.name.clone(),
+                                    kind: Some(CompletionItemKind::FIELD),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                for kw in &[
+                    "fn", "let", "case", "struct", "enum", "pub", "import", "const", "clone",
+                    "todo", "True", "False",
+                ] {
+                    items.push(CompletionItem {
+                        label: (*kw).to_string(),
+                        kind: Some(CompletionItemKind::KEYWORD),
+                        ..Default::default()
+                    });
+                }
+
+                for def in &doc.definitions {
+                    match def {
+                        crate::ast::Definition::Function(f) => {
+                            items.push(CompletionItem {
+                                label: f.name.clone(),
+                                kind: Some(CompletionItemKind::FUNCTION),
+                                ..Default::default()
+                            });
+                        }
+                        crate::ast::Definition::Const(c) => {
+                            items.push(CompletionItem {
+                                label: c.name.clone(),
+                                kind: Some(CompletionItemKind::CONSTANT),
+                                ..Default::default()
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+
+                for type_info in doc.type_registry.types.values() {
+                    items.push(CompletionItem {
+                        label: type_info.name.clone(),
+                        kind: Some(CompletionItemKind::CLASS),
+                        ..Default::default()
+                    });
+                    if type_info.is_enum {
+                        for variant in &type_info.variants {
+                            items.push(CompletionItem {
+                                label: format!("{}::{}", type_info.name, variant.name),
+                                kind: Some(CompletionItemKind::ENUM_MEMBER),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        items.sort_by(|a, b| a.label.cmp(&b.label));
+        items.dedup_by(|a, b| a.label == b.label);
+
         Ok(Some(CompletionResponse::Array(items)))
     }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+
+        let docs = self.documents.read().await;
+        let Some(doc) = docs.get(uri) else {
+            return Ok(None);
+        };
+
+        let offset = position_to_offset(&doc.source, pos);
+        let word = find_word_at_offset(&doc.source, offset);
+
+        for def in &doc.definitions {
+            match def {
+                crate::ast::Definition::Function(f) if f.name == word => {
+                    let range = span_to_range(&doc.source, f.span);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: uri.clone(),
+                        range,
+                    })));
+                }
+                crate::ast::Definition::Type(t) if t.name == word => {
+                    let range = span_to_range(&doc.source, t.span);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: uri.clone(),
+                        range,
+                    })));
+                }
+                crate::ast::Definition::Const(c) if c.name == word => {
+                    let range = span_to_range(&doc.source, c.span);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: uri.clone(),
+                        range,
+                    })));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+fn empty_registry() -> crate::types::TypeRegistry {
+    crate::types::TypeRegistry {
+        types: HashMap::new(),
+        list_types: std::collections::HashSet::new(),
+    }
+}
+
+fn position_to_offset(source: &str, pos: Position) -> usize {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    for (i, ch) in source.char_indices() {
+        if line == pos.line && col == pos.character {
+            return i;
+        }
+        if ch == '\n' {
+            if line == pos.line {
+                return i;
+            }
+            line = line.saturating_add(1);
+            col = 0;
+        } else {
+            col = col.saturating_add(1);
+        }
+    }
+    source.len()
+}
+
+fn find_word_at_offset(source: &str, offset: usize) -> String {
+    let bytes = source.as_bytes();
+    let mut start = offset;
+    let mut end = offset;
+    while start > 0 {
+        match bytes.get(start.wrapping_sub(1)) {
+            Some(b) if b.is_ascii_alphanumeric() || *b == b'_' => start -= 1,
+            _ => break,
+        }
+    }
+    while end < bytes.len() {
+        match bytes.get(end) {
+            Some(b) if b.is_ascii_alphanumeric() || *b == b'_' => end += 1,
+            _ => break,
+        }
+    }
+    source.get(start..end).unwrap_or_default().to_string()
 }
 
 fn span_to_range(source: &str, span: crate::token::Span) -> Range {
