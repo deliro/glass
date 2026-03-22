@@ -139,6 +139,22 @@ function glass_timer_callback takes nothing returns nothing
             call TimerStart(t2, 0.0, false, function glass_timer_callback)
             set u = null
             set t2 = null
+        elseif fx_tag == glass_TAG_Effect_ForUnitsInRange then
+            set glass_group_temp = CreateGroup()
+            call GroupEnumUnitsInRange(glass_group_temp, glass_Effect_ForUnitsInRange_x[fx_id], glass_Effect_ForUnitsInRange_y[fx_id], glass_Effect_ForUnitsInRange_radius[fx_id], null)
+            loop
+                set u = FirstOfGroup(glass_group_temp)
+                exitwhen u == null
+                set t2 = CreateTimer()
+                call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_ForUnitsInRange_callback[fx_id])
+                call SaveUnitHandle(glass_timer_ht, GetHandleId(t2), 1, u)
+                call SaveInteger(glass_timer_ht, GetHandleId(t2), 2, 1)
+                call TimerStart(t2, 0.0, false, function glass_timer_callback)
+                call GroupRemoveUnit(glass_group_temp, u)
+                set t2 = null
+            endloop
+            call DestroyGroup(glass_group_temp)
+            set glass_group_temp = null
         endif
         call glass_Effect_dealloc(fx_id)
         set current = glass_List_integer_tail[current]
@@ -238,6 +254,22 @@ function glass_exec_effect takes integer fx_id returns nothing
         call TimerStart(t, 0.0, false, function glass_timer_callback)
         set u = null
         set t = null
+    elseif fx_tag == glass_TAG_Effect_ForUnitsInRange then
+        set glass_group_temp = CreateGroup()
+        call GroupEnumUnitsInRange(glass_group_temp, glass_Effect_ForUnitsInRange_x[fx_id], glass_Effect_ForUnitsInRange_y[fx_id], glass_Effect_ForUnitsInRange_radius[fx_id], null)
+        loop
+            set u = FirstOfGroup(glass_group_temp)
+            exitwhen u == null
+            set t = CreateTimer()
+            call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_ForUnitsInRange_callback[fx_id])
+            call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)
+            call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 1)
+            call TimerStart(t, 0.0, false, function glass_timer_callback)
+            call GroupRemoveUnit(glass_group_temp, u)
+            set t = null
+        endloop
+        call DestroyGroup(glass_group_temp)
+        set glass_group_temp = null
     endif
     call glass_Effect_dealloc(fx_id)
 endfunction

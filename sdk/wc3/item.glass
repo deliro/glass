@@ -39,3 +39,18 @@ pub fn set_droppable(it: Item, flag: Bool) -> Int
 
 @external("jass", "GetHandleId")
 pub fn handle_id(it: Item) -> Int
+
+@external("jass", "UnitItemInSlot")
+pub fn unit_item_in_slot(u: Unit, slot: Int) -> Item
+
+@external("jass", "UnitInventorySize")
+pub fn unit_inventory_size(u: Unit) -> Int
+
+@external("jass", "UnitHasItem")
+pub fn unit_has_item(u: Unit, it: Item) -> Bool
+
+@external("jass", "UnitRemoveItem")
+pub fn unit_remove_item(u: Unit, it: Item) -> Int
+
+@external("jass", "UnitAddItemById")
+pub fn unit_add_item_by_id(u: Unit, item_type_id: Int) -> Item

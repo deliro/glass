@@ -69,6 +69,7 @@ pub fn collect_runtime_globals(globals: &mut Vec<String>) {
     }
     // Timer data hashtable for closure dispatch
     globals.push("    hashtable glass_timer_ht = null".into());
+    globals.push("    group glass_group_temp = null".into());
 }
 
 /// Generate the Elm runtime JASS functions (after user code).
@@ -271,6 +272,24 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("        set u = null\n");
     output.push_str("        set t = null\n");
 
+    // ForUnitsInRange — iterate group, defer each unit callback via 0-duration timer
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_ForUnitsInRange then\n");
+    output.push_str("        set glass_group_temp = CreateGroup()\n");
+    output.push_str("        call GroupEnumUnitsInRange(glass_group_temp, glass_Effect_ForUnitsInRange_x[fx_id], glass_Effect_ForUnitsInRange_y[fx_id], glass_Effect_ForUnitsInRange_radius[fx_id], null)\n");
+    output.push_str("        loop\n");
+    output.push_str("            set u = FirstOfGroup(glass_group_temp)\n");
+    output.push_str("            exitwhen u == null\n");
+    output.push_str("            set t = CreateTimer()\n");
+    output.push_str("            call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_ForUnitsInRange_callback[fx_id])\n");
+    output.push_str("            call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)\n");
+    output.push_str("            call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 1)\n");
+    output.push_str("            call TimerStart(t, 0.0, false, function glass_timer_callback)\n");
+    output.push_str("            call GroupRemoveUnit(glass_group_temp, u)\n");
+    output.push_str("            set t = null\n");
+    output.push_str("        endloop\n");
+    output.push_str("        call DestroyGroup(glass_group_temp)\n");
+    output.push_str("        set glass_group_temp = null\n");
+
     output.push_str("    endif\n");
     output.push_str("    call glass_Effect_dealloc(fx_id)\n");
     output.push_str("endfunction\n\n");
@@ -454,6 +473,25 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("            call TimerStart(t2, 0.0, false, function glass_timer_callback)\n");
     output.push_str("            set u = null\n");
     output.push_str("            set t2 = null\n");
+    // ForUnitsInRange — iterate group, defer each unit callback via 0-duration timer
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_ForUnitsInRange then\n");
+    output.push_str("            set glass_group_temp = CreateGroup()\n");
+    output.push_str("            call GroupEnumUnitsInRange(glass_group_temp, glass_Effect_ForUnitsInRange_x[fx_id], glass_Effect_ForUnitsInRange_y[fx_id], glass_Effect_ForUnitsInRange_radius[fx_id], null)\n");
+    output.push_str("            loop\n");
+    output.push_str("                set u = FirstOfGroup(glass_group_temp)\n");
+    output.push_str("                exitwhen u == null\n");
+    output.push_str("                set t2 = CreateTimer()\n");
+    output.push_str("                call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_ForUnitsInRange_callback[fx_id])\n");
+    output.push_str("                call SaveUnitHandle(glass_timer_ht, GetHandleId(t2), 1, u)\n");
+    output.push_str("                call SaveInteger(glass_timer_ht, GetHandleId(t2), 2, 1)\n");
+    output.push_str(
+        "                call TimerStart(t2, 0.0, false, function glass_timer_callback)\n",
+    );
+    output.push_str("                call GroupRemoveUnit(glass_group_temp, u)\n");
+    output.push_str("                set t2 = null\n");
+    output.push_str("            endloop\n");
+    output.push_str("            call DestroyGroup(glass_group_temp)\n");
+    output.push_str("            set glass_group_temp = null\n");
     output.push_str("        endif\n");
     output.push_str("        call glass_Effect_dealloc(fx_id)\n");
     output.push_str("        set current = glass_List_integer_tail[current]\n");

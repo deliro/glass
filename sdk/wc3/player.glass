@@ -76,3 +76,12 @@ pub fn set_lumber(p: Player, amount: Int) -> Int {
 pub fn adjust_gold(p: Player, delta: Int) -> Int {
     set_state(p, STATE_GOLD, get_state(p, STATE_GOLD) + delta)
 }
+
+@external("jass", "IsPlayerAlly")
+pub fn is_ally(p1: Player, p2: Player) -> Bool
+
+@external("jass", "IsPlayerEnemy")
+pub fn is_enemy(p1: Player, p2: Player) -> Bool
+
+@external("jass", "SetPlayerAlliance")
+pub fn set_alliance(source: Player, target: Player, alliance_type: Int, value: Bool) -> Int

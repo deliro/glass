@@ -116,6 +116,9 @@ native GetPlayerName takes player whichPlayer returns string
 native SetPlayerName takes player whichPlayer, string name returns nothing
 native GetPlayerState takes player whichPlayer, integer whichPlayerState returns integer
 native SetPlayerState takes player whichPlayer, integer whichPlayerState, integer value returns nothing
+native IsPlayerAlly takes player whichPlayer, player otherPlayer returns boolean
+native IsPlayerEnemy takes player whichPlayer, player otherPlayer returns boolean
+native SetPlayerAlliance takes player sourcePlayer, player otherPlayer, integer whichAllianceSetting, boolean value returns nothing
 
 // --- Unit (extended) ---
 native SetUnitFacing takes unit whichUnit, real facingAngle returns nothing
@@ -129,6 +132,8 @@ native PauseUnit takes unit whichUnit, boolean flag returns nothing
 native ShowUnit takes unit whichUnit, boolean show returns nothing
 native SetUnitInvulnerable takes unit whichUnit, boolean flag returns nothing
 native IsUnitType takes unit whichUnit, integer whichUnitType returns boolean
+native IsUnitAlly takes unit whichUnit, player whichPlayer returns boolean
+native IsUnitEnemy takes unit whichUnit, player whichPlayer returns boolean
 native SetUnitMoveSpeed takes unit whichUnit, real speed returns nothing
 native IssueImmediateOrder takes unit whichUnit, string order returns boolean
 native IssuePointOrder takes unit whichUnit, string order, real x, real y returns boolean
@@ -166,6 +171,10 @@ native GetItemCharges takes item whichItem returns integer
 native SetItemCharges takes item whichItem, integer charges returns nothing
 native GetItemLevel takes item whichItem returns integer
 native SetItemDroppable takes item whichItem, boolean flag returns nothing
+native UnitItemInSlot takes unit whichUnit, integer itemSlot returns item
+native UnitInventorySize takes unit whichUnit returns integer
+native UnitHasItem takes unit whichUnit, item whichItem returns boolean
+native UnitRemoveItem takes unit whichUnit, item whichItem returns nothing
 
 // --- Timer (extended) ---
 native PauseTimer takes timer whichTimer returns nothing
@@ -219,6 +228,16 @@ native GetRectMinX takes rect whichRect returns real
 native GetRectMinY takes rect whichRect returns real
 native GetRectMaxX takes rect whichRect returns real
 native GetRectMaxY takes rect whichRect returns real
+
+// --- Terrain ---
+native IsTerrainPathable takes real x, real y, integer pathingType returns boolean
+native SetTerrainPathable takes real x, real y, integer pathingType, boolean flag returns nothing
+
+// --- Fog of War ---
+native CreateFogModifierRadius takes player forWhichPlayer, integer whichState, real centerX, real centerY, real radius, boolean useSharedVision returns fogmodifier
+native FogModifierStart takes fogmodifier whichFogModifier returns nothing
+native FogModifierStop takes fogmodifier whichFogModifier returns nothing
+native DestroyFogModifier takes fogmodifier whichFogModifier returns nothing
 
 // --- Destructable ---
 native CreateDestructable takes integer objectid, real x, real y, real face, real scale, integer variation returns destructable

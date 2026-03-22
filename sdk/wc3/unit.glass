@@ -267,6 +267,12 @@ pub fn revive_hero(u: Unit, x: Float, y: Float, do_eye: Bool) -> Bool
 @external("jass", "IsUnitType")
 pub fn is_type(u: Unit, unit_type: Int) -> Bool
 
+@external("jass", "IsUnitAlly")
+pub fn is_ally(u: Unit, p: Player) -> Bool
+
+@external("jass", "IsUnitEnemy")
+pub fn is_enemy(u: Unit, p: Player) -> Bool
+
 pub fn is_alive(u: Unit) -> Bool {
     is_type(u, unit_type_to_int(Dead)) == False
 }

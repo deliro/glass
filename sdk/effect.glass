@@ -41,6 +41,7 @@ pub enum Effect(M) {
     PingMinimap { x: Float, y: Float, duration: Float }
     CreateItem { item_type_id: Int, x: Float, y: Float }
     SetUnitMoveSpeed { unit: Unit, speed: Float }
+    ForUnitsInRange { x: Float, y: Float, radius: Float, callback: fn(Unit) -> M }
 }
 
 pub struct BoardRow {
@@ -194,6 +195,10 @@ pub fn set_unit_move_speed(unit: Unit, speed: Float) -> Effect(m) {
     Effect::SetUnitMoveSpeed { unit, speed }
 }
 
+pub fn for_units_in_range(x: Float, y: Float, radius: Float, callback: fn(Unit) -> m) -> Effect(m) {
+    Effect::ForUnitsInRange { x, y, radius, callback }
+}
+
 // --- Functor: map over the message type ---
 // Transforms Effect(a) → Effect(b) by wrapping After's callback.
 // All other variants are phantom in M — reconstructed with new type.
@@ -270,6 +275,8 @@ pub fn map(fx: Effect(a), f: fn(a) -> b) -> Effect(b) {
             Effect::CreateItem { item_type_id, x, y }
         SetUnitMoveSpeed(unit, speed) ->
             Effect::SetUnitMoveSpeed { unit, speed }
+        ForUnitsInRange(x, y, radius, callback) ->
+            Effect::ForUnitsInRange { x, y, radius, callback: fn(u: Unit) { f(callback(u)) } }
     }
 }
 

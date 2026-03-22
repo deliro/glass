@@ -1,0 +1,27 @@
+// Glass SDK: wc3/pathability — terrain pathability natives
+
+@external("jass", "IsTerrainPathable")
+pub fn is_pathable(x: Float, y: Float, pathing_type: Int) -> Bool
+
+@external("jass", "SetTerrainPathable")
+pub fn set_pathable(x: Float, y: Float, pathing_type: Int, flag: Bool) -> Int
+
+pub enum PathingType {
+    Any
+    Walkability
+    Flyability
+    Buildability
+}
+
+pub fn pathing_type_to_int(pt: PathingType) -> Int {
+    case pt {
+        Any -> 0
+        Walkability -> 1
+        Flyability -> 2
+        Buildability -> 3
+    }
+}
+
+pub fn is_walkable(x: Float, y: Float) -> Bool {
+    is_pathable(x, y, pathing_type_to_int(Walkability)) == False
+}

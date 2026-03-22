@@ -100,6 +100,17 @@ function glass_exec_effect(fx)
         CreateItem(fx.item_type_id, fx.x, fx.y)
     elseif fx.tag == glass_TAG_Effect_SetUnitMoveSpeed then
         SetUnitMoveSpeed(fx.unit, fx.speed)
+    elseif fx.tag == glass_TAG_Effect_ForUnitsInRange then
+        local g = CreateGroup()
+        GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)
+        local u = FirstOfGroup(g)
+        while u ~= nil do
+            local msg = fx.callback(u)
+            glass_send_msg(msg)
+            GroupRemoveUnit(g, u)
+            u = FirstOfGroup(g)
+        end
+        DestroyGroup(g)
     elseif fx.tag == glass_TAG_Effect_UpdateBoard then
         local row_count = 0
         local cur = fx.rows

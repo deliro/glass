@@ -1,0 +1,27 @@
+// Glass SDK: wc3/fog — fog of war natives
+
+@external("jass", "CreateFogModifierRadius")
+pub fn create_radius(p: Player, state: Int, x: Float, y: Float, radius: Float, use_shared_vision: Bool) -> Fogmodifier
+
+@external("jass", "FogModifierStart")
+pub fn start(fog: Fogmodifier) -> Int
+
+@external("jass", "FogModifierStop")
+pub fn stop(fog: Fogmodifier) -> Int
+
+@external("jass", "DestroyFogModifier")
+pub fn destroy(fog: Fogmodifier) -> Int
+
+pub enum FogState {
+    Masked
+    Fogged
+    Visible
+}
+
+pub fn fog_state_to_int(fs: FogState) -> Int {
+    case fs {
+        Masked -> 1
+        Fogged -> 2
+        Visible -> 4
+    }
+}

@@ -184,6 +184,18 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("    elseif fx.tag == glass_TAG_Effect_SetUnitMoveSpeed then\n");
     output.push_str("        SetUnitMoveSpeed(fx.unit, fx.speed)\n");
 
+    output.push_str("    elseif fx.tag == glass_TAG_Effect_ForUnitsInRange then\n");
+    output.push_str("        local g = CreateGroup()\n");
+    output.push_str("        GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)\n");
+    output.push_str("        local u = FirstOfGroup(g)\n");
+    output.push_str("        while u ~= nil do\n");
+    output.push_str("            local msg = fx.callback(u)\n");
+    output.push_str("            glass_send_msg(msg)\n");
+    output.push_str("            GroupRemoveUnit(g, u)\n");
+    output.push_str("            u = FirstOfGroup(g)\n");
+    output.push_str("        end\n");
+    output.push_str("        DestroyGroup(g)\n");
+
     output.push_str("    elseif fx.tag == glass_TAG_Effect_UpdateBoard then\n");
     output.push_str("        local row_count = 0\n");
     output.push_str("        local cur = fx.rows\n");
