@@ -7,4 +7,4 @@ description = "Glass language support"
 
 [grammars.glass]
 repository = "file:///Users/tochkamac/projects/own/glass/tree-sitter-glass"
-rev = "HEAD"
+rev = "adc9a35bd6f8ffb2a77820b14b304711c71ac867"

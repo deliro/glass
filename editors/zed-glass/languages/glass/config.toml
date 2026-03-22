@@ -2,7 +2,6 @@ name = "Glass"
 grammar = "glass"
 path_suffixes = ["glass"]
 line_comments = ["// "]
-block_comment = []
 brackets = [
   { start = "{", end = "}", close = true, newline = true },
   { start = "(", end = ")", close = true, newline = false },
