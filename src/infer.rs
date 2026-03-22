@@ -733,7 +733,9 @@ impl Inferencer {
             }
 
             Expr::FieldAccess { object, field } => {
-                if let Expr::Var(module_name) = &object.node {
+                if let Expr::Var(module_name) = &object.node
+                    && self.module_names.contains(module_name)
+                {
                     let qualified = format!("{}.{}", module_name, field);
                     if let Some(const_type) = self.const_types.get(&qualified) {
                         return const_type.clone();
