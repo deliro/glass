@@ -1,0 +1,28 @@
+// Glass SDK: wc3/time — day/night cycle natives
+
+@external("jass", "SetTimeOfDay")
+pub fn set(hour: Float) -> Int
+
+@external("jass", "GetTimeOfDay")
+pub fn get() -> Float
+
+@external("jass", "SetTimeOfDayScale")
+pub fn set_scale(scale: Float) -> Int
+
+@external("jass", "GetTimeOfDayScale")
+pub fn get_scale() -> Float
+
+@external("jass", "SuspendTimeOfDay")
+pub fn suspend(flag: Bool) -> Int
+
+pub fn is_day() -> Bool {
+    let h = get()
+    case h > 6.0 {
+        True -> h < 18.0
+        False -> False
+    }
+}
+
+pub fn is_night() -> Bool {
+    is_day() == False
+}

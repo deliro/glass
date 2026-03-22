@@ -1,0 +1,48 @@
+// Glass SDK: wc3/order — unit order natives
+
+pub enum Order {
+    Attack
+    Move
+    Stop
+    HoldPosition
+    Patrol
+    Smart
+}
+
+pub fn order_to_string(o: Order) -> String {
+    case o {
+        Attack -> "attack"
+        Move -> "move"
+        Stop -> "stop"
+        HoldPosition -> "holdposition"
+        Patrol -> "patrol"
+        Smart -> "smart"
+    }
+}
+
+@external("jass", "IssueImmediateOrder")
+pub fn immediate(u: Unit, order: String) -> Bool
+
+@external("jass", "IssuePointOrder")
+pub fn point(u: Unit, order: String, x: Float, y: Float) -> Bool
+
+@external("jass", "IssueTargetOrder")
+pub fn target(u: Unit, order: String, t: Unit) -> Bool
+
+@external("jass", "GetIssuedOrderId")
+pub fn get_issued_id() -> Int
+
+@external("jass", "GetUnitCurrentOrder")
+pub fn get_current(u: Unit) -> Int
+
+pub fn stop_unit(u: Unit) -> Bool {
+    immediate(u, order_to_string(Stop))
+}
+
+pub fn attack_target(u: Unit, t: Unit) -> Bool {
+    target(u, order_to_string(Attack), t)
+}
+
+pub fn move_to(u: Unit, x: Float, y: Float) -> Bool {
+    point(u, order_to_string(Move), x, y)
+}

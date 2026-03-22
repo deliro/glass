@@ -1,0 +1,19 @@
+// Glass SDK: wc3/force — player group natives
+
+@external("jass", "CreateForce")
+pub fn create() -> Force
+
+@external("jass", "DestroyForce")
+pub fn destroy(f: Force) -> Int
+
+@external("jass", "ForceAddPlayer")
+pub fn add_player(f: Force, p: Player) -> Int
+
+@external("jass", "ForceRemovePlayer")
+pub fn remove_player(f: Force, p: Player) -> Int
+
+@external("jass", "IsPlayerInForce")
+pub fn has_player(f: Force, p: Player) -> Bool
+
+@external("jass", "ForceClear")
+pub fn clear(f: Force) -> Int

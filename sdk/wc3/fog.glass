@@ -25,3 +25,9 @@ pub fn fog_state_to_int(fs: FogState) -> Int {
         Visible -> 4
     }
 }
+
+@external("jass", "FogEnable")
+pub fn enable(flag: Bool) -> Int
+
+@external("jass", "FogMaskEnable")
+pub fn mask_enable(flag: Bool) -> Int

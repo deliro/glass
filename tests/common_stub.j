@@ -139,6 +139,8 @@ native IssueImmediateOrder takes unit whichUnit, string order returns boolean
 native IssuePointOrder takes unit whichUnit, string order, real x, real y returns boolean
 native IssueTargetOrder takes unit whichUnit, string order, widget targetWidget returns boolean
 native PingMinimap takes real x, real y, real duration returns nothing
+native GetIssuedOrderId takes nothing returns integer
+native GetUnitCurrentOrder takes unit whichUnit returns integer
 
 // --- Hero ---
 native GetHeroLevel takes unit whichHero returns integer
@@ -233,11 +235,36 @@ native GetRectMaxY takes rect whichRect returns real
 native IsTerrainPathable takes real x, real y, integer pathingType returns boolean
 native SetTerrainPathable takes real x, real y, integer pathingType, boolean flag returns nothing
 
+// --- Region ---
+native CreateRegion takes nothing returns region
+native RemoveRegion takes region whichRegion returns nothing
+native RegionAddRect takes region whichRegion, rect whichRect returns nothing
+native RegionClearRect takes region whichRegion, rect whichRect returns nothing
+native IsUnitInRegion takes region whichRegion, unit whichUnit returns boolean
+native IsPointInRegion takes region whichRegion, real x, real y returns boolean
+
+// --- Force ---
+native CreateForce takes nothing returns force
+native DestroyForce takes force whichForce returns nothing
+native ForceAddPlayer takes force whichForce, player whichPlayer returns nothing
+native ForceRemovePlayer takes force whichForce, player whichPlayer returns nothing
+native IsPlayerInForce takes player whichPlayer, force whichForce returns boolean
+native ForceClear takes force whichForce returns nothing
+
+// --- Time of Day ---
+native SetTimeOfDay takes real r returns nothing
+native GetTimeOfDay takes nothing returns real
+native SetTimeOfDayScale takes real r returns nothing
+native GetTimeOfDayScale takes nothing returns real
+native SuspendTimeOfDay takes boolean b returns nothing
+
 // --- Fog of War ---
 native CreateFogModifierRadius takes player forWhichPlayer, integer whichState, real centerX, real centerY, real radius, boolean useSharedVision returns fogmodifier
 native FogModifierStart takes fogmodifier whichFogModifier returns nothing
 native FogModifierStop takes fogmodifier whichFogModifier returns nothing
 native DestroyFogModifier takes fogmodifier whichFogModifier returns nothing
+native FogEnable takes boolean enable returns nothing
+native FogMaskEnable takes boolean enable returns nothing
 
 // --- Destructable ---
 native CreateDestructable takes integer objectid, real x, real y, real face, real scale, integer variation returns destructable

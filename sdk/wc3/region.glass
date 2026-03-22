@@ -1,0 +1,19 @@
+// Glass SDK: wc3/region — region and rect-based area natives
+
+@external("jass", "CreateRegion")
+pub fn create() -> Region
+
+@external("jass", "RemoveRegion")
+pub fn remove(r: Region) -> Int
+
+@external("jass", "RegionAddRect")
+pub fn add_rect(r: Region, re: Rect) -> Int
+
+@external("jass", "RegionClearRect")
+pub fn clear_rect(r: Region, re: Rect) -> Int
+
+@external("jass", "IsUnitInRegion")
+pub fn is_unit_in(r: Region, u: Unit) -> Bool
+
+@external("jass", "IsPointInRegion")
+pub fn is_point_in(r: Region, x: Float, y: Float) -> Bool
