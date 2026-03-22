@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
 use crate::token::Span;
@@ -52,6 +52,7 @@ pub struct Inferencer {
     pub type_param_vars: HashMap<String, HashMap<String, TypeVarId>>,
     const_types: HashMap<String, Type>,
     pub ambiguous_names: HashMap<String, Vec<String>>,
+    module_names: HashSet<String>,
 }
 
 impl Inferencer {
@@ -65,6 +66,7 @@ impl Inferencer {
             type_map_raw: HashMap::new(),
             type_param_vars: HashMap::new(),
             const_types: HashMap::new(),
+            module_names: HashSet::new(),
             ambiguous_names: HashMap::new(),
         }
     }
@@ -101,6 +103,9 @@ impl Inferencer {
         let mut name_to_modules: HashMap<String, Vec<&crate::modules::ResolvedImport>> =
             HashMap::new();
         for imp in imports {
+            if imp.qualified {
+                self.module_names.insert(imp.module_name.clone());
+            }
             for def in &imp.definitions {
                 if let Some(name) = crate::modules::def_name_pub(def) {
                     name_to_modules
@@ -159,10 +164,11 @@ impl Inferencer {
                     vars: type_var_ids,
                     ty: fn_type,
                 };
-                // Only bind unqualified name if it's unique across modules
-                let collides = name_to_modules
-                    .get(f.name.as_str())
-                    .is_some_and(|imps| imps.len() > 1);
+                let is_imported = def_module_map.contains_key(&def_idx);
+                let collides = is_imported
+                    && name_to_modules
+                        .get(f.name.as_str())
+                        .is_some_and(|imps| imps.len() > 1);
                 if !collides {
                     env.bind(f.name.clone(), scheme.clone());
                 }
@@ -530,7 +536,9 @@ impl Inferencer {
             Expr::Var(name) => match env.lookup(name) {
                 Some(scheme) => env.instantiate(scheme, &mut self.var_gen),
                 None => {
-                    if let Some(modules) = self.ambiguous_names.get(name) {
+                    if self.module_names.contains(name) {
+                        self.var_gen.fresh()
+                    } else if let Some(modules) = self.ambiguous_names.get(name) {
                         let qualified: Vec<String> =
                             modules.iter().map(|m| format!("{m}.{name}")).collect();
                         self.errors.push(TypeError {
@@ -541,13 +549,14 @@ impl Inferencer {
                             ),
                             span: expr.span,
                         });
+                        self.var_gen.fresh()
                     } else {
                         self.errors.push(TypeError {
                             message: format!("undefined variable '{name}'"),
                             span: expr.span,
                         });
+                        self.var_gen.fresh()
                     }
-                    self.var_gen.fresh()
                 }
             },
 
@@ -638,11 +647,32 @@ impl Inferencer {
                 method,
                 args,
             } => {
-                // Check if this is a qualified module call: module.func(args)
                 if let Expr::Var(module_name) = &object.node {
                     let qualified = format!("{}.{}", module_name, method);
                     if let Some(scheme) = env.lookup(&qualified).cloned() {
-                        // Qualified call: module.func(args) → func(args)
+                        let arg_types: Vec<Type> =
+                            args.iter().map(|a| self.infer_expr(a, env)).collect();
+                        let ret_type = self.var_gen.fresh();
+                        let fn_type = env.instantiate(&scheme, &mut self.var_gen);
+                        let expected = Type::Fn(arg_types, Box::new(ret_type.clone()));
+                        match unify::unify(
+                            &fn_type.apply(&self.subst),
+                            &expected.apply(&self.subst),
+                            expr.span,
+                        ) {
+                            Ok(s) => {
+                                self.subst = self.subst.compose(&s);
+                                let resolved = ret_type.apply(&self.subst);
+                                self.inferred_types.push(resolved.clone());
+                                return resolved;
+                            }
+                            Err(e) => {
+                                self.errors.push(e.into());
+                                return ret_type;
+                            }
+                        }
+                    }
+                    if let Some(scheme) = env.lookup(method).cloned() {
                         let arg_types: Vec<Type> =
                             args.iter().map(|a| self.infer_expr(a, env)).collect();
                         let ret_type = self.var_gen.fresh();
@@ -667,7 +697,6 @@ impl Inferencer {
                     }
                 }
 
-                // Regular method call: method(object, args...)
                 let obj_type = self.infer_expr(object, env);
                 let mut all_arg_types = vec![obj_type];
                 for a in args {
@@ -701,13 +730,25 @@ impl Inferencer {
                 }
             }
 
-            // Field access — also handles qualified const: module.CONST_NAME
             Expr::FieldAccess { object, field } => {
-                // Check for qualified const access first
-                if matches!(&object.node, Expr::Var(_))
-                    && let Some(const_type) = self.const_types.get(field.as_str())
-                {
-                    return const_type.clone();
+                if let Expr::Var(module_name) = &object.node {
+                    let qualified = format!("{}.{}", module_name, field);
+                    if let Some(const_type) = self.const_types.get(&qualified) {
+                        return const_type.clone();
+                    }
+                    if let Some(const_type) = self.const_types.get(field.as_str()) {
+                        return const_type.clone();
+                    }
+                    if let Some(scheme) = env.lookup(&qualified).cloned() {
+                        let t = env.instantiate(&scheme, &mut self.var_gen);
+                        self.inferred_types.push(t.clone());
+                        return t;
+                    }
+                    if let Some(scheme) = env.lookup(field).cloned() {
+                        let t = env.instantiate(&scheme, &mut self.var_gen);
+                        self.inferred_types.push(t.clone());
+                        return t;
+                    }
                 }
                 let obj_type = self.infer_expr(object, env);
                 let obj_resolved = obj_type.apply(&self.subst);

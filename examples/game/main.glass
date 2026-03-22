@@ -52,7 +52,7 @@ fn log(text: String) -> effect.Effect(Msg) {
     effect.display_text(0, text, 15.0)
 }
 
-fn str(n: Int) -> String { int.to_string(n) }
+fn to_str(n: Int) -> String { int.to_string(n) }
 
 fn ensure_sniper(states: List(sniper.SniperState), u: Unit) -> List(sniper.SniperState) {
     case sniper.has_sniper(states, clone(u)) {
@@ -71,7 +71,7 @@ fn handle_attack(model: Model, attacker: Unit, target: Unit) -> (Model, List(eff
                 p0_damage: model.p0_damage + dmg,
             },
             [
-                log("|cffff8800[HEADSHOT]|r bonus dmg |cffff0000" <> str(dmg) <> "|r!"),
+                log("|cffff8800[HEADSHOT]|r bonus dmg |cffff0000" <> to_str(dmg) <> "|r!"),
                 effect.damage_unit(attacker, target, dmg |> int.to_float, AttackType::Normal |> unit.attack_type_to_int, DamageType::Normal |> unit.damage_type_to_int),
             ]
         )
@@ -91,7 +91,7 @@ fn handle_kill(model: Model, dying: Unit, killer: Unit) -> (Model, List(effect.E
     }
     (new_model, [
         log("|cffff0000[KILL]|r Unit killed"),
-        log("|cffffcc00  +|r" <> str(bounty) <> " gold (total: " <> str(updated_gold.gold) <> ")"),
+        log("|cffffcc00  +|r" <> to_str(bounty) <> " gold (total: " <> to_str(updated_gold.gold) <> ")"),
         effect.give_gold(0, bounty),
     ])
 }
@@ -100,14 +100,14 @@ fn make_board(m: Model) -> effect.Effect(Msg) {
     let time_to_wave = 20 - (m.game_time % 20)
     let p0_gold = m.player_gold |> gold.find_player(0)
     effect.update_board("|cffffcc00Glass Arena|r", [
-        effect.board_row("Time", str(m.game_time) <> "s"),
-        effect.board_row("Wave", str(m.wave_count)),
-        effect.board_row("Next wave", str(time_to_wave) <> "s"),
+        effect.board_row("Time", to_str(m.game_time) <> "s"),
+        effect.board_row("Wave", to_str(m.wave_count)),
+        effect.board_row("Next wave", to_str(time_to_wave) <> "s"),
         effect.board_row("---", "---"),
-        effect.board_row("Kills", str(m.kills)),
-        effect.board_row("Gold", str(p0_gold.gold)),
-        effect.board_row("P0 dmg", str(m.p0_damage)),
-        effect.board_row("P1 dmg", str(m.p1_damage)),
+        effect.board_row("Kills", to_str(m.kills)),
+        effect.board_row("Gold", to_str(p0_gold.gold)),
+        effect.board_row("P0 dmg", to_str(m.p0_damage)),
+        effect.board_row("P1 dmg", to_str(m.p1_damage)),
     ])
 }
 
@@ -134,14 +134,14 @@ fn handle_wave(model: Model) -> (Model, List(effect.Effect(Msg))) {
     let creep_type = w |> creeps.creep_type
     let count = w |> creeps.creeps_per_wave
     let spawns = spawn_creep_effects(creep_type, count, w)
-    let header = log("|cffff8800[WAVE " <> str(w) <> "]|r Spawning " <> str(count) <> " creeps!")
+    let header = log("|cffff8800[WAVE " <> to_str(w) <> "]|r Spawning " <> to_str(count) <> " creeps!")
     (Model { ..model, wave_count: w }, [header | spawns])
 }
 
 fn handle_dagon(model: Model, caster: Unit, target: Unit, level: Int) -> (Model, List(effect.Effect(Msg))) {
     let dmg = dagon.damage(level)
     (model, [
-        log("|cff0088ff[DAGON " <> str(level) <> "]|r |cffff0000" <> str(dmg) <> "|r magic dmg"),
+        log("|cff0088ff[DAGON " <> to_str(level) <> "]|r |cffff0000" <> to_str(dmg) <> "|r magic dmg"),
         effect.damage_unit(caster, target, int.to_float(dmg), unit.attack_type_to_int(AttackType::Chaos), unit.damage_type_to_int(DamageType::Magic)),
     ])
 }
@@ -158,16 +158,16 @@ fn handle_buy_item(model: Model, player_id: Int, item_id: Int) -> (Model, List(e
             let updated = pg |> gold.spend(item.cost)
             (
                 Model { ..model, player_gold: model.player_gold |> gold.set_player(updated) },
-                [log("|cff00ff00[SHOP]|r P" <> str(player_id) <> " bought " <> item.name <> " (-" <> str(item.cost) <> "g, left: " <> str(updated.gold) <> "g)")]
+                [log("|cff00ff00[SHOP]|r P" <> to_str(player_id) <> " bought " <> item.name <> " (-" <> to_str(item.cost) <> "g, left: " <> to_str(updated.gold) <> "g)")]
             )
         }
-        False -> (model, [log("|cffff0000[SHOP]|r Can't afford " <> item.name <> " (need " <> str(item.cost) <> ", have " <> str(pg.gold) <> ")")])
+        False -> (model, [log("|cffff0000[SHOP]|r Can't afford " <> item.name <> " (need " <> to_str(item.cost) <> ", have " <> to_str(pg.gold) <> ")")])
     }
 }
 
 fn handle_respawn(model: Model, player_id: Int) -> (Model, List(effect.Effect(Msg))) {
     (model, [
-        log("|cff00ff00[RESPAWN]|r P" <> str(player_id) <> " hero respawning"),
+        log("|cff00ff00[RESPAWN]|r P" <> to_str(player_id) <> " hero respawning"),
         effect.create_unit(player_id, setup.PALADIN_ID, player_id |> setup.hero_spawn_x, player_id |> setup.hero_spawn_y, player_id |> setup.hero_spawn_facing),
     ])
 }
