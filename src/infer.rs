@@ -166,9 +166,11 @@ impl Inferencer {
                 };
                 let is_imported = def_module_map.contains_key(&def_idx);
                 let collides = is_imported
-                    && name_to_modules
-                        .get(f.name.as_str())
-                        .is_some_and(|imps| imps.len() > 1);
+                    && name_to_modules.get(f.name.as_str()).is_some_and(|imps| {
+                        let unique_modules: HashSet<&str> =
+                            imps.iter().map(|i| i.module_name.as_str()).collect();
+                        unique_modules.len() > 1
+                    });
                 if !collides {
                     env.bind(f.name.clone(), scheme.clone());
                 }
