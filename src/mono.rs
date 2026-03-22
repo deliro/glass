@@ -277,7 +277,7 @@ fn strs() -> List(String) { ["a"] }
 
     #[test]
     fn tuple_in_return() {
-        let names = mono_names("fn test() -> #(Int, String) { #(1, \"hello\") }");
+        let names = mono_names("fn test() -> (Int, String) { (1, \"hello\") }");
         // Tuples are handled separately, not through App
         assert!(names.is_empty());
     }
@@ -295,7 +295,7 @@ fn strs() -> List(String) { ["a"] }
             r#"
 fn ints() -> List(Int) { [1, 2] }
 fn strs() -> List(String) { ["a"] }
-fn pair() -> #(Int, String) { #(1, "x") }
+fn pair() -> (Int, String) { (1, "x") }
 "#,
         );
         insta::assert_debug_snapshot!(types);

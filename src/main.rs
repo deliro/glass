@@ -248,6 +248,7 @@ fn cmd_compile(
     if opt.strip {
         result = optimize::strip_whitespace_and_comments(&result);
     }
+    result = result.replace('\n', "\r\n");
 
     match output {
         Some(path) => {

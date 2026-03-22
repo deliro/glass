@@ -135,7 +135,7 @@ impl JassSdk {
             "string" => "String".into(),
             "code" => "Code".into(),
             "nothing" => "Void".into(),
-            // Handle types: capitalize first letter (most already are)
+            "effect" => "Sfx".into(),
             other => {
                 let mut chars = other.chars();
                 match chars.next() {

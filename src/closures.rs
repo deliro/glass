@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::ast::{self, Expr, Param, Spanned};
+use crate::token::Span;
 
 /// Information about a lambda found in the AST.
 #[derive(Debug)]
@@ -8,14 +9,13 @@ pub struct LambdaInfo {
     pub id: usize,
     pub params: Vec<Param>,
     pub body: Spanned<Expr>,
-    /// Names of variables captured from the enclosing scope.
     pub captures: Vec<CapturedVar>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CapturedVar {
     pub name: String,
-    pub jass_type: String,
+    pub span: Span,
 }
 
 /// Collects all lambdas from the module and analyzes captures.
@@ -69,9 +69,9 @@ impl LambdaCollector {
 
                 let captures: Vec<CapturedVar> = free_vars
                     .into_iter()
-                    .map(|name| CapturedVar {
-                        name,
-                        jass_type: "integer".to_string(), // default; no type checker yet
+                    .filter_map(|name| {
+                        crate::free_vars::find_var_span(&name, body)
+                            .map(|span| CapturedVar { name, span })
                     })
                     .collect();
 

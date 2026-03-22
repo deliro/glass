@@ -41,11 +41,11 @@ pub fn insert(s: Set(Int), elem: Int) -> Set(Int) {
     }
 }
 
-pub fn contains(s: Set(Int), elem: Int) -> #(Bool, Set(Int)) {
+pub fn contains(s: Set(Int), elem: Int) -> (Bool, Set(Int)) {
     case s {
         Set { dict, .. } -> case dict {
             Dict { handle, size, .. } ->
-                #(have_saved_integer(handle, 0, elem), Set { dict: Dict { handle, size } })
+                (have_saved_integer(handle, 0, elem), Set { dict: Dict { handle, size } })
         }
     }
 }
@@ -66,10 +66,10 @@ pub fn remove(s: Set(Int), elem: Int) -> Set(Int) {
     }
 }
 
-pub fn size(s: Set(Int)) -> #(Int, Set(Int)) {
+pub fn size(s: Set(Int)) -> (Int, Set(Int)) {
     case s {
         Set { dict, .. } -> case dict {
-            Dict { handle, size, .. } -> #(size, Set { dict: Dict { handle, size } })
+            Dict { handle, size, .. } -> (size, Set { dict: Dict { handle, size } })
         }
     }
 }

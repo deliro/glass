@@ -19,7 +19,7 @@ import int
 // === Types ===
 
 pub struct AxeState {
-    unit_id: Int,
+    unit: Unit,
     level: Int,
     cooldown_left: Int,
 }
@@ -34,9 +34,9 @@ pub struct Model {
 }
 
 pub enum Msg {
-    RegisterAxe { unit_id: Int, level: Int }
-    CastAxe { caster_id: Int }
-    LevelUpAxe { unit_id: Int }
+    RegisterAxe { unit: Unit, level: Int }
+    CastAxe { caster: Unit }
+    LevelUpAxe { unit: Unit }
 }
 
 // === Ability constants by level ===
@@ -80,7 +80,7 @@ fn upsert_axe_state(
 ) -> List(AxeState) {
     case states {
         [] -> [new_state]
-        [head | tail] -> case head.unit_id == new_state.unit_id {
+        [head | tail] -> case head.unit == new_state.unit {
             True -> [new_state | tail]
             False -> [head | upsert_axe_state(tail, new_state)]
         }
@@ -88,13 +88,13 @@ fn upsert_axe_state(
 }
 
 fn lookup_axe_state(
-    states: List(AxeState), unit_id: Int,
+    states: List(AxeState), u: Unit,
 ) -> AxeState {
     case states {
-        [] -> AxeState { unit_id, level: 0, cooldown_left: 0 }
-        [head | tail] -> case head.unit_id == unit_id {
+        [] -> AxeState { unit: u, level: 0, cooldown_left: 0 }
+        [head | tail] -> case head.unit == u {
             True -> head
-            False -> lookup_axe_state(tail, unit_id)
+            False -> lookup_axe_state(tail, u)
         }
     }
 }
@@ -118,19 +118,19 @@ fn compute_bounces(damage_now: Int, bounces_remaining: Int) -> BounceResult {
 // === Elm architecture ===
 
 fn handle_register_axe(
-    model: Model, unit_id: Int, level: Int,
-) -> #(Model, List(effect.Effect(Msg))) {
-    let state = AxeState { unit_id, level, cooldown_left: 0 }
-    #(Model { units: upsert_axe_state(model.units, state) }, [])
+    model: Model, unit: Unit, level: Int,
+) -> (Model, List(effect.Effect(Msg))) {
+    let state = AxeState { unit, level, cooldown_left: 0 }
+    (Model { units: upsert_axe_state(model.units, state) }, [])
 }
 
 fn handle_cast_axe(
-    model: Model, caster_id: Int,
-) -> #(Model, List(effect.Effect(Msg))) {
-    let state = lookup_axe_state(model.units, caster_id)
+    model: Model, caster: Unit,
+) -> (Model, List(effect.Effect(Msg))) {
+    let state = lookup_axe_state(model.units, caster)
     case state.level == 0 {
         True ->
-            #(model, [])
+            (model, [])
         False ->
             case state.cooldown_left <= 0 {
                 True -> {
@@ -139,11 +139,11 @@ fn handle_cast_axe(
                         max_bounces(state.level),
                     )
                     let new_state = AxeState {
-                        unit_id: caster_id,
+                        unit: state.unit,
                         level: state.level,
                         cooldown_left: cooldown_ticks(state.level),
                     }
-                    #(Model { units: upsert_axe_state(model.units, new_state) }, [
+                    (Model { units: upsert_axe_state(model.units, new_state) }, [
                         effect.display_text(
                             0,
                             "Axes fly! " <> int.to_string(bounces.targets_hit)
@@ -154,7 +154,7 @@ fn handle_cast_axe(
                     ])
                 }
                 False ->
-                    #(model, [
+                    (model, [
                         effect.display_text(
                             0,
                             "Axes on cooldown: "
@@ -168,20 +168,20 @@ fn handle_cast_axe(
 }
 
 fn handle_level_up_axe(
-    model: Model, unit_id: Int,
-) -> #(Model, List(effect.Effect(Msg))) {
-    let state = lookup_axe_state(model.units, unit_id)
+    model: Model, unit: Unit,
+) -> (Model, List(effect.Effect(Msg))) {
+    let state = lookup_axe_state(model.units, unit)
     case state.level == 0 {
         True ->
-            #(model, [])
+            (model, [])
         False -> {
             let new_level = int.min(state.level + 1, 4)
             let new_state = AxeState {
-                unit_id,
+                unit: state.unit,
                 level: new_level,
                 cooldown_left: state.cooldown_left,
             }
-            #(Model { units: upsert_axe_state(model.units, new_state) }, [
+            (Model { units: upsert_axe_state(model.units, new_state) }, [
                 effect.display_text(
                     0,
                     "Axes leveled up to " <> int.to_string(new_level),
@@ -192,17 +192,17 @@ fn handle_level_up_axe(
     }
 }
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { units: [] }, [])
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { units: [] }, [])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        Msg::RegisterAxe { unit_id, level, .. } ->
-            handle_register_axe(model, unit_id, level)
-        Msg::CastAxe { caster_id, .. } ->
-            handle_cast_axe(model, caster_id)
-        Msg::LevelUpAxe { unit_id, .. } ->
-            handle_level_up_axe(model, unit_id)
+        Msg::RegisterAxe { unit, level, .. } ->
+            handle_register_axe(model, unit, level)
+        Msg::CastAxe { caster, .. } ->
+            handle_cast_axe(model, caster)
+        Msg::LevelUpAxe { unit, .. } ->
+            handle_level_up_axe(model, unit)
     }
 }

@@ -1,6 +1,13 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
+
+fn default_type_expr() -> TypeExpr {
+    TypeExpr::Named {
+        name: "Int".to_string(),
+        args: Vec::new(),
+    }
+}
 
 pub fn apply_lambda_lifting(module: &mut Module) {
     let mut lifted = Vec::new();
@@ -10,8 +17,14 @@ pub fn apply_lambda_lifting(module: &mut Module) {
     let mut defs = std::mem::take(&mut module.definitions);
     for def in &mut defs {
         if let Definition::Function(f) = def {
-            let mut scope: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
-            scope.extend(fn_names.iter().cloned());
+            let mut scope: HashMap<String, TypeExpr> = f
+                .params
+                .iter()
+                .map(|p| (p.name.clone(), p.type_expr.clone()))
+                .collect();
+            for name in &fn_names {
+                scope.entry(name.clone()).or_insert_with(default_type_expr);
+            }
             f.body = lift_expr(f.body.clone(), &scope, &fn_names, &mut lifted, &mut counter);
         }
     }
@@ -40,9 +53,52 @@ fn collect_top_level_names(defs: &[Definition]) -> HashSet<String> {
     names
 }
 
+fn bind_pattern_typed(pattern: &Pattern, scope: &mut HashMap<String, TypeExpr>) {
+    match pattern {
+        Pattern::Var(name) if name != "_" => {
+            scope.entry(name.clone()).or_insert_with(default_type_expr);
+        }
+        Pattern::Constructor { args, .. } => {
+            for arg in args {
+                bind_pattern_typed(&arg.node, scope);
+            }
+        }
+        Pattern::ConstructorNamed { fields, .. } => {
+            for f in fields {
+                if let Some(p) = &f.pattern {
+                    bind_pattern_typed(&p.node, scope);
+                } else {
+                    scope
+                        .entry(f.field_name.clone())
+                        .or_insert_with(default_type_expr);
+                }
+            }
+        }
+        Pattern::Tuple(elems) | Pattern::List(elems) => {
+            for e in elems {
+                bind_pattern_typed(&e.node, scope);
+            }
+        }
+        Pattern::ListCons { head, tail } => {
+            bind_pattern_typed(&head.node, scope);
+            bind_pattern_typed(&tail.node, scope);
+        }
+        Pattern::Or(alts) => {
+            for alt in alts {
+                bind_pattern_typed(&alt.node, scope);
+            }
+        }
+        Pattern::As { pattern, name } => {
+            bind_pattern_typed(&pattern.node, scope);
+            scope.entry(name.clone()).or_insert_with(default_type_expr);
+        }
+        _ => {}
+    }
+}
+
 fn lift_expr(
     expr: Spanned<Expr>,
-    scope: &HashSet<String>,
+    scope: &HashMap<String, TypeExpr>,
     top_names: &HashSet<String>,
     lifted: &mut Vec<FnDef>,
     counter: &mut usize,
@@ -59,7 +115,7 @@ fn lift_expr(
 
             let mut free_vars = Vec::new();
             crate::free_vars::find_free_vars(&body.node, &params_to_set(&params), &mut free_vars);
-            free_vars.retain(|v| scope.contains(v) && !top_names.contains(v));
+            free_vars.retain(|v| scope.contains_key(v) && !top_names.contains(v));
             free_vars.sort();
             free_vars.dedup();
 
@@ -68,21 +124,16 @@ fn lift_expr(
 
             let mut lifted_params = Vec::new();
             for fv in &free_vars {
+                let type_expr = scope.get(fv).cloned().unwrap_or_else(default_type_expr);
                 lifted_params.push(Param {
                     name: fv.clone(),
-                    type_expr: TypeExpr::Named {
-                        name: "Int".to_string(),
-                        args: Vec::new(),
-                    },
+                    type_expr,
                     span,
                 });
             }
             lifted_params.extend(params.clone());
 
-            let lifted_return_type = return_type.clone().or(Some(TypeExpr::Named {
-                name: "Int".to_string(),
-                args: Vec::new(),
-            }));
+            let lifted_return_type = return_type.clone().or(Some(default_type_expr()));
 
             lifted.push(FnDef {
                 is_pub: false,
@@ -133,7 +184,12 @@ fn lift_expr(
         } => {
             let value = lift_expr(*value, scope, top_names, lifted, counter);
             let mut new_scope = scope.clone();
-            crate::free_vars::bind_pattern(&pattern.node, &mut new_scope);
+            bind_pattern_typed(&pattern.node, &mut new_scope);
+            if let Pattern::Var(ref name) = pattern.node
+                && let Some(ann) = &type_annotation
+            {
+                new_scope.insert(name.clone(), ann.clone());
+            }
             let body = lift_expr(*body, &new_scope, top_names, lifted, counter);
             Spanned {
                 node: Expr::Let {
@@ -152,7 +208,7 @@ fn lift_expr(
                 .into_iter()
                 .map(|arm| {
                     let mut arm_scope = scope.clone();
-                    crate::free_vars::bind_pattern(&arm.pattern.node, &mut arm_scope);
+                    bind_pattern_typed(&arm.pattern.node, &mut arm_scope);
                     let guard = arm
                         .guard
                         .map(|g| lift_expr(g, &arm_scope, top_names, lifted, counter));
@@ -232,7 +288,7 @@ fn lift_expr(
                 .map(|e| {
                     let result = lift_expr(e, &block_scope, top_names, lifted, counter);
                     if let Expr::Let { ref pattern, .. } = result.node {
-                        crate::free_vars::bind_pattern(&pattern.node, &mut block_scope);
+                        bind_pattern_typed(&pattern.node, &mut block_scope);
                     }
                     result
                 })
@@ -384,10 +440,10 @@ fn lift_expr(
     }
 }
 
-fn extend_scope(scope: &HashSet<String>, params: &[Param]) -> HashSet<String> {
+fn extend_scope(scope: &HashMap<String, TypeExpr>, params: &[Param]) -> HashMap<String, TypeExpr> {
     let mut new_scope = scope.clone();
     for p in params {
-        new_scope.insert(p.name.clone());
+        new_scope.insert(p.name.clone(), p.type_expr.clone());
     }
     new_scope
 }
@@ -427,17 +483,49 @@ mod tests {
     }
 
     #[test]
-    fn lift_capturing_lambda_has_extra_params() {
+    fn lift_with_capture() {
         let module = parse_and_lift("fn test(y: Int) -> Int { fn(x: Int) { x + y } }");
-        let lifted = module.definitions.iter().find_map(|d| {
-            if let Definition::Function(f) = d {
-                if f.name.starts_with("lifted_") {
-                    return Some(f);
+        assert!(has_lifted_fn(&module, "lifted_"));
+    }
+
+    #[test]
+    fn lift_preserves_non_lambda() {
+        let module = parse_and_lift("fn test(x: Int) -> Int { x + 1 }");
+        assert!(!has_lifted_fn(&module, "lifted_"));
+    }
+
+    #[test]
+    fn nested_lambda_both_lifted() {
+        let module = parse_and_lift("fn test() -> Int { fn(x: Int) { fn(y: Int) { x + y } } }");
+        let count = module
+            .definitions
+            .iter()
+            .filter(|d| {
+                if let Definition::Function(f) = d {
+                    f.name.starts_with("lifted_")
+                } else {
+                    false
                 }
-            }
-            None
-        });
-        let lifted = lifted.expect("lifted fn not found");
+            })
+            .count();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn lifted_fn_has_capture_params_first() {
+        let module = parse_and_lift("fn test(y: Int) -> Int { fn(x: Int) { x + y } }");
+        let lifted = module
+            .definitions
+            .iter()
+            .find_map(|d| {
+                if let Definition::Function(f) = d {
+                    if f.name.starts_with("lifted_") {
+                        return Some(f);
+                    }
+                }
+                None
+            })
+            .expect("no lifted fn");
         assert_eq!(lifted.params.len(), 2);
         assert_eq!(lifted.params[0].name, "y");
         assert_eq!(lifted.params[1].name, "x");

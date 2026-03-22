@@ -207,22 +207,22 @@ pub enum Msg {
     Reset
 }
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
     let empty = ChainResult { hits: [], total_damage: 0 }
-    #(Model { last_result: empty }, [])
+    (Model { last_result: empty }, [])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
         Cast(cx, cy, dmg, targets) -> {
             let result = cast_chain_lightning(targets, int.to_float(cx), int.to_float(cy), dmg)
             let text = "Chain Lightning hit " <> int.to_string(length_hits(result.hits))
                 <> " targets for " <> int.to_string(result.total_damage) <> " total damage"
-            #(Model { last_result: result }, [effect.display_text(0, text, 5.0)])
+            (Model { last_result: result }, [effect.display_text(0, text, 5.0)])
         }
         Reset -> {
             let empty = ChainResult { hits: [], total_damage: 0 }
-            #(Model { last_result: empty }, [])
+            (Model { last_result: empty }, [])
         }
     }
 }

@@ -15,8 +15,7 @@ pub struct ElmEntryPoints {
     pub has_init: bool,
     pub has_update: bool,
     pub has_subscriptions: bool,
-    /// Msg type info: variant names + tags for dispatch
-    pub msg_variants: Vec<(String, i64, usize)>, // (name, tag, field_count)
+    pub msg_variants: Vec<(String, i64, usize)>,
 }
 
 impl ElmEntryPoints {
@@ -24,7 +23,6 @@ impl ElmEntryPoints {
         let mut has_init = false;
         let mut has_update = false;
         let mut has_subscriptions = false;
-
         for def in &module.definitions {
             if let Definition::Function(f) = def {
                 match f.name.as_str() {
@@ -71,8 +69,6 @@ pub fn collect_runtime_globals(globals: &mut Vec<String>) {
     }
     // Timer data hashtable for closure dispatch
     globals.push("    hashtable glass_timer_ht = null".into());
-    // Handle lookup hashtable (unit handle ID → unit)
-    globals.push("    hashtable glass_handle_ht = null".into());
 }
 
 /// Generate the Elm runtime JASS functions (after user code).
@@ -89,7 +85,6 @@ pub fn gen_elm_runtime_functions(
     // Order: rt_tuple → dispatch_update → handle_lookup → timer_callback → exec_effect → process_effects → send_msg
     gen_rt_tuple_helpers(output);
     gen_msg_dispatch(entry, output);
-    gen_handle_lookup(output);
     gen_timer_callback(output);
     gen_exec_effect(output);
     gen_process_effects(output);
@@ -100,7 +95,6 @@ pub fn gen_elm_runtime_functions(
     output.push_str("    local integer glass_result\n");
     output.push_str("    local integer glass_effects\n");
     output.push_str("    set glass_timer_ht = InitHashtable()\n");
-    output.push_str("    set glass_handle_ht = InitHashtable()\n");
     output.push_str("    set glass_result = glass_init()\n");
     output.push_str("    set glass_model = glass_rt_tuple_0(glass_result)\n");
     output.push_str("    set glass_effects = glass_rt_tuple_1(glass_result)\n");
@@ -115,18 +109,6 @@ pub fn gen_elm_runtime_functions(
     output.push_str("endfunction\n\n");
 }
 
-/// Handle lookup helper — convert integer handle ID back to unit via hashtable.
-fn gen_handle_lookup(output: &mut String) {
-    // glass_handle_ht stores handle_id → unit handle via SaveUnitHandle/LoadUnitHandle
-    output.push_str("function glass_handle_register_unit takes unit u returns nothing\n");
-    output.push_str("    call SaveUnitHandle(glass_handle_ht, GetHandleId(u), 0, u)\n");
-    output.push_str("endfunction\n\n");
-
-    output.push_str("function glass_handle_lookup_unit takes integer hid returns unit\n");
-    output.push_str("    return LoadUnitHandle(glass_handle_ht, hid, 0)\n");
-    output.push_str("endfunction\n\n");
-}
-
 /// Execute a single effect by reading its tag and fields from the Effect SoA.
 fn gen_exec_effect(output: &mut String) {
     output.push_str("function glass_exec_effect takes integer fx_id returns nothing\n");
@@ -137,58 +119,57 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("    local texttag tt\n");
 
     // After — timer-based delayed callback
-    output.push_str("    if fx_tag == glass_TAG_After then\n");
+    output.push_str("    if fx_tag == glass_TAG_Effect_After then\n");
     output.push_str("        set t = CreateTimer()\n");
     output.push_str("        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_After_callback[fx_id])\n");
     output.push_str("        call TimerStart(t, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)\n");
     output.push_str("        set t = null\n");
 
     // DisplayText
-    output.push_str("    elseif fx_tag == glass_TAG_DisplayText then\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_DisplayText then\n");
     output.push_str("        call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])\n");
 
     // DamageUnit
-    output.push_str("    elseif fx_tag == glass_TAG_DamageUnit then\n");
-    output.push_str("        call UnitDamageTarget(glass_handle_lookup_unit(glass_Effect_DamageUnit_source_id[fx_id]), glass_handle_lookup_unit(glass_Effect_DamageUnit_target_id[fx_id]), glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_DamageUnit then\n");
+    output.push_str("        call UnitDamageTarget(glass_Effect_DamageUnit_source[fx_id], glass_Effect_DamageUnit_target[fx_id], glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)\n");
 
     // CreateUnit — creates and registers in handle table
-    output.push_str("    elseif fx_tag == glass_TAG_CreateUnit then\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_CreateUnit then\n");
     output.push_str("        set u = CreateUnit(Player(glass_Effect_CreateUnit_owner[fx_id]), glass_Effect_CreateUnit_type_id[fx_id], glass_Effect_CreateUnit_x[fx_id], glass_Effect_CreateUnit_y[fx_id], glass_Effect_CreateUnit_facing[fx_id])\n");
-    output.push_str("        call glass_handle_register_unit(u)\n");
     output.push_str("        set u = null\n");
 
     // RemoveUnit
-    output.push_str("    elseif fx_tag == glass_TAG_RemoveUnit then\n");
-    output.push_str("        call RemoveUnit(glass_handle_lookup_unit(glass_Effect_RemoveUnit_unit_id[fx_id]))\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_RemoveUnit then\n");
+    output.push_str("        call RemoveUnit(glass_Effect_RemoveUnit_unit[fx_id])\n");
 
     // MoveUnit
-    output.push_str("    elseif fx_tag == glass_TAG_MoveUnit then\n");
-    output.push_str("        call SetUnitPosition(glass_handle_lookup_unit(glass_Effect_MoveUnit_unit_id[fx_id]), glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_MoveUnit then\n");
+    output.push_str("        call SetUnitPosition(glass_Effect_MoveUnit_unit[fx_id], glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])\n");
 
     // PlayAnimation
-    output.push_str("    elseif fx_tag == glass_TAG_PlayAnimation then\n");
-    output.push_str("        call SetUnitAnimation(glass_handle_lookup_unit(glass_Effect_PlayAnimation_unit_id[fx_id]), glass_Effect_PlayAnimation_anim[fx_id])\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_PlayAnimation then\n");
+    output.push_str("        call SetUnitAnimation(glass_Effect_PlayAnimation_unit[fx_id], glass_Effect_PlayAnimation_anim[fx_id])\n");
 
     // AddAbility
-    output.push_str("    elseif fx_tag == glass_TAG_AddAbility then\n");
-    output.push_str("        call UnitAddAbility(glass_handle_lookup_unit(glass_Effect_AddAbility_unit_id[fx_id]), glass_Effect_AddAbility_ability_id[fx_id])\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_AddAbility then\n");
+    output.push_str("        call UnitAddAbility(glass_Effect_AddAbility_unit[fx_id], glass_Effect_AddAbility_ability_id[fx_id])\n");
 
     // AddSfx
-    output.push_str("    elseif fx_tag == glass_TAG_AddSfx then\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_AddSfx then\n");
     output.push_str("        set sfx = AddSpecialEffect(glass_Effect_AddSfx_model[fx_id], glass_Effect_AddSfx_x[fx_id], glass_Effect_AddSfx_y[fx_id])\n");
     output.push_str("        call DestroyEffect(sfx)\n");
     output.push_str("        set sfx = null\n");
 
     // SetUnitHp
-    output.push_str("    elseif fx_tag == glass_TAG_SetUnitHp then\n");
-    output.push_str("        call SetUnitState(glass_handle_lookup_unit(glass_Effect_SetUnitHp_unit_id[fx_id]), UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_SetUnitHp then\n");
+    output.push_str("        call SetUnitState(glass_Effect_SetUnitHp_unit[fx_id], UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])\n");
 
     // SetUnitMana
-    output.push_str("    elseif fx_tag == glass_TAG_SetUnitMana then\n");
-    output.push_str("        call SetUnitState(glass_handle_lookup_unit(glass_Effect_SetUnitMana_unit_id[fx_id]), UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_SetUnitMana then\n");
+    output.push_str("        call SetUnitState(glass_Effect_SetUnitMana_unit[fx_id], UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])\n");
 
     // PanCamera
-    output.push_str("    elseif fx_tag == glass_TAG_PanCamera then\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_PanCamera then\n");
     output.push_str(
         "        if GetLocalPlayer() == Player(glass_Effect_PanCamera_player_id[fx_id]) then\n",
     );
@@ -196,7 +177,7 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("        endif\n");
 
     // ShowFloatingText
-    output.push_str("    elseif fx_tag == glass_TAG_ShowFloatingText then\n");
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_ShowFloatingText then\n");
     output.push_str("        set tt = CreateTextTag()\n");
     output.push_str("        call SetTextTagText(tt, glass_Effect_ShowFloatingText_text[fx_id], glass_Effect_ShowFloatingText_size[fx_id])\n");
     output.push_str("        call SetTextTagPos(tt, glass_Effect_ShowFloatingText_x[fx_id], glass_Effect_ShowFloatingText_y[fx_id], 0.0)\n");
@@ -204,6 +185,80 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("        call SetTextTagPermanent(tt, false)\n");
     output.push_str("        call SetTextTagVelocity(tt, 0.0, 0.04)\n");
     output.push_str("        set tt = null\n");
+
+    // GiveGold
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_GiveGold then\n");
+    output.push_str("        call SetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD) + glass_Effect_GiveGold_gold_amount[fx_id])\n");
+
+    // GiveLumber
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_GiveLumber then\n");
+    output.push_str("        call SetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER, GetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER) + glass_Effect_GiveLumber_lumber_amount[fx_id])\n");
+
+    // KillUnit
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_KillUnit then\n");
+    output.push_str("        call KillUnit(glass_Effect_KillUnit_unit[fx_id])\n");
+
+    // RemoveAbility
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_RemoveAbility then\n");
+    output.push_str("        call UnitRemoveAbility(glass_Effect_RemoveAbility_unit[fx_id], glass_Effect_RemoveAbility_ability_id[fx_id])\n");
+
+    // SetUnitOwner
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_SetUnitOwner then\n");
+    output.push_str("        call SetUnitOwner(glass_Effect_SetUnitOwner_unit[fx_id], Player(glass_Effect_SetUnitOwner_player_id[fx_id]), true)\n");
+
+    // PauseUnit
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_PauseUnit then\n");
+    output.push_str("        call PauseUnit(glass_Effect_PauseUnit_unit[fx_id], glass_Effect_PauseUnit_paused[fx_id])\n");
+
+    // ShowUnit
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_ShowUnit then\n");
+    output.push_str("        call ShowUnit(glass_Effect_ShowUnit_unit[fx_id], glass_Effect_ShowUnit_shown[fx_id])\n");
+
+    // SetInvulnerable
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_SetInvulnerable then\n");
+    output.push_str("        call SetUnitInvulnerable(glass_Effect_SetInvulnerable_unit[fx_id], glass_Effect_SetInvulnerable_invulnerable[fx_id])\n");
+
+    // IssueOrder
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_IssueOrder then\n");
+    output.push_str("        call IssueImmediateOrder(glass_Effect_IssueOrder_unit[fx_id], glass_Effect_IssueOrder_order[fx_id])\n");
+
+    // IssuePointOrder
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_IssuePointOrder then\n");
+    output.push_str("        call IssuePointOrder(glass_Effect_IssuePointOrder_unit[fx_id], glass_Effect_IssuePointOrder_order[fx_id], glass_Effect_IssuePointOrder_x[fx_id], glass_Effect_IssuePointOrder_y[fx_id])\n");
+
+    // IssueTargetOrder
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_IssueTargetOrder then\n");
+    output.push_str("        call IssueTargetOrder(glass_Effect_IssueTargetOrder_unit[fx_id], glass_Effect_IssueTargetOrder_order[fx_id], glass_Effect_IssueTargetOrder_target[fx_id])\n");
+
+    // AddSfxTarget
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_AddSfxTarget then\n");
+    output.push_str("        set sfx = AddSpecialEffectTarget(glass_Effect_AddSfxTarget_model[fx_id], glass_Effect_AddSfxTarget_unit[fx_id], glass_Effect_AddSfxTarget_attach_point[fx_id])\n");
+    output.push_str("        call DestroyEffect(sfx)\n");
+    output.push_str("        set sfx = null\n");
+
+    // ReviveHero
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_ReviveHero then\n");
+    output.push_str("        call ReviveHero(glass_Effect_ReviveHero_unit[fx_id], glass_Effect_ReviveHero_x[fx_id], glass_Effect_ReviveHero_y[fx_id], true)\n");
+
+    // AddHeroXp
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_AddHeroXp then\n");
+    output.push_str("        call AddHeroXP(glass_Effect_AddHeroXp_unit[fx_id], glass_Effect_AddHeroXp_xp[fx_id], true)\n");
+
+    // SetUnitFacing
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_SetUnitFacing then\n");
+    output.push_str("        call SetUnitFacing(glass_Effect_SetUnitFacing_unit[fx_id], glass_Effect_SetUnitFacing_facing[fx_id])\n");
+
+    // PingMinimap
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_PingMinimap then\n");
+    output.push_str("        call PingMinimap(glass_Effect_PingMinimap_x[fx_id], glass_Effect_PingMinimap_y[fx_id], glass_Effect_PingMinimap_duration[fx_id])\n");
+
+    // CreateItem
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_CreateItem then\n");
+    output.push_str("        call CreateItem(glass_Effect_CreateItem_item_type_id[fx_id], glass_Effect_CreateItem_x[fx_id], glass_Effect_CreateItem_y[fx_id])\n");
+
+    // SetUnitMoveSpeed
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then\n");
+    output.push_str("        call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])\n");
 
     output.push_str("    endif\n");
     output.push_str("    call glass_Effect_dealloc(fx_id)\n");
@@ -261,28 +316,117 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("        set fx_id = glass_List_integer_head[current]\n");
     output.push_str("        set fx_tag = glass_Effect_tag[fx_id]\n");
     // After — self-referencing timer
-    output.push_str("        if fx_tag == glass_TAG_After then\n");
+    output.push_str("        if fx_tag == glass_TAG_Effect_After then\n");
     output.push_str("            set t2 = CreateTimer()\n");
     output.push_str("            call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_After_callback[fx_id])\n");
     output.push_str("            call TimerStart(t2, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)\n");
     output.push_str("            set t2 = null\n");
     // DisplayText
-    output.push_str("        elseif fx_tag == glass_TAG_DisplayText then\n");
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_DisplayText then\n");
     output.push_str("            call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])\n");
     // CreateUnit
-    output.push_str("        elseif fx_tag == glass_TAG_CreateUnit then\n");
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_CreateUnit then\n");
     output.push_str("            set u = CreateUnit(Player(glass_Effect_CreateUnit_owner[fx_id]), glass_Effect_CreateUnit_type_id[fx_id], glass_Effect_CreateUnit_x[fx_id], glass_Effect_CreateUnit_y[fx_id], glass_Effect_CreateUnit_facing[fx_id])\n");
-    output.push_str("            call glass_handle_register_unit(u)\n");
     output.push_str("            set u = null\n");
     // DamageUnit
-    output.push_str("        elseif fx_tag == glass_TAG_DamageUnit then\n");
-    output.push_str("            call UnitDamageTarget(glass_handle_lookup_unit(glass_Effect_DamageUnit_source_id[fx_id]), glass_handle_lookup_unit(glass_Effect_DamageUnit_target_id[fx_id]), glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)\n");
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_DamageUnit then\n");
+    output.push_str("            call UnitDamageTarget(glass_Effect_DamageUnit_source[fx_id], glass_Effect_DamageUnit_target[fx_id], glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)\n");
     // AddSfx
-    output.push_str("        elseif fx_tag == glass_TAG_AddSfx then\n");
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_AddSfx then\n");
     output.push_str("            set sfx = AddSpecialEffect(glass_Effect_AddSfx_model[fx_id], glass_Effect_AddSfx_x[fx_id], glass_Effect_AddSfx_y[fx_id])\n");
     output.push_str("            call DestroyEffect(sfx)\n");
     output.push_str("            set sfx = null\n");
-    // Other effects handled via glass_exec_effect in non-timer paths
+    // RemoveUnit
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_RemoveUnit then\n");
+    output.push_str("            call RemoveUnit(glass_Effect_RemoveUnit_unit[fx_id])\n");
+    // MoveUnit
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_MoveUnit then\n");
+    output.push_str("            call SetUnitPosition(glass_Effect_MoveUnit_unit[fx_id], glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])\n");
+    // PlayAnimation
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_PlayAnimation then\n");
+    output.push_str("            call SetUnitAnimation(glass_Effect_PlayAnimation_unit[fx_id], glass_Effect_PlayAnimation_anim[fx_id])\n");
+    // AddAbility
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_AddAbility then\n");
+    output.push_str("            call UnitAddAbility(glass_Effect_AddAbility_unit[fx_id], glass_Effect_AddAbility_ability_id[fx_id])\n");
+    // SetUnitHp
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_SetUnitHp then\n");
+    output.push_str("            call SetUnitState(glass_Effect_SetUnitHp_unit[fx_id], UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])\n");
+    // SetUnitMana
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_SetUnitMana then\n");
+    output.push_str("            call SetUnitState(glass_Effect_SetUnitMana_unit[fx_id], UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])\n");
+    // PanCamera
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_PanCamera then\n");
+    output.push_str(
+        "            if GetLocalPlayer() == Player(glass_Effect_PanCamera_player_id[fx_id]) then\n",
+    );
+    output.push_str("                call PanCameraTo(glass_Effect_PanCamera_x[fx_id], glass_Effect_PanCamera_y[fx_id])\n");
+    output.push_str("            endif\n");
+    // ShowFloatingText
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_ShowFloatingText then\n");
+    output.push_str("            set tt = CreateTextTag()\n");
+    output.push_str("            call SetTextTagText(tt, glass_Effect_ShowFloatingText_text[fx_id], glass_Effect_ShowFloatingText_size[fx_id])\n");
+    output.push_str("            call SetTextTagPos(tt, glass_Effect_ShowFloatingText_x[fx_id], glass_Effect_ShowFloatingText_y[fx_id], 0.0)\n");
+    output.push_str("            call SetTextTagLifespan(tt, 3.0)\n");
+    output.push_str("            call SetTextTagPermanent(tt, false)\n");
+    output.push_str("            call SetTextTagVelocity(tt, 0.0, 0.04)\n");
+    output.push_str("            set tt = null\n");
+    // GiveGold
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_GiveGold then\n");
+    output.push_str("            call SetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD) + glass_Effect_GiveGold_gold_amount[fx_id])\n");
+    // GiveLumber
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_GiveLumber then\n");
+    output.push_str("            call SetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER, GetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER) + glass_Effect_GiveLumber_lumber_amount[fx_id])\n");
+    // KillUnit
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_KillUnit then\n");
+    output.push_str("            call KillUnit(glass_Effect_KillUnit_unit[fx_id])\n");
+    // RemoveAbility
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_RemoveAbility then\n");
+    output.push_str("            call UnitRemoveAbility(glass_Effect_RemoveAbility_unit[fx_id], glass_Effect_RemoveAbility_ability_id[fx_id])\n");
+    // SetUnitOwner
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_SetUnitOwner then\n");
+    output.push_str("            call SetUnitOwner(glass_Effect_SetUnitOwner_unit[fx_id], Player(glass_Effect_SetUnitOwner_player_id[fx_id]), true)\n");
+    // PauseUnit
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_PauseUnit then\n");
+    output.push_str("            call PauseUnit(glass_Effect_PauseUnit_unit[fx_id], glass_Effect_PauseUnit_paused[fx_id])\n");
+    // ShowUnit
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_ShowUnit then\n");
+    output.push_str("            call ShowUnit(glass_Effect_ShowUnit_unit[fx_id], glass_Effect_ShowUnit_shown[fx_id])\n");
+    // SetInvulnerable
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_SetInvulnerable then\n");
+    output.push_str("            call SetUnitInvulnerable(glass_Effect_SetInvulnerable_unit[fx_id], glass_Effect_SetInvulnerable_invulnerable[fx_id])\n");
+    // IssueOrder
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_IssueOrder then\n");
+    output.push_str("            call IssueImmediateOrder(glass_Effect_IssueOrder_unit[fx_id], glass_Effect_IssueOrder_order[fx_id])\n");
+    // IssuePointOrder
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_IssuePointOrder then\n");
+    output.push_str("            call IssuePointOrder(glass_Effect_IssuePointOrder_unit[fx_id], glass_Effect_IssuePointOrder_order[fx_id], glass_Effect_IssuePointOrder_x[fx_id], glass_Effect_IssuePointOrder_y[fx_id])\n");
+    // IssueTargetOrder
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_IssueTargetOrder then\n");
+    output.push_str("            call IssueTargetOrder(glass_Effect_IssueTargetOrder_unit[fx_id], glass_Effect_IssueTargetOrder_order[fx_id], glass_Effect_IssueTargetOrder_target[fx_id])\n");
+    // AddSfxTarget
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_AddSfxTarget then\n");
+    output.push_str("            set sfx = AddSpecialEffectTarget(glass_Effect_AddSfxTarget_model[fx_id], glass_Effect_AddSfxTarget_unit[fx_id], glass_Effect_AddSfxTarget_attach_point[fx_id])\n");
+    output.push_str("            call DestroyEffect(sfx)\n");
+    output.push_str("            set sfx = null\n");
+    // ReviveHero
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_ReviveHero then\n");
+    output.push_str("            call ReviveHero(glass_Effect_ReviveHero_unit[fx_id], glass_Effect_ReviveHero_x[fx_id], glass_Effect_ReviveHero_y[fx_id], true)\n");
+    // AddHeroXp
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_AddHeroXp then\n");
+    output.push_str("            call AddHeroXP(glass_Effect_AddHeroXp_unit[fx_id], glass_Effect_AddHeroXp_xp[fx_id], true)\n");
+    // SetUnitFacing
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_SetUnitFacing then\n");
+    output.push_str("            call SetUnitFacing(glass_Effect_SetUnitFacing_unit[fx_id], glass_Effect_SetUnitFacing_facing[fx_id])\n");
+    // PingMinimap
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_PingMinimap then\n");
+    output.push_str("            call PingMinimap(glass_Effect_PingMinimap_x[fx_id], glass_Effect_PingMinimap_y[fx_id], glass_Effect_PingMinimap_duration[fx_id])\n");
+    // CreateItem
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_CreateItem then\n");
+    output.push_str("            call CreateItem(glass_Effect_CreateItem_item_type_id[fx_id], glass_Effect_CreateItem_x[fx_id], glass_Effect_CreateItem_y[fx_id])\n");
+    // SetUnitMoveSpeed
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then\n");
+    output.push_str("            call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])\n");
+    // FindNearestEnemy
     output.push_str("        endif\n");
     output.push_str("        call glass_Effect_dealloc(fx_id)\n");
     output.push_str("        set current = glass_List_integer_tail[current]\n");
@@ -291,13 +435,13 @@ fn gen_timer_callback(output: &mut String) {
 }
 
 fn gen_msg_dispatch(_entry: &ElmEntryPoints, output: &mut String) {
-    // update returns #(Model, List(Effect)) — a tuple
+    // update returns (Model, List(Effect)) — a tuple
     output.push_str("function glass_dispatch_update takes nothing returns integer\n");
     output.push_str("    return glass_update(glass_model, glass_msg_tag)\n");
     output.push_str("endfunction\n\n");
 }
 
-/// glass_send_msg: call update, extract #(model, effects), store model, process effects.
+/// glass_send_msg: call update, extract (model, effects), store model, process effects.
 fn gen_send_msg(output: &mut String) {
     output.push_str(
         "function glass_send_msg takes integer tag, integer p0, integer p1 returns nothing\n",
@@ -308,7 +452,7 @@ fn gen_send_msg(output: &mut String) {
     output.push_str("    set glass_msg_tag = tag\n");
     output.push_str("    set glass_msg_p0 = p0\n");
     output.push_str("    set glass_msg_p1 = p1\n");
-    // Call update → returns tuple #(Model, List(Effect))
+    // Call update → returns tuple (Model, List(Effect))
     output.push_str("    set glass_result = glass_dispatch_update()\n");
     // Extract tuple fields
     output.push_str("    set glass_new_model = glass_rt_tuple_0(glass_result)\n");

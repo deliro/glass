@@ -8,7 +8,7 @@ function glass_i2b takes integer i returns boolean
 endfunction
 
 function glass_double takes integer x returns integer
-    return glass_dispatch_2(add, x, x)
+    return glass_dispatch_2_integer_integer(add, x, x)
 endfunction
 
 function glass_dispatch_void takes integer glass_closure returns integer

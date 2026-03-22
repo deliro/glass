@@ -8,8 +8,8 @@ pub struct PlayerGold {
     total_earned: Int,
 }
 
-pub fn new_gold(player_id: Int) -> PlayerGold {
-    PlayerGold { player_id, gold: 625, total_earned: 625 }
+pub fn new_gold(player_id: Int, starting_gold: Int) -> PlayerGold {
+    PlayerGold { player_id, gold: starting_gold, total_earned: starting_gold }
 }
 
 pub fn add(pg: PlayerGold, amount: Int) -> PlayerGold {
@@ -29,7 +29,7 @@ pub fn can_afford(pg: PlayerGold, cost: Int) -> Bool {
 
 pub fn find_player(pgs: List(PlayerGold), pid: Int) -> PlayerGold {
     case pgs {
-        [] -> new_gold(pid)
+        [] -> new_gold(pid, 0)
         [h | t] -> case h.player_id == pid {
             True -> h
             False -> find_player(t, pid)

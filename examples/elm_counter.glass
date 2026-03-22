@@ -10,14 +10,14 @@ pub struct Model {
     count: Int,
 }
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { count: 0 }, [])
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { count: 0 }, [])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        Msg::Increment -> #(Model { count: model.count + 1 }, [])
-        Msg::Decrement -> #(Model { count: model.count - 1 }, [])
-        Msg::Reset -> #(Model { count: 0 }, [])
+        Msg::Increment -> (Model { count: model.count + 1 }, [])
+        Msg::Decrement -> (Model { count: model.count - 1 }, [])
+        Msg::Reset -> (Model { count: 0 }, [])
     }
 }

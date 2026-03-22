@@ -29,7 +29,7 @@ function glass_Model_dealloc takes integer id returns nothing
     set glass_Model_free_top = glass_Model_free_top + 1
 endfunction
 
-function glass_new_Model takes integer p_wave, integer p_score returns integer
+function glass_new_Model_Model takes integer p_wave, integer p_score returns integer
     local integer id = glass_Model_alloc()
     set glass_Model_Model_wave [id] = p_wave
     set glass_Model_Model_score [id] = p_score
@@ -41,7 +41,7 @@ function glass_i2b takes integer i returns boolean
 endfunction
 
 function glass_make takes nothing returns integer
-    return glass_new_Model(1, 100)
+    return glass_new_Model_Model(1, 100)
 endfunction
 
 

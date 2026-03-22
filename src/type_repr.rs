@@ -27,7 +27,7 @@ pub enum Type {
     /// Function type: fn(A, B) -> C
     Fn(Vec<Type>, Box<Type>),
 
-    /// Tuple type: #(A, B, C)
+    /// Tuple type: (A, B, C)
     Tuple(Vec<Type>),
 }
 
@@ -199,7 +199,7 @@ impl fmt::Display for Type {
                 write!(f, ") -> {ret}")
             }
             Type::Tuple(elems) => {
-                write!(f, "#(")?;
+                write!(f, "(")?;
                 for (i, e) in elems.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -312,7 +312,7 @@ mod tests {
         );
         assert_eq!(
             Type::Tuple(vec![Type::int(), Type::string()]).to_string(),
-            "#(Int, String)"
+            "(Int, String)"
         );
     }
 
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn tuple_type() {
         let t = Type::Tuple(vec![Type::int(), Type::string(), Type::bool()]);
-        assert_eq!(t.to_string(), "#(Int, String, Bool)");
+        assert_eq!(t.to_string(), "(Int, String, Bool)");
         assert!(t.free_vars().is_empty());
     }
 

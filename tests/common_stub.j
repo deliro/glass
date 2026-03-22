@@ -129,6 +129,11 @@ native PauseUnit takes unit whichUnit, boolean flag returns nothing
 native ShowUnit takes unit whichUnit, boolean show returns nothing
 native SetUnitInvulnerable takes unit whichUnit, boolean flag returns nothing
 native IsUnitType takes unit whichUnit, integer whichUnitType returns boolean
+native SetUnitMoveSpeed takes unit whichUnit, real speed returns nothing
+native IssueImmediateOrder takes unit whichUnit, string order returns boolean
+native IssuePointOrder takes unit whichUnit, string order, real x, real y returns boolean
+native IssueTargetOrder takes unit whichUnit, string order, widget targetWidget returns boolean
+native PingMinimap takes real x, real y, real duration returns nothing
 
 // --- Hero ---
 native GetHeroLevel takes unit whichHero returns integer
@@ -259,4 +264,6 @@ globals
     constant integer UNIT_STATE_MANA = 3
     constant integer UNIT_STATE_MAX_MANA = 4
     constant integer bj_MAX_PLAYER_SLOTS = 24
+    constant integer PLAYER_STATE_RESOURCE_GOLD = 1
+    constant integer PLAYER_STATE_RESOURCE_LUMBER = 2
 endglobals

@@ -1,0 +1,267 @@
+import effect
+import subscription
+import float
+import int
+import option { Option }
+import wc3/math
+
+const pudge_id: Int = 'Otch'
+const footman_id: Int = 'hfoo'
+const hook_spell: Int = 'AOsh'
+const hook_speed: Float = 1600.0
+const hook_range: Float = 1300.0
+const hook_dmg: Float = 360.0
+const tick_dt: Float = 0.05
+const grab_radius: Float = 150.0
+const pull_speed: Float = 900.0
+const chain_model: String = "Abilities\\Weapons\\AncientProtectorMissile\\AncientProtectorMissile.mdl"
+
+pub enum Phase { Extending Retracting Idle }
+
+pub struct Hook {
+    dir_x: Float,
+    dir_y: Float,
+    head_x: Float,
+    head_y: Float,
+    origin_x: Float,
+    origin_y: Float,
+    distance: Float,
+    target: Option(Unit),
+    phase: Phase,
+}
+
+pub struct Model {
+    time: Int,
+    hook: Hook,
+    pudge_x: Float,
+    pudge_y: Float,
+    kills: Int,
+    landed: Int,
+    thrown: Int,
+}
+
+pub enum Msg {
+    Tick
+    SpellGround { caster: Unit, spell_id: Int, tx: Float, ty: Float }
+    ExtendTick
+    FoundTarget { target: Unit }
+    RetractTick
+    UnitDied { unit: Unit, killer: Unit }
+}
+
+fn show(n: Int) -> String { int.to_string(n) }
+
+fn log(text: String) -> effect.Effect(Msg) {
+    effect.display_text(0, text, 10.0)
+}
+
+fn idle_hook(px: Float, py: Float) -> Hook {
+    Hook {
+        dir_x: 0.0, dir_y: 0.0,
+        head_x: px, head_y: py,
+        origin_x: px, origin_y: py,
+        distance: 0.0, target: Option::None,
+        phase: Phase::Idle,
+    }
+}
+
+fn phase_text(p: Phase) -> String {
+    case p {
+        Extending -> "|cffff0000EXTENDING|r"
+        Retracting -> "|cffffcc00RETRACTING|r"
+        Idle -> "idle"
+    }
+}
+
+fn make_board(m: Model) -> effect.Effect(Msg) {
+    effect.update_board("|cff00ff00Meat Hook|r", [
+        effect.board_row("Time", show(m.time) <> "s"),
+        effect.board_row("Hooks thrown", show(m.thrown)),
+        effect.board_row("Hooks landed", show(m.landed)),
+        effect.board_row("Kills", show(m.kills)),
+        effect.board_row("Hook phase", m.hook.phase |> phase_text),
+    ])
+}
+
+fn launch_hook(m: Model, tx: Float, ty: Float) -> (Model, List(effect.Effect(Msg))) {
+    case m.hook.phase {
+        Idle -> {
+            let dx = tx - m.pudge_x
+            let dy = ty - m.pudge_y
+            let angle = math.atan2(dy, dx)
+            let dir_x = math.cos(angle)
+            let dir_y = math.sin(angle)
+            let new_hook = Hook {
+                dir_x,
+                dir_y,
+                head_x: m.pudge_x,
+                head_y: m.pudge_y,
+                origin_x: m.pudge_x,
+                origin_y: m.pudge_y,
+                distance: 0.0,
+                target: Option::None,
+                phase: Phase::Extending,
+            }
+            let new_m = Model { ..m, hook: new_hook, thrown: m.thrown + 1 }
+            (new_m, [
+                effect.after(tick_dt, fn() -> Msg { Msg::ExtendTick }),
+                log("|cff00ff00[HOOK]|r Launched! target=(" <> float.to_string(tx) <> "," <> float.to_string(ty) <> ") — timer started"),
+            ])
+        }
+        _ -> (m, [log("|cffff0000[HOOK]|r Hook already active! phase=" <> phase_text(m.hook.phase))])
+    }
+}
+
+fn extend_tick(m: Model) -> (Model, List(effect.Effect(Msg))) {
+    case m.hook.phase {
+        Extending -> {
+            let step = hook_speed * tick_dt
+            let new_dist = m.hook.distance + step
+            let new_hx = m.hook.head_x + m.hook.dir_x * step
+            let new_hy = m.hook.head_y + m.hook.dir_y * step
+            case new_dist > hook_range {
+                True -> {
+                    let new_m = Model { ..m, hook: idle_hook(m.pudge_x, m.pudge_y) }
+                    (new_m, [log("|cff888888[HOOK]|r Missed! dist exceeded range")])
+                }
+                False -> {
+                    let h = Hook { ..m.hook, head_x: new_hx, head_y: new_hy, distance: new_dist }
+                    let new_m = Model { ..m, hook: h }
+                    (new_m, [
+                        log("|cffffcc00[EXTEND]|r tick fired, scheduling next"),
+                        effect.add_sfx(chain_model, new_hx, new_hy),
+                        effect.find_nearest_enemy(new_hx, new_hy, grab_radius, fn(u: Unit) -> Msg {
+                            Msg::FoundTarget { target: u }
+                        }),
+                        effect.after(tick_dt, fn() -> Msg { Msg::ExtendTick }),
+                    ])
+                }
+            }
+        }
+        _ -> (m, [log("|cffff0000[EXTEND]|r tick fired but phase=" <> phase_text(m.hook.phase))])
+    }
+}
+
+fn found_target(m: Model, target: Unit) -> (Model, List(effect.Effect(Msg))) {
+    case m.hook.phase {
+        Extending -> {
+            let h = Hook { ..m.hook, target: Option::Some(clone(target)), phase: Phase::Retracting }
+            let new_m = Model { ..m, hook: h, landed: m.landed + 1 }
+            (new_m, [
+                log("|cffff8800[HOOK]|r Hooked unit! Pulling back..."),
+                effect.damage_unit(clone(target), target, hook_dmg, 0, 4),
+                effect.after(tick_dt, fn() -> Msg { Msg::RetractTick }),
+            ])
+        }
+        _ -> (m, [log("|cff888888[FOUND]|r target found but phase=" <> phase_text(m.hook.phase) <> ", ignoring")])
+    }
+}
+
+fn retract_tick(m: Model) -> (Model, List(effect.Effect(Msg))) {
+    case m.hook.phase {
+        Retracting -> {
+            let dx = m.pudge_x - m.hook.head_x
+            let dy = m.pudge_y - m.hook.head_y
+            let dist = math.sqrt(dx * dx + dy * dy)
+            case dist < 50.0 {
+                True -> {
+                    let new_m = Model { ..m, hook: idle_hook(m.pudge_x, m.pudge_y) }
+                    (new_m, [
+                        log("|cff00ff00[HOOK]|r Pull complete! Target delivered to Pudge"),
+                    ])
+                }
+                False -> {
+                    let step = pull_speed * tick_dt
+                    let norm_x = dx / dist
+                    let norm_y = dy / dist
+                    let new_hx = m.hook.head_x + norm_x * step
+                    let new_hy = m.hook.head_y + norm_y * step
+                    let h = Hook { ..m.hook, head_x: new_hx, head_y: new_hy }
+                    let new_m = Model { ..m, hook: h }
+                    (new_m, [
+                        log("|cffffcc00[RETRACT]|r pulling target..."),
+                        effect.after(tick_dt, fn() -> Msg { Msg::RetractTick }),
+                    ])
+                }
+            }
+        }
+        _ -> (m, [log("|cffff0000[RETRACT]|r tick but phase=" <> phase_text(m.hook.phase))])
+    }
+}
+
+fn handle_death(m: Model, unit: Unit, killer: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let new_m = Model { ..m, kills: m.kills + 1 }
+    (new_m, [
+        log("|cffff0000[KILL]|r Unit killed"),
+        effect.give_gold(0, 200),
+    ])
+}
+
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    let px = 0.0
+    let py = 0.0 - 300.0
+    let m = Model {
+        time: 0,
+        hook: idle_hook(px, py),
+        pudge_x: px,
+        pudge_y: py,
+        kills: 0,
+        landed: 0,
+        thrown: 0,
+    }
+    (m, [
+        log("|cff00ff00=== MEAT HOOK DEMO ===|r"),
+        log("Pudge: use |cffffcc00Shockwave|r (ground target) to throw Meat Hook!"),
+        log("Hook range: |cffffcc001300|r — damage: |cffff0000360|r pure"),
+        log("Testing effect.after in 1s..."),
+        effect.after(1.0, fn() -> Msg { Msg::ExtendTick }),
+        effect.give_gold(0, 500),
+        effect.create_unit(0, pudge_id, px, py, 90.0),
+        effect.create_unit(24, footman_id, 300.0, 500.0, 270.0),
+        effect.create_unit(24, footman_id, 0.0, 600.0, 270.0),
+        effect.create_unit(24, footman_id, 0.0 - 300.0, 500.0, 270.0),
+        effect.create_unit(24, footman_id, 400.0, 800.0, 270.0),
+        effect.create_unit(24, footman_id, 0.0 - 400.0, 700.0, 270.0),
+        make_board(m),
+    ])
+}
+
+fn debug_spell(m: Model, spell_id: Int, tx: Float, ty: Float) -> (Model, List(effect.Effect(Msg))) {
+    case spell_id == hook_spell {
+        True -> m |> launch_hook(tx, ty)
+        False -> (m, [log("|cff888888[UPDATE]|r SpellGround spell=" <> show(spell_id) <> " (not hook)")])
+    }
+}
+
+pub fn update(m: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case msg {
+        Tick -> {
+            let new_m = Model { ..m, time: m.time + 1 }
+            case new_m.time % 15 == 0 {
+                True -> (new_m, [
+                    make_board(new_m),
+                    log("|cff888888[SPAWN]|r Fresh meat incoming!"),
+                    effect.create_unit(24, footman_id, 300.0, 500.0, 270.0),
+                    effect.create_unit(24, footman_id, 0.0, 600.0, 270.0),
+                    effect.create_unit(24, footman_id, 0.0 - 300.0, 500.0, 270.0),
+                ])
+                False -> (new_m, [make_board(new_m)])
+            }
+        }
+        SpellGround { spell_id, tx, ty, .. } -> m |> debug_spell(spell_id, tx, ty)
+        ExtendTick -> m |> extend_tick
+        FoundTarget { target } -> m |> found_target(target)
+        RetractTick -> m |> retract_tick
+        UnitDied { unit, killer } -> m |> handle_death(unit, killer)
+    }
+}
+
+pub fn subscriptions(m: Model) -> List(subscription.Subscription(Msg)) {
+    [
+        subscription.on_timer(1.0, fn() -> Msg { Msg::Tick }),
+        subscription.on_spell_ground(fn(c: Unit, s: Int, tx: Float, ty: Float) -> Msg {
+            Msg::SpellGround { caster: c, spell_id: s, tx, ty }
+        }),
+        subscription.on_death(fn(u: Unit, k: Unit) -> Msg { Msg::UnitDied { unit: u, killer: k } }),
+    ]
+}

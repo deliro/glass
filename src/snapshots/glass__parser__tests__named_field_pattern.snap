@@ -21,11 +21,11 @@ Spanned {
                         fields: [
                             FieldPattern {
                                 field_name: "from",
-                                binding: None,
+                                pattern: None,
                             },
                             FieldPattern {
                                 field_name: "text",
-                                binding: None,
+                                pattern: None,
                             },
                         ],
                         rest: false,

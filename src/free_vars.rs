@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::token::Span;
 use std::collections::HashSet;
 
 pub fn bind_pattern(pattern: &Pattern, scope: &mut HashSet<String>) {
@@ -149,5 +150,88 @@ pub fn find_free_vars(expr: &Expr, scope: &HashSet<String>, free: &mut Vec<Strin
         | Expr::Rawcode(_)
         | Expr::Bool(_)
         | Expr::Todo(_) => {}
+    }
+}
+
+pub fn find_var_span(target: &str, expr: &Spanned<Expr>) -> Option<Span> {
+    match &expr.node {
+        Expr::Var(name) if name == target => Some(expr.span),
+        Expr::Let {
+            value,
+            body,
+            pattern,
+            ..
+        } => find_var_span(target, value).or_else(|| {
+            let mut scope = HashSet::new();
+            bind_pattern(&pattern.node, &mut scope);
+            if scope.contains(target) {
+                None
+            } else {
+                find_var_span(target, body)
+            }
+        }),
+        Expr::Case { subject, arms } => find_var_span(target, subject).or_else(|| {
+            arms.iter().find_map(|arm| {
+                let mut scope = HashSet::new();
+                bind_pattern(&arm.pattern.node, &mut scope);
+                if scope.contains(target) {
+                    None
+                } else {
+                    arm.guard
+                        .as_ref()
+                        .and_then(|g| find_var_span(target, g))
+                        .or_else(|| find_var_span(target, &arm.body))
+                }
+            })
+        }),
+        Expr::BinOp { left, right, .. } | Expr::Pipe { left, right } => {
+            find_var_span(target, left).or_else(|| find_var_span(target, right))
+        }
+        Expr::UnaryOp { operand, .. } | Expr::Clone(operand) => find_var_span(target, operand),
+        Expr::Call { function, args } => find_var_span(target, function)
+            .or_else(|| args.iter().find_map(|a| find_var_span(target, a))),
+        Expr::FieldAccess { object, .. } => find_var_span(target, object),
+        Expr::MethodCall { object, args, .. } => find_var_span(target, object)
+            .or_else(|| args.iter().find_map(|a| find_var_span(target, a))),
+        Expr::Block(exprs) => {
+            let mut shadowed = false;
+            for e in exprs {
+                if shadowed {
+                    continue;
+                }
+                if let Some(span) = find_var_span(target, e) {
+                    return Some(span);
+                }
+                if let Expr::Let { pattern, .. } = &e.node {
+                    let mut scope = HashSet::new();
+                    bind_pattern(&pattern.node, &mut scope);
+                    if scope.contains(target) {
+                        shadowed = true;
+                    }
+                }
+            }
+            None
+        }
+        Expr::Tuple(elems) | Expr::List(elems) => {
+            elems.iter().find_map(|e| find_var_span(target, e))
+        }
+        Expr::ListCons { head, tail } => {
+            find_var_span(target, head).or_else(|| find_var_span(target, tail))
+        }
+        Expr::Lambda { params, body, .. } => {
+            if params.iter().any(|p| p.name == target) {
+                None
+            } else {
+                find_var_span(target, body)
+            }
+        }
+        Expr::Constructor { args, .. } => args.iter().find_map(|a| match a {
+            ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => find_var_span(target, e),
+        }),
+        Expr::RecordUpdate { base, updates, .. } => find_var_span(target, base)
+            .or_else(|| updates.iter().find_map(|(_, e)| find_var_span(target, e))),
+        Expr::TcoLoop { body } => find_var_span(target, body),
+        Expr::TcoContinue { args } => args.iter().find_map(|(_, e)| find_var_span(target, e)),
+        _ => None,
     }
 }

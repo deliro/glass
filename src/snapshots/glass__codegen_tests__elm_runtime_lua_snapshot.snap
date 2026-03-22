@@ -6,50 +6,122 @@ expression: output
 
 local glass_model = nil
 local glass_timer_ht = nil
+local glass_multiboard = nil
 
 function glass_exec_effect(fx)
-    if fx.tag == glass_TAG_After then
-        local t = CreateTimer()
+    if fx.tag == glass_TAG_Effect_After then
+        local trig = CreateTrigger()
         local cb = fx.callback
-        TimerStart(t, fx.duration, false, function()
-            local expired = GetExpiredTimer()
-            DestroyTimer(expired)
+        TriggerRegisterTimerEvent(trig, fx.duration, false)
+        TriggerAddAction(trig, function()
             local msg = cb()
             glass_send_msg(msg)
         end)
-    elseif fx.tag == glass_TAG_DisplayText then
+    elseif fx.tag == glass_TAG_Effect_DisplayText then
         DisplayTimedTextToPlayer(Player(fx.player_id), 0, 0, fx.duration, fx.text)
-    elseif fx.tag == glass_TAG_DamageUnit then
-        UnitDamageTarget(glass_handle_lookup_unit(fx.source_id), glass_handle_lookup_unit(fx.target_id), fx.amount, true, false, fx.attack_type, fx.damage_type, 0)
-    elseif fx.tag == glass_TAG_CreateUnit then
-        CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)
-    elseif fx.tag == glass_TAG_RemoveUnit then
-        RemoveUnit(glass_handle_lookup_unit(fx.unit_id))
-    elseif fx.tag == glass_TAG_MoveUnit then
-        SetUnitPosition(glass_handle_lookup_unit(fx.unit_id), fx.x, fx.y)
-    elseif fx.tag == glass_TAG_PlayAnimation then
-        SetUnitAnimation(glass_handle_lookup_unit(fx.unit_id), fx.anim)
-    elseif fx.tag == glass_TAG_AddAbility then
-        UnitAddAbility(glass_handle_lookup_unit(fx.unit_id), fx.ability_id)
-    elseif fx.tag == glass_TAG_AddSfx then
+    elseif fx.tag == glass_TAG_Effect_DamageUnit then
+        UnitDamageTarget(fx.source, fx.target, fx.amount, true, false, ConvertAttackType(fx.attack_type), ConvertDamageType(fx.damage_type), WEAPON_TYPE_WHOKNOWS)
+    elseif fx.tag == glass_TAG_Effect_CreateUnit then
+        local u = CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)
+        u = nil
+    elseif fx.tag == glass_TAG_Effect_RemoveUnit then
+        RemoveUnit(fx.unit)
+    elseif fx.tag == glass_TAG_Effect_MoveUnit then
+        SetUnitPosition(fx.unit, fx.x, fx.y)
+    elseif fx.tag == glass_TAG_Effect_PlayAnimation then
+        SetUnitAnimation(fx.unit, fx.anim)
+    elseif fx.tag == glass_TAG_Effect_AddAbility then
+        UnitAddAbility(fx.unit, fx.ability_id)
+    elseif fx.tag == glass_TAG_Effect_AddSfx then
         DestroyEffect(AddSpecialEffect(fx.model, fx.x, fx.y))
-    elseif fx.tag == glass_TAG_SetUnitHp then
-        SetUnitState(glass_handle_lookup_unit(fx.unit_id), UNIT_STATE_LIFE, fx.hp)
-    elseif fx.tag == glass_TAG_SetUnitMana then
-        SetUnitState(glass_handle_lookup_unit(fx.unit_id), UNIT_STATE_MANA, fx.mana)
-    elseif fx.tag == glass_TAG_PanCamera then
+    elseif fx.tag == glass_TAG_Effect_SetUnitHp then
+        SetUnitState(fx.unit, UNIT_STATE_LIFE, fx.hp)
+    elseif fx.tag == glass_TAG_Effect_SetUnitMana then
+        SetUnitState(fx.unit, UNIT_STATE_MANA, fx.mana)
+    elseif fx.tag == glass_TAG_Effect_PanCamera then
         if GetLocalPlayer() == Player(fx.player_id) then
             PanCameraTo(fx.x, fx.y)
         end
-    elseif fx.tag == glass_TAG_ShowFloatingText then
+    elseif fx.tag == glass_TAG_Effect_ShowFloatingText then
         local tt = CreateTextTag()
         SetTextTagText(tt, fx.text, fx.size)
         SetTextTagPos(tt, fx.x, fx.y, 0.0)
         SetTextTagLifespan(tt, 3.0)
         SetTextTagPermanent(tt, false)
         SetTextTagVelocity(tt, 0.0, 0.04)
-    elseif fx.tag == glass_TAG_PlaySound then
+    elseif fx.tag == glass_TAG_Effect_PlaySound then
         -- PlaySound not yet implemented
+    elseif fx.tag == glass_TAG_Effect_FindNearestEnemy then
+        local g = CreateGroup()
+        GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)
+        local best = FirstOfGroup(g)
+        DestroyGroup(g)
+        if best ~= nil then
+            local msg = fx.callback(best)
+            glass_send_msg(msg)
+        end
+    elseif fx.tag == glass_TAG_Effect_GiveGold then
+        SetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_GOLD) + fx.gold_amount)
+    elseif fx.tag == glass_TAG_Effect_GiveLumber then
+        SetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_LUMBER, GetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_LUMBER) + fx.lumber_amount)
+    elseif fx.tag == glass_TAG_Effect_KillUnit then
+        KillUnit(fx.unit)
+    elseif fx.tag == glass_TAG_Effect_RemoveAbility then
+        UnitRemoveAbility(fx.unit, fx.ability_id)
+    elseif fx.tag == glass_TAG_Effect_SetUnitOwner then
+        SetUnitOwner(fx.unit, Player(fx.player_id), true)
+    elseif fx.tag == glass_TAG_Effect_PauseUnit then
+        PauseUnit(fx.unit, fx.paused)
+    elseif fx.tag == glass_TAG_Effect_ShowUnit then
+        ShowUnit(fx.unit, fx.shown)
+    elseif fx.tag == glass_TAG_Effect_SetInvulnerable then
+        SetUnitInvulnerable(fx.unit, fx.invulnerable)
+    elseif fx.tag == glass_TAG_Effect_IssueOrder then
+        IssueImmediateOrder(fx.unit, fx.order)
+    elseif fx.tag == glass_TAG_Effect_IssuePointOrder then
+        IssuePointOrder(fx.unit, fx.order, fx.x, fx.y)
+    elseif fx.tag == glass_TAG_Effect_IssueTargetOrder then
+        IssueTargetOrder(fx.unit, fx.order, fx.target)
+    elseif fx.tag == glass_TAG_Effect_AddSfxTarget then
+        DestroyEffect(AddSpecialEffectTarget(fx.model, fx.unit, fx.attach_point))
+    elseif fx.tag == glass_TAG_Effect_ReviveHero then
+        ReviveHero(fx.unit, fx.x, fx.y, true)
+    elseif fx.tag == glass_TAG_Effect_AddHeroXp then
+        AddHeroXP(fx.unit, fx.xp, true)
+    elseif fx.tag == glass_TAG_Effect_SetUnitFacing then
+        SetUnitFacing(fx.unit, fx.facing)
+    elseif fx.tag == glass_TAG_Effect_PingMinimap then
+        PingMinimap(fx.x, fx.y, fx.duration)
+    elseif fx.tag == glass_TAG_Effect_CreateItem then
+        CreateItem(fx.item_type_id, fx.x, fx.y)
+    elseif fx.tag == glass_TAG_Effect_SetUnitMoveSpeed then
+        SetUnitMoveSpeed(fx.unit, fx.speed)
+    elseif fx.tag == glass_TAG_Effect_UpdateBoard then
+        local row_count = 0
+        local cur = fx.rows
+        while cur ~= nil do row_count = row_count + 1; cur = cur.tail end
+        if glass_multiboard == nil then
+            glass_multiboard = CreateMultiboard()
+        end
+        MultiboardSetColumnCount(glass_multiboard, 2)
+        MultiboardSetRowCount(glass_multiboard, row_count)
+        MultiboardSetTitleText(glass_multiboard, fx.title)
+        MultiboardDisplay(glass_multiboard, true)
+        cur = fx.rows
+        local ri = 0
+        while cur ~= nil do
+            local r = cur.head
+            local mbi0 = MultiboardGetItem(glass_multiboard, ri, 0)
+            MultiboardSetItemValue(mbi0, r.label)
+            MultiboardSetItemWidth(mbi0, 0.10)
+            MultiboardReleaseItem(mbi0)
+            local mbi1 = MultiboardGetItem(glass_multiboard, ri, 1)
+            MultiboardSetItemValue(mbi1, r.value)
+            MultiboardSetItemWidth(mbi1, 0.08)
+            MultiboardReleaseItem(mbi1)
+            ri = ri + 1
+            cur = cur.tail
+        end
     end
 end
 

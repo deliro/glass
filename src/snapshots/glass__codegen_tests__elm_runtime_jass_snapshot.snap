@@ -16,14 +16,6 @@ function glass_dispatch_update takes nothing returns integer
     return glass_update(glass_model, glass_msg_tag)
 endfunction
 
-function glass_handle_register_unit takes unit u returns nothing
-    call SaveUnitHandle(glass_handle_ht, GetHandleId(u), 0, u)
-endfunction
-
-function glass_handle_lookup_unit takes integer hid returns unit
-    return LoadUnitHandle(glass_handle_ht, hid, 0)
-endfunction
-
 function glass_timer_callback takes nothing returns nothing
     local timer t = GetExpiredTimer()
     local integer hid = GetHandleId(t)
@@ -53,23 +45,84 @@ function glass_timer_callback takes nothing returns nothing
         exitwhen current == -1
         set fx_id = glass_List_integer_head[current]
         set fx_tag = glass_Effect_tag[fx_id]
-        if fx_tag == glass_TAG_After then
+        if fx_tag == glass_TAG_Effect_After then
             set t2 = CreateTimer()
             call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_After_callback[fx_id])
             call TimerStart(t2, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)
             set t2 = null
-        elseif fx_tag == glass_TAG_DisplayText then
+        elseif fx_tag == glass_TAG_Effect_DisplayText then
             call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])
-        elseif fx_tag == glass_TAG_CreateUnit then
+        elseif fx_tag == glass_TAG_Effect_CreateUnit then
             set u = CreateUnit(Player(glass_Effect_CreateUnit_owner[fx_id]), glass_Effect_CreateUnit_type_id[fx_id], glass_Effect_CreateUnit_x[fx_id], glass_Effect_CreateUnit_y[fx_id], glass_Effect_CreateUnit_facing[fx_id])
-            call glass_handle_register_unit(u)
             set u = null
-        elseif fx_tag == glass_TAG_DamageUnit then
-            call UnitDamageTarget(glass_handle_lookup_unit(glass_Effect_DamageUnit_source_id[fx_id]), glass_handle_lookup_unit(glass_Effect_DamageUnit_target_id[fx_id]), glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)
-        elseif fx_tag == glass_TAG_AddSfx then
+        elseif fx_tag == glass_TAG_Effect_DamageUnit then
+            call UnitDamageTarget(glass_Effect_DamageUnit_source[fx_id], glass_Effect_DamageUnit_target[fx_id], glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)
+        elseif fx_tag == glass_TAG_Effect_AddSfx then
             set sfx = AddSpecialEffect(glass_Effect_AddSfx_model[fx_id], glass_Effect_AddSfx_x[fx_id], glass_Effect_AddSfx_y[fx_id])
             call DestroyEffect(sfx)
             set sfx = null
+        elseif fx_tag == glass_TAG_Effect_RemoveUnit then
+            call RemoveUnit(glass_Effect_RemoveUnit_unit[fx_id])
+        elseif fx_tag == glass_TAG_Effect_MoveUnit then
+            call SetUnitPosition(glass_Effect_MoveUnit_unit[fx_id], glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])
+        elseif fx_tag == glass_TAG_Effect_PlayAnimation then
+            call SetUnitAnimation(glass_Effect_PlayAnimation_unit[fx_id], glass_Effect_PlayAnimation_anim[fx_id])
+        elseif fx_tag == glass_TAG_Effect_AddAbility then
+            call UnitAddAbility(glass_Effect_AddAbility_unit[fx_id], glass_Effect_AddAbility_ability_id[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetUnitHp then
+            call SetUnitState(glass_Effect_SetUnitHp_unit[fx_id], UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetUnitMana then
+            call SetUnitState(glass_Effect_SetUnitMana_unit[fx_id], UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])
+        elseif fx_tag == glass_TAG_Effect_PanCamera then
+            if GetLocalPlayer() == Player(glass_Effect_PanCamera_player_id[fx_id]) then
+                call PanCameraTo(glass_Effect_PanCamera_x[fx_id], glass_Effect_PanCamera_y[fx_id])
+            endif
+        elseif fx_tag == glass_TAG_Effect_ShowFloatingText then
+            set tt = CreateTextTag()
+            call SetTextTagText(tt, glass_Effect_ShowFloatingText_text[fx_id], glass_Effect_ShowFloatingText_size[fx_id])
+            call SetTextTagPos(tt, glass_Effect_ShowFloatingText_x[fx_id], glass_Effect_ShowFloatingText_y[fx_id], 0.0)
+            call SetTextTagLifespan(tt, 3.0)
+            call SetTextTagPermanent(tt, false)
+            call SetTextTagVelocity(tt, 0.0, 0.04)
+            set tt = null
+        elseif fx_tag == glass_TAG_Effect_GiveGold then
+            call SetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD) + glass_Effect_GiveGold_gold_amount[fx_id])
+        elseif fx_tag == glass_TAG_Effect_GiveLumber then
+            call SetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER, GetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER) + glass_Effect_GiveLumber_lumber_amount[fx_id])
+        elseif fx_tag == glass_TAG_Effect_KillUnit then
+            call KillUnit(glass_Effect_KillUnit_unit[fx_id])
+        elseif fx_tag == glass_TAG_Effect_RemoveAbility then
+            call UnitRemoveAbility(glass_Effect_RemoveAbility_unit[fx_id], glass_Effect_RemoveAbility_ability_id[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetUnitOwner then
+            call SetUnitOwner(glass_Effect_SetUnitOwner_unit[fx_id], Player(glass_Effect_SetUnitOwner_player_id[fx_id]), true)
+        elseif fx_tag == glass_TAG_Effect_PauseUnit then
+            call PauseUnit(glass_Effect_PauseUnit_unit[fx_id], glass_Effect_PauseUnit_paused[fx_id])
+        elseif fx_tag == glass_TAG_Effect_ShowUnit then
+            call ShowUnit(glass_Effect_ShowUnit_unit[fx_id], glass_Effect_ShowUnit_shown[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetInvulnerable then
+            call SetUnitInvulnerable(glass_Effect_SetInvulnerable_unit[fx_id], glass_Effect_SetInvulnerable_invulnerable[fx_id])
+        elseif fx_tag == glass_TAG_Effect_IssueOrder then
+            call IssueImmediateOrder(glass_Effect_IssueOrder_unit[fx_id], glass_Effect_IssueOrder_order[fx_id])
+        elseif fx_tag == glass_TAG_Effect_IssuePointOrder then
+            call IssuePointOrder(glass_Effect_IssuePointOrder_unit[fx_id], glass_Effect_IssuePointOrder_order[fx_id], glass_Effect_IssuePointOrder_x[fx_id], glass_Effect_IssuePointOrder_y[fx_id])
+        elseif fx_tag == glass_TAG_Effect_IssueTargetOrder then
+            call IssueTargetOrder(glass_Effect_IssueTargetOrder_unit[fx_id], glass_Effect_IssueTargetOrder_order[fx_id], glass_Effect_IssueTargetOrder_target[fx_id])
+        elseif fx_tag == glass_TAG_Effect_AddSfxTarget then
+            set sfx = AddSpecialEffectTarget(glass_Effect_AddSfxTarget_model[fx_id], glass_Effect_AddSfxTarget_unit[fx_id], glass_Effect_AddSfxTarget_attach_point[fx_id])
+            call DestroyEffect(sfx)
+            set sfx = null
+        elseif fx_tag == glass_TAG_Effect_ReviveHero then
+            call ReviveHero(glass_Effect_ReviveHero_unit[fx_id], glass_Effect_ReviveHero_x[fx_id], glass_Effect_ReviveHero_y[fx_id], true)
+        elseif fx_tag == glass_TAG_Effect_AddHeroXp then
+            call AddHeroXP(glass_Effect_AddHeroXp_unit[fx_id], glass_Effect_AddHeroXp_xp[fx_id], true)
+        elseif fx_tag == glass_TAG_Effect_SetUnitFacing then
+            call SetUnitFacing(glass_Effect_SetUnitFacing_unit[fx_id], glass_Effect_SetUnitFacing_facing[fx_id])
+        elseif fx_tag == glass_TAG_Effect_PingMinimap then
+            call PingMinimap(glass_Effect_PingMinimap_x[fx_id], glass_Effect_PingMinimap_y[fx_id], glass_Effect_PingMinimap_duration[fx_id])
+        elseif fx_tag == glass_TAG_Effect_CreateItem then
+            call CreateItem(glass_Effect_CreateItem_item_type_id[fx_id], glass_Effect_CreateItem_x[fx_id], glass_Effect_CreateItem_y[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then
+            call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])
         endif
         call glass_Effect_dealloc(fx_id)
         set current = glass_List_integer_tail[current]
@@ -82,40 +135,39 @@ function glass_exec_effect takes integer fx_id returns nothing
     local unit u
     local effect sfx
     local texttag tt
-    if fx_tag == glass_TAG_After then
+    if fx_tag == glass_TAG_Effect_After then
         set t = CreateTimer()
         call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_After_callback[fx_id])
         call TimerStart(t, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)
         set t = null
-    elseif fx_tag == glass_TAG_DisplayText then
+    elseif fx_tag == glass_TAG_Effect_DisplayText then
         call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])
-    elseif fx_tag == glass_TAG_DamageUnit then
-        call UnitDamageTarget(glass_handle_lookup_unit(glass_Effect_DamageUnit_source_id[fx_id]), glass_handle_lookup_unit(glass_Effect_DamageUnit_target_id[fx_id]), glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)
-    elseif fx_tag == glass_TAG_CreateUnit then
+    elseif fx_tag == glass_TAG_Effect_DamageUnit then
+        call UnitDamageTarget(glass_Effect_DamageUnit_source[fx_id], glass_Effect_DamageUnit_target[fx_id], glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)
+    elseif fx_tag == glass_TAG_Effect_CreateUnit then
         set u = CreateUnit(Player(glass_Effect_CreateUnit_owner[fx_id]), glass_Effect_CreateUnit_type_id[fx_id], glass_Effect_CreateUnit_x[fx_id], glass_Effect_CreateUnit_y[fx_id], glass_Effect_CreateUnit_facing[fx_id])
-        call glass_handle_register_unit(u)
         set u = null
-    elseif fx_tag == glass_TAG_RemoveUnit then
-        call RemoveUnit(glass_handle_lookup_unit(glass_Effect_RemoveUnit_unit_id[fx_id]))
-    elseif fx_tag == glass_TAG_MoveUnit then
-        call SetUnitPosition(glass_handle_lookup_unit(glass_Effect_MoveUnit_unit_id[fx_id]), glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])
-    elseif fx_tag == glass_TAG_PlayAnimation then
-        call SetUnitAnimation(glass_handle_lookup_unit(glass_Effect_PlayAnimation_unit_id[fx_id]), glass_Effect_PlayAnimation_anim[fx_id])
-    elseif fx_tag == glass_TAG_AddAbility then
-        call UnitAddAbility(glass_handle_lookup_unit(glass_Effect_AddAbility_unit_id[fx_id]), glass_Effect_AddAbility_ability_id[fx_id])
-    elseif fx_tag == glass_TAG_AddSfx then
+    elseif fx_tag == glass_TAG_Effect_RemoveUnit then
+        call RemoveUnit(glass_Effect_RemoveUnit_unit[fx_id])
+    elseif fx_tag == glass_TAG_Effect_MoveUnit then
+        call SetUnitPosition(glass_Effect_MoveUnit_unit[fx_id], glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])
+    elseif fx_tag == glass_TAG_Effect_PlayAnimation then
+        call SetUnitAnimation(glass_Effect_PlayAnimation_unit[fx_id], glass_Effect_PlayAnimation_anim[fx_id])
+    elseif fx_tag == glass_TAG_Effect_AddAbility then
+        call UnitAddAbility(glass_Effect_AddAbility_unit[fx_id], glass_Effect_AddAbility_ability_id[fx_id])
+    elseif fx_tag == glass_TAG_Effect_AddSfx then
         set sfx = AddSpecialEffect(glass_Effect_AddSfx_model[fx_id], glass_Effect_AddSfx_x[fx_id], glass_Effect_AddSfx_y[fx_id])
         call DestroyEffect(sfx)
         set sfx = null
-    elseif fx_tag == glass_TAG_SetUnitHp then
-        call SetUnitState(glass_handle_lookup_unit(glass_Effect_SetUnitHp_unit_id[fx_id]), UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])
-    elseif fx_tag == glass_TAG_SetUnitMana then
-        call SetUnitState(glass_handle_lookup_unit(glass_Effect_SetUnitMana_unit_id[fx_id]), UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])
-    elseif fx_tag == glass_TAG_PanCamera then
+    elseif fx_tag == glass_TAG_Effect_SetUnitHp then
+        call SetUnitState(glass_Effect_SetUnitHp_unit[fx_id], UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])
+    elseif fx_tag == glass_TAG_Effect_SetUnitMana then
+        call SetUnitState(glass_Effect_SetUnitMana_unit[fx_id], UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])
+    elseif fx_tag == glass_TAG_Effect_PanCamera then
         if GetLocalPlayer() == Player(glass_Effect_PanCamera_player_id[fx_id]) then
             call PanCameraTo(glass_Effect_PanCamera_x[fx_id], glass_Effect_PanCamera_y[fx_id])
         endif
-    elseif fx_tag == glass_TAG_ShowFloatingText then
+    elseif fx_tag == glass_TAG_Effect_ShowFloatingText then
         set tt = CreateTextTag()
         call SetTextTagText(tt, glass_Effect_ShowFloatingText_text[fx_id], glass_Effect_ShowFloatingText_size[fx_id])
         call SetTextTagPos(tt, glass_Effect_ShowFloatingText_x[fx_id], glass_Effect_ShowFloatingText_y[fx_id], 0.0)
@@ -123,6 +175,44 @@ function glass_exec_effect takes integer fx_id returns nothing
         call SetTextTagPermanent(tt, false)
         call SetTextTagVelocity(tt, 0.0, 0.04)
         set tt = null
+    elseif fx_tag == glass_TAG_Effect_GiveGold then
+        call SetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD) + glass_Effect_GiveGold_gold_amount[fx_id])
+    elseif fx_tag == glass_TAG_Effect_GiveLumber then
+        call SetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER, GetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER) + glass_Effect_GiveLumber_lumber_amount[fx_id])
+    elseif fx_tag == glass_TAG_Effect_KillUnit then
+        call KillUnit(glass_Effect_KillUnit_unit[fx_id])
+    elseif fx_tag == glass_TAG_Effect_RemoveAbility then
+        call UnitRemoveAbility(glass_Effect_RemoveAbility_unit[fx_id], glass_Effect_RemoveAbility_ability_id[fx_id])
+    elseif fx_tag == glass_TAG_Effect_SetUnitOwner then
+        call SetUnitOwner(glass_Effect_SetUnitOwner_unit[fx_id], Player(glass_Effect_SetUnitOwner_player_id[fx_id]), true)
+    elseif fx_tag == glass_TAG_Effect_PauseUnit then
+        call PauseUnit(glass_Effect_PauseUnit_unit[fx_id], glass_Effect_PauseUnit_paused[fx_id])
+    elseif fx_tag == glass_TAG_Effect_ShowUnit then
+        call ShowUnit(glass_Effect_ShowUnit_unit[fx_id], glass_Effect_ShowUnit_shown[fx_id])
+    elseif fx_tag == glass_TAG_Effect_SetInvulnerable then
+        call SetUnitInvulnerable(glass_Effect_SetInvulnerable_unit[fx_id], glass_Effect_SetInvulnerable_invulnerable[fx_id])
+    elseif fx_tag == glass_TAG_Effect_IssueOrder then
+        call IssueImmediateOrder(glass_Effect_IssueOrder_unit[fx_id], glass_Effect_IssueOrder_order[fx_id])
+    elseif fx_tag == glass_TAG_Effect_IssuePointOrder then
+        call IssuePointOrder(glass_Effect_IssuePointOrder_unit[fx_id], glass_Effect_IssuePointOrder_order[fx_id], glass_Effect_IssuePointOrder_x[fx_id], glass_Effect_IssuePointOrder_y[fx_id])
+    elseif fx_tag == glass_TAG_Effect_IssueTargetOrder then
+        call IssueTargetOrder(glass_Effect_IssueTargetOrder_unit[fx_id], glass_Effect_IssueTargetOrder_order[fx_id], glass_Effect_IssueTargetOrder_target[fx_id])
+    elseif fx_tag == glass_TAG_Effect_AddSfxTarget then
+        set sfx = AddSpecialEffectTarget(glass_Effect_AddSfxTarget_model[fx_id], glass_Effect_AddSfxTarget_unit[fx_id], glass_Effect_AddSfxTarget_attach_point[fx_id])
+        call DestroyEffect(sfx)
+        set sfx = null
+    elseif fx_tag == glass_TAG_Effect_ReviveHero then
+        call ReviveHero(glass_Effect_ReviveHero_unit[fx_id], glass_Effect_ReviveHero_x[fx_id], glass_Effect_ReviveHero_y[fx_id], true)
+    elseif fx_tag == glass_TAG_Effect_AddHeroXp then
+        call AddHeroXP(glass_Effect_AddHeroXp_unit[fx_id], glass_Effect_AddHeroXp_xp[fx_id], true)
+    elseif fx_tag == glass_TAG_Effect_SetUnitFacing then
+        call SetUnitFacing(glass_Effect_SetUnitFacing_unit[fx_id], glass_Effect_SetUnitFacing_facing[fx_id])
+    elseif fx_tag == glass_TAG_Effect_PingMinimap then
+        call PingMinimap(glass_Effect_PingMinimap_x[fx_id], glass_Effect_PingMinimap_y[fx_id], glass_Effect_PingMinimap_duration[fx_id])
+    elseif fx_tag == glass_TAG_Effect_CreateItem then
+        call CreateItem(glass_Effect_CreateItem_item_type_id[fx_id], glass_Effect_CreateItem_x[fx_id], glass_Effect_CreateItem_y[fx_id])
+    elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then
+        call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])
     endif
     call glass_Effect_dealloc(fx_id)
 endfunction
@@ -154,7 +244,6 @@ function glass_runtime_init takes nothing returns nothing
     local integer glass_result
     local integer glass_effects
     set glass_timer_ht = InitHashtable()
-    set glass_handle_ht = InitHashtable()
     set glass_result = glass_init()
     set glass_model = glass_rt_tuple_0(glass_result)
     set glass_effects = glass_rt_tuple_1(glass_result)

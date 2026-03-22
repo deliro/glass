@@ -4,39 +4,46 @@ import int
 import wc3/math
 
 pub struct SniperState {
-    unit_id: Int,
+    unit: Unit,
     headshot_level: Int,
     headshot_streak: Int,
 }
 
-pub fn new_sniper(unit_id: Int) -> SniperState {
-    SniperState { unit_id, headshot_level: 1, headshot_streak: 0 }
+pub fn new_sniper(unit: Unit) -> SniperState {
+    SniperState { unit, headshot_level: 1, headshot_streak: 0 }
 }
 
 // --- State lookup ---
 
-pub fn find_sniper(xs: List(SniperState), uid: Int) -> SniperState {
+pub fn has_sniper(xs: List(SniperState), u: Unit) -> Bool {
     case xs {
-        [] -> new_sniper(uid)
-        [h | t] -> case h.unit_id == uid { True -> h  False -> find_sniper(t, uid) }
+        [] -> False
+        [h | t] -> case h.unit == u { True -> True  False -> has_sniper(t, u) }
+    }
+}
+
+pub fn find_sniper(xs: List(SniperState), u: Unit) -> SniperState {
+    case xs {
+        [] -> new_sniper(u)
+        [h | t] -> case h.unit == u { True -> h  False -> find_sniper(t, u) }
     }
 }
 
 pub fn set_sniper(xs: List(SniperState), s: SniperState) -> List(SniperState) {
     case xs {
         [] -> [s]
-        [h | t] -> case h.unit_id == s.unit_id { True -> [s | t]  False -> [h | set_sniper(t, s)] }
+        [h | t] -> case h.unit == s.unit { True -> [s | t]  False -> [h | set_sniper(t, s)] }
     }
 }
 
 // --- Headshot ---
 
 fn headshot_damage(level: Int) -> Int {
-    case level { 1 -> 90  2 -> 120  3 -> 150  4 -> 180  _ -> 0 }
+    case level { 1 -> 500  2 -> 700  3 -> 900  4 -> 1200  _ -> 0 }
 }
 
 fn headshot_chance(level: Int) -> Int {
-    case level { 1 -> 40  2 -> 40  3 -> 40  4 -> 40  _ -> 0 }
+    case level { 1 -> 10  2 -> 12  3 -> 15  4 -> 18  _ -> 0 }
 }
 
 fn prd_chance(streak: Int, base_pct: Int) -> Int {

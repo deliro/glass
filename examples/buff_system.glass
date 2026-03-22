@@ -35,11 +35,11 @@ pub struct ActiveBuff {
     buff_type: BuffType,
     remaining: Float,
     stacks: Int,
-    source_unit: Int,
+    source_unit: Unit,
 }
 
 pub struct UnitBuffs {
-    unit_id: Int,
+    unit: Unit,
     buffs: List(ActiveBuff),
 }
 
@@ -48,10 +48,10 @@ pub struct Model {
 }
 
 pub enum Msg {
-    ApplyBuff { target: Int, source: Int, def: BuffDef }
-    RemoveBuff { target: Int, buff_type: BuffType }
+    ApplyBuff { target: Unit, source: Unit, def: BuffDef }
+    RemoveBuff { target: Unit, buff_type: BuffType }
     Tick
-    QueryUnit { unit_id: Int }
+    QueryUnit { unit: Unit }
 }
 
 fn tick_interval() -> Float { 0.1 }
@@ -141,12 +141,12 @@ fn compute_regen(buffs: List(ActiveBuff)) -> Int {
 
 // --- Unit buff list helpers ---
 
-fn lookup_unit_buffs(units: List(UnitBuffs), uid: Int) -> UnitBuffs {
+fn lookup_unit_buffs(units: List(UnitBuffs), u: Unit) -> UnitBuffs {
     case units {
-        [] -> UnitBuffs { unit_id: uid, buffs: [] }
-        [h | t] -> case h.unit_id == uid {
+        [] -> UnitBuffs { unit: u, buffs: [] }
+        [h | t] -> case h.unit == u {
             True -> h
-            False -> lookup_unit_buffs(t, uid)
+            False -> lookup_unit_buffs(t, u)
         }
     }
 }
@@ -154,7 +154,7 @@ fn lookup_unit_buffs(units: List(UnitBuffs), uid: Int) -> UnitBuffs {
 fn upsert_unit_buffs(units: List(UnitBuffs), ub: UnitBuffs) -> List(UnitBuffs) {
     case units {
         [] -> [ub]
-        [h | t] -> case h.unit_id == ub.unit_id {
+        [h | t] -> case h.unit == ub.unit {
             True -> [ub | t]
             False -> [h | upsert_unit_buffs(t, ub)]
         }
@@ -171,7 +171,7 @@ fn find_buff(buffs: List(ActiveBuff), bt: BuffType) -> Bool {
     }
 }
 
-fn update_existing_buff(buffs: List(ActiveBuff), source: Int, def: BuffDef) -> List(ActiveBuff) {
+fn update_existing_buff(buffs: List(ActiveBuff), source: Unit, def: BuffDef) -> List(ActiveBuff) {
     case buffs {
         [] -> []
         [h | t] -> case buff_type_eq(h.buff_type, def.buff_type) {
@@ -201,7 +201,7 @@ fn update_existing_buff(buffs: List(ActiveBuff), source: Int, def: BuffDef) -> L
 }
 
 // Apply or refresh/stack a buff on a unit's buff list.
-fn apply_buff_to_list(buffs: List(ActiveBuff), source: Int, def: BuffDef) -> List(ActiveBuff) {
+fn apply_buff_to_list(buffs: List(ActiveBuff), source: Unit, def: BuffDef) -> List(ActiveBuff) {
     case find_buff(buffs, def.buff_type) {
         True -> update_existing_buff(buffs, source, def)
         False -> {
@@ -254,7 +254,7 @@ fn tick_all_units(units: List(UnitBuffs)) -> List(UnitBuffs) {
     case units {
         [] -> []
         [h | t] -> {
-            let new_ub = UnitBuffs { unit_id: h.unit_id, buffs: tick_buffs(h.buffs) }
+            let new_ub = UnitBuffs { unit: h.unit, buffs: tick_buffs(h.buffs) }
             [new_ub | tick_all_units(t)]
         }
     }
@@ -262,49 +262,49 @@ fn tick_all_units(units: List(UnitBuffs)) -> List(UnitBuffs) {
 
 // --- Handlers ---
 
-fn handle_apply(model: Model, target: Int, source: Int, def: BuffDef) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_apply(model: Model, target: Unit, source: Unit, def: BuffDef) -> (Model, List(effect.Effect(Msg))) {
     let ub = lookup_unit_buffs(model.units, target)
     let new_buffs = apply_buff_to_list(ub.buffs, source, def)
-    let new_ub = UnitBuffs { unit_id: target, buffs: new_buffs }
+    let new_ub = UnitBuffs { unit: ub.unit, buffs: new_buffs }
     let new_units = upsert_unit_buffs(model.units, new_ub)
     let fx = [effect.display_text(0, "+" <> buff_type_name(def.buff_type), 2.0)]
-    #(Model { units: new_units }, fx)
+    (Model { units: new_units }, fx)
 }
 
-fn handle_remove(model: Model, target: Int, bt: BuffType) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_remove(model: Model, target: Unit, bt: BuffType) -> (Model, List(effect.Effect(Msg))) {
     let ub = lookup_unit_buffs(model.units, target)
     let new_buffs = remove_buff_type(ub.buffs, bt)
-    let new_ub = UnitBuffs { unit_id: target, buffs: new_buffs }
+    let new_ub = UnitBuffs { unit: ub.unit, buffs: new_buffs }
     let new_units = upsert_unit_buffs(model.units, new_ub)
-    #(Model { units: new_units }, [])
+    (Model { units: new_units }, [])
 }
 
-fn handle_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
     let new_units = tick_all_units(model.units)
     let fx = [effect.after(tick_interval(), fn() { Msg::Tick })]
-    #(Model { units: new_units }, fx)
+    (Model { units: new_units }, fx)
 }
 
-fn handle_query(model: Model, uid: Int) -> #(Model, List(effect.Effect(Msg))) {
-    let ub = lookup_unit_buffs(model.units, uid)
+fn handle_query(model: Model, u: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let ub = lookup_unit_buffs(model.units, u)
     let speed = compute_speed_modifier(ub.buffs)
     let dmg = compute_damage_multiplier(ub.buffs)
     let regen = compute_regen(ub.buffs)
     let text = "Speed: " <> int.to_string(speed) <> "% | Dmg: " <> int.to_string(dmg) <> "% | Regen: " <> int.to_string(regen)
-    #(model, [effect.display_text(0, text, 5.0)])
+    (model, [effect.display_text(0, text, 5.0)])
 }
 
 // --- Elm architecture ---
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { units: [] }, [effect.after(tick_interval(), fn() { Msg::Tick })])
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { units: [] }, [effect.after(tick_interval(), fn() { Msg::Tick })])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
         ApplyBuff(target, source, def) -> handle_apply(model, target, source, def)
         RemoveBuff(target, bt) -> handle_remove(model, target, bt)
         Tick -> handle_tick(model)
-        QueryUnit(uid) -> handle_query(model, uid)
+        QueryUnit(u) -> handle_query(model, u)
     }
 }

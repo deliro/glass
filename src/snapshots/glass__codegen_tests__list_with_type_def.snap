@@ -34,7 +34,7 @@ function glass_Model_dealloc takes integer id returns nothing
     set glass_Model_free_top = glass_Model_free_top + 1
 endfunction
 
-function glass_new_Model takes integer p_wave returns integer
+function glass_new_Model_Model takes integer p_wave returns integer
     local integer id = glass_Model_alloc()
     set glass_Model_Model_wave [id] = p_wave
     return id

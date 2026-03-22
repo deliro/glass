@@ -6,6 +6,15 @@ use crate::modules::ResolvedImport;
 use crate::type_repr::{Substitution, Type, TypeVarId};
 use crate::types::TypeRegistry;
 
+fn format_float(n: f64) -> String {
+    let s = format!("{}", n);
+    if s.contains('.') {
+        s
+    } else {
+        format!("{}.0", s)
+    }
+}
+
 pub struct LuaCodegen {
     output: String,
     indent: usize,
@@ -139,6 +148,7 @@ impl LuaCodegen {
         let mut any = false;
         // Collect to avoid borrow issues
         struct EnumTagInfo {
+            type_name: String,
             variants: Vec<(String, i64)>,
         }
         let type_infos: Vec<EnumTagInfo> = self
@@ -147,6 +157,7 @@ impl LuaCodegen {
             .values()
             .filter(|info| info.is_enum)
             .map(|info| EnumTagInfo {
+                type_name: info.name.clone(),
                 variants: info
                     .variants
                     .iter()
@@ -157,7 +168,10 @@ impl LuaCodegen {
 
         for info in &type_infos {
             for (vname, tag) in &info.variants {
-                self.emit(&format!("local glass_TAG_{} = {}", vname, tag));
+                self.emit(&format!(
+                    "local glass_TAG_{}_{} = {}",
+                    info.type_name, vname, tag
+                ));
                 any = true;
             }
         }
@@ -292,7 +306,7 @@ impl LuaCodegen {
     fn gen_expr(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::Int(n) => n.to_string(),
-            Expr::Float(n) => format!("{:.1}", n),
+            Expr::Float(n) => format_float(*n),
             Expr::String(s) => format!("\"{}\"", s),
             Expr::Rawcode(s) => format!("FourCC(\"{}\")", s),
             Expr::Bool(b) => {
@@ -664,34 +678,35 @@ impl LuaCodegen {
                 });
 
                 match variant_info {
-                    Some((_type_name, is_enum, vname, _tag, field_names)) => {
-                        let mut fields = Vec::new();
-                        if is_enum {
-                            fields.push(format!("tag = glass_TAG_{}", vname));
-                        }
-                        for (i, a) in args.iter().enumerate() {
-                            let e = match a {
-                                ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => e,
-                            };
-                            let val = self.gen_expr(&e.node);
-                            let fname = match a {
-                                ConstructorArg::Named(n, _) => n.clone(),
-                                ConstructorArg::Positional(_) => field_names
-                                    .get(i)
-                                    .cloned()
-                                    .unwrap_or_else(|| format!("_{}", i)),
-                            };
-                            fields.push(format!("{} = {}", fname, val));
-                        }
-                        if fields.is_empty() {
-                            if is_enum {
-                                // Nullary enum variant — just the tag constant
-                                format!("glass_TAG_{}", vname)
-                            } else {
-                                "{}".to_string()
-                            }
+                    Some((type_name, is_enum, vname, _tag, field_names)) => {
+                        if is_enum && args.is_empty() {
+                            format!("glass_TAG_{}_{}", type_name, vname)
                         } else {
-                            format!("{{{}}}", fields.join(", "))
+                            let mut fields = Vec::new();
+                            if is_enum {
+                                fields.push(format!("tag = glass_TAG_{}_{}", type_name, vname));
+                            }
+                            for (i, a) in args.iter().enumerate() {
+                                let e = match a {
+                                    ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => {
+                                        e
+                                    }
+                                };
+                                let val = self.gen_expr(&e.node);
+                                let fname = match a {
+                                    ConstructorArg::Named(n, _) => n.clone(),
+                                    ConstructorArg::Positional(_) => field_names
+                                        .get(i)
+                                        .cloned()
+                                        .unwrap_or_else(|| format!("_{}", i)),
+                                };
+                                fields.push(format!("{} = {}", fname, val));
+                            }
+                            if fields.is_empty() {
+                                "{}".to_string()
+                            } else {
+                                format!("{{{}}}", fields.join(", "))
+                            }
                         }
                     }
                     None => {
@@ -741,7 +756,6 @@ impl LuaCodegen {
             }
 
             Expr::Lambda { params, body, .. } => {
-                // In Lua, lambdas are native closures
                 self.lambda_counter += 1;
                 let param_names: Vec<String> = params
                     .iter()
@@ -753,12 +767,24 @@ impl LuaCodegen {
                         }
                     })
                     .collect();
+                let saved_output = std::mem::take(&mut self.output);
                 let saved_indent = self.indent;
                 self.indent += 1;
                 let result = self.gen_expr(&body.node);
+                let lambda_stmts = std::mem::replace(&mut self.output, saved_output);
                 self.indent = saved_indent;
-                // For simple expressions, use inline form
-                format!("function({}) return {} end", param_names.join(", "), result)
+                if lambda_stmts.is_empty() {
+                    format!("function({}) return {} end", param_names.join(", "), result)
+                } else {
+                    let indent = "    ".repeat(self.indent + 1);
+                    let end_indent = "    ".repeat(self.indent);
+                    format!(
+                        "function({})\n{}{indent}return {}\n{end_indent}end",
+                        param_names.join(", "),
+                        lambda_stmts,
+                        result,
+                    )
+                }
             }
 
             Expr::Clone(inner) => self.gen_expr(&inner.node),
@@ -792,15 +818,30 @@ impl LuaCodegen {
                     if let Some(value) = self.const_values.get(const_key) {
                         format!("({} == {})", subject, value)
                     } else {
-                        format!("({} == glass_TAG_{})", subject, bare)
+                        let qualified = self
+                            .types
+                            .get_variant(bare)
+                            .map(|(ti, _)| format!("{}_{}", ti.name, bare))
+                            .unwrap_or_else(|| bare.to_string());
+                        format!("({} == glass_TAG_{})", subject, qualified)
                     }
                 } else {
-                    format!("({}.tag == glass_TAG_{})", subject, bare)
+                    let qualified = self
+                        .types
+                        .get_variant(bare)
+                        .map(|(ti, _)| format!("{}_{}", ti.name, bare))
+                        .unwrap_or_else(|| bare.to_string());
+                    format!("({}.tag == glass_TAG_{})", subject, qualified)
                 }
             }
             Pattern::ConstructorNamed { name, .. } => {
                 let bare = bare_ctor_name(name);
-                format!("({}.tag == glass_TAG_{})", subject, bare)
+                let qualified = self
+                    .types
+                    .get_variant(bare)
+                    .map(|(ti, _)| format!("{}_{}", ti.name, bare))
+                    .unwrap_or_else(|| bare.to_string());
+                format!("({}.tag == glass_TAG_{})", subject, qualified)
             }
             Pattern::Or(alternatives) => {
                 let conditions: Vec<String> = alternatives
@@ -877,9 +918,15 @@ impl LuaCodegen {
             Pattern::ConstructorNamed { name, fields, .. } => {
                 let _ = name;
                 for fp in fields {
-                    let var = fp.binding.as_ref().unwrap_or(&fp.field_name);
                     let field = format!("{}.{}", subject, fp.field_name);
-                    self.emit(&format!("local {} = {}", var, field));
+                    if let Some(nested) = fp.pattern.as_ref().filter(|_| fp.has_nested_pattern()) {
+                        let tmp = format!("__nested_{}", fp.field_name);
+                        self.emit(&format!("local {} = {}", tmp, field));
+                        self.gen_pattern_bindings(&nested.node, &tmp);
+                    } else {
+                        let var = fp.binding_name();
+                        self.emit(&format!("local {} = {}", var, field));
+                    }
                 }
             }
             Pattern::Or(alternatives) => {
@@ -1186,9 +1233,9 @@ fn const_fold_binop(op: &BinOp, left: &Expr, right: &Expr) -> Option<String> {
         (BinOp::Mul, Expr::Int(a), Expr::Int(b)) => Some(format!("{}", a * b)),
         (BinOp::Div, Expr::Int(a), Expr::Int(b)) if *b != 0 => Some(format!("{}", a / b)),
         (BinOp::Mod, Expr::Int(a), Expr::Int(b)) if *b != 0 => Some(format!("{}", a % b)),
-        (BinOp::Add, Expr::Float(a), Expr::Float(b)) => Some(format!("{:.1}", a + b)),
-        (BinOp::Sub, Expr::Float(a), Expr::Float(b)) => Some(format!("{:.1}", a - b)),
-        (BinOp::Mul, Expr::Float(a), Expr::Float(b)) => Some(format!("{:.1}", a * b)),
+        (BinOp::Add, Expr::Float(a), Expr::Float(b)) => Some(format_float(a + b)),
+        (BinOp::Sub, Expr::Float(a), Expr::Float(b)) => Some(format_float(a - b)),
+        (BinOp::Mul, Expr::Float(a), Expr::Float(b)) => Some(format_float(a * b)),
         (BinOp::StringConcat, Expr::String(a), Expr::String(b)) => Some(format!("\"{}{}\"", a, b)),
         (BinOp::Eq, Expr::Int(a), Expr::Int(b)) => {
             Some(if a == b { "true" } else { "false" }.into())

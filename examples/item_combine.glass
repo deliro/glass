@@ -238,7 +238,7 @@ fn format_inventory(items: List(Int)) -> String {
 
 // --- Handlers ---
 
-fn handle_pickup(model: Model, hero_id: Int, item_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_pickup(model: Model, hero_id: Int, item_id: Int) -> (Model, List(effect.Effect(Msg))) {
     let inv = lookup_inventory(model.inventories, hero_id)
     let new_inv = HeroInventory { hero_id, items: [item_id | inv.items] }
     let result = try_combine(new_inv)
@@ -251,32 +251,32 @@ fn handle_pickup(model: Model, hero_id: Int, item_id: Int) -> #(Model, List(effe
             effect.display_text(0, "Picked up " <> item_name(item_id), 2.0)
         ]
     }
-    #(Model { inventories: new_invs }, fx)
+    (Model { inventories: new_invs }, fx)
 }
 
-fn handle_drop(model: Model, hero_id: Int, item_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_drop(model: Model, hero_id: Int, item_id: Int) -> (Model, List(effect.Effect(Msg))) {
     let inv = lookup_inventory(model.inventories, hero_id)
     let new_items = remove_first(inv.items, item_id)
     let new_inv = HeroInventory { hero_id, items: new_items }
     let new_invs = upsert_inventory(model.inventories, new_inv)
     let fx = [effect.display_text(0, "Dropped " <> item_name(item_id), 2.0)]
-    #(Model { inventories: new_invs }, fx)
+    (Model { inventories: new_invs }, fx)
 }
 
-fn handle_query(model: Model, hero_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_query(model: Model, hero_id: Int) -> (Model, List(effect.Effect(Msg))) {
     let inv = lookup_inventory(model.inventories, hero_id)
     let count = length_ints(inv.items)
     let text = "Inventory (" <> int.to_string(count) <> "): " <> format_inventory(inv.items)
-    #(model, [effect.display_text(0, text, 5.0)])
+    (model, [effect.display_text(0, text, 5.0)])
 }
 
 // --- Elm architecture ---
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { inventories: [] }, [])
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { inventories: [] }, [])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
         PickupItem(hid, iid) -> handle_pickup(model, hid, iid)
         DropItem(hid, iid) -> handle_drop(model, hid, iid)

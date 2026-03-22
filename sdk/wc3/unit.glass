@@ -7,6 +7,8 @@
 //   let x = unit.get_x(my_unit)
 //   let _ = unit.set_x(my_unit, x + 100.0)
 
+import option { Option }
+
 // --- Position ---
 
 @external("jass", "GetUnitX")
@@ -66,39 +68,132 @@ pub fn get_max_mana(u: Unit) -> Float { get_state(u, STATE_MAX_MANA) }
 
 // --- Combat ---
 
-// Attack type constants (for UnitDamageTarget)
-pub const ATTACK_NORMAL: Int = 0
-pub const ATTACK_MELEE: Int = 1
-pub const ATTACK_PIERCE: Int = 2
-pub const ATTACK_SIEGE: Int = 3
-pub const ATTACK_MAGIC: Int = 4
-pub const ATTACK_CHAOS: Int = 5
-pub const ATTACK_HERO: Int = 6
-pub const ATTACK_SPELL: Int = 5
+pub enum AttackType {
+    Normal
+    Melee
+    Pierce
+    Siege
+    Magic
+    Chaos
+    Hero
+}
 
-// Damage type constants
-pub const DAMAGE_UNKNOWN: Int = 0
-pub const DAMAGE_NORMAL: Int = 4
-pub const DAMAGE_ENHANCED: Int = 5
-pub const DAMAGE_FIRE: Int = 8
-pub const DAMAGE_COLD: Int = 9
-pub const DAMAGE_LIGHTNING: Int = 10
-pub const DAMAGE_POISON: Int = 11
-pub const DAMAGE_DISEASE: Int = 12
-pub const DAMAGE_DIVINE: Int = 13
-pub const DAMAGE_MAGIC: Int = 5
-pub const DAMAGE_SONIC: Int = 14
-pub const DAMAGE_ACID: Int = 15
+pub fn attack_type_to_int(at: AttackType) -> Int {
+    case at {
+        Normal -> 0
+        Melee -> 1
+        Pierce -> 2
+        Siege -> 3
+        Magic -> 4
+        Chaos -> 5
+        Hero -> 6
+    }
+}
 
-// Weapon type constants
-pub const WEAPON_NONE: Int = 0
+pub fn int_to_attack_type(n: Int) -> Option(AttackType) {
+    case n {
+        0 -> Option::Some(AttackType::Normal)
+        1 -> Option::Some(AttackType::Melee)
+        2 -> Option::Some(AttackType::Pierce)
+        3 -> Option::Some(AttackType::Siege)
+        4 -> Option::Some(AttackType::Magic)
+        5 -> Option::Some(AttackType::Chaos)
+        6 -> Option::Some(AttackType::Hero)
+        _ -> Option::None
+    }
+}
 
-// Unit type constants (for IsUnitType)
-pub const UNIT_TYPE_HERO: Int = 0
-pub const UNIT_TYPE_DEAD: Int = 11
-pub const UNIT_TYPE_STRUCTURE: Int = 12
-pub const UNIT_TYPE_FLYING: Int = 14
-pub const UNIT_TYPE_MECHANICAL: Int = 25
+pub enum DamageType {
+    Normal
+    Enhanced
+    Fire
+    Cold
+    Lightning
+    Poison
+    Disease
+    Divine
+    Magic
+    Sonic
+    Acid
+}
+
+pub fn damage_type_to_int(dt: DamageType) -> Int {
+    case dt {
+        Normal -> 4
+        Enhanced -> 5
+        Fire -> 8
+        Cold -> 9
+        Lightning -> 10
+        Poison -> 11
+        Disease -> 12
+        Divine -> 13
+        Magic -> 5
+        Sonic -> 14
+        Acid -> 15
+    }
+}
+
+pub fn int_to_damage_type(n: Int) -> Option(DamageType) {
+    case n {
+        4 -> Option::Some(DamageType::Normal)
+        5 -> Option::Some(DamageType::Enhanced)
+        8 -> Option::Some(DamageType::Fire)
+        9 -> Option::Some(DamageType::Cold)
+        10 -> Option::Some(DamageType::Lightning)
+        11 -> Option::Some(DamageType::Poison)
+        12 -> Option::Some(DamageType::Disease)
+        13 -> Option::Some(DamageType::Divine)
+        14 -> Option::Some(DamageType::Sonic)
+        15 -> Option::Some(DamageType::Acid)
+        _ -> Option::None
+    }
+}
+
+pub enum WeaponType {
+    None
+}
+
+pub fn weapon_type_to_int(wt: WeaponType) -> Int {
+    case wt {
+        None -> 0
+    }
+}
+
+pub fn int_to_weapon_type(n: Int) -> Option(WeaponType) {
+    case n {
+        0 -> Option::Some(WeaponType::None)
+        _ -> Option::None
+    }
+}
+
+pub enum UnitType {
+    Hero
+    Dead
+    Structure
+    Flying
+    Mechanical
+}
+
+pub fn unit_type_to_int(ut: UnitType) -> Int {
+    case ut {
+        Hero -> 0
+        Dead -> 11
+        Structure -> 12
+        Flying -> 14
+        Mechanical -> 25
+    }
+}
+
+pub fn int_to_unit_type(n: Int) -> Option(UnitType) {
+    case n {
+        0 -> Option::Some(UnitType::Hero)
+        11 -> Option::Some(UnitType::Dead)
+        12 -> Option::Some(UnitType::Structure)
+        14 -> Option::Some(UnitType::Flying)
+        25 -> Option::Some(UnitType::Mechanical)
+        _ -> Option::None
+    }
+}
 
 @external("jass", "UnitDamageTarget")
 pub fn damage_target(source: Unit, target: Unit, amount: Float, attack: Bool, ranged: Bool, attack_type: Int, damage_type: Int, weapon_type: Int) -> Bool
@@ -173,5 +268,5 @@ pub fn revive_hero(u: Unit, x: Float, y: Float, do_eye: Bool) -> Bool
 pub fn is_type(u: Unit, unit_type: Int) -> Bool
 
 pub fn is_alive(u: Unit) -> Bool {
-    is_type(u, UNIT_TYPE_DEAD) == False
+    is_type(u, unit_type_to_int(Dead)) == False
 }

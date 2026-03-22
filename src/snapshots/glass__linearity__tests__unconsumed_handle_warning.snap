@@ -1,0 +1,5 @@
+---
+source: src/linearity.rs
+expression: "warns[0]"
+---
+handle 't' is not consumed at end of function (will be auto-destroyed)

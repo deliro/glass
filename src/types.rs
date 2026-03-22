@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{self, Constructor, Definition, Expr, Module, Spanned, TypeDef};
+use crate::ast::{self, Constructor, Definition, Expr, Module, Spanned, TypeDef, TypeExpr};
 
 /// Collected type information for codegen.
 #[derive(Debug)]
@@ -36,10 +36,42 @@ pub struct TypeRegistry {
 impl TypeRegistry {
     pub fn from_module(module: &Module) -> Self {
         let mut types = HashMap::new();
+        let mut generic_defs: HashMap<String, &TypeDef> = HashMap::new();
 
         for def in &module.definitions {
             if let Definition::Type(type_def) = def {
-                let info = Self::collect_type(type_def);
+                if type_def.type_params.is_empty() {
+                    let info = Self::collect_type(type_def);
+                    types.insert(info.name.clone(), info);
+                } else {
+                    generic_defs.insert(type_def.name.clone(), type_def);
+                }
+            }
+        }
+
+        let mut instantiations: HashSet<(String, Vec<String>)> = HashSet::new();
+        for def in &module.definitions {
+            Self::discover_generic_instantiations(def, &generic_defs, &mut instantiations);
+        }
+
+        for (type_name, gdef) in &generic_defs {
+            let concrete: Vec<&Vec<String>> = instantiations
+                .iter()
+                .filter(|(n, _)| n == type_name)
+                .map(|(_, args)| args)
+                .collect();
+
+            if let [jass_args] = concrete.as_slice() {
+                let subst: HashMap<&str, &str> = gdef
+                    .type_params
+                    .iter()
+                    .zip(jass_args.iter())
+                    .map(|(p, j)| (p.as_str(), j.as_str()))
+                    .collect();
+                let info = Self::collect_type_with_subst(gdef, type_name, &subst);
+                types.insert(type_name.clone(), info);
+            } else {
+                let info = Self::collect_type(gdef);
                 types.insert(info.name.clone(), info);
             }
         }
@@ -254,6 +286,194 @@ impl TypeRegistry {
             Expr::String(_) => "string".to_string(),
             _ => "integer".to_string(),
         }
+    }
+
+    fn discover_generic_instantiations(
+        def: &Definition,
+        generic_defs: &HashMap<String, &TypeDef>,
+        out: &mut HashSet<(String, Vec<String>)>,
+    ) {
+        match def {
+            Definition::Type(td) => {
+                for ctor in &td.constructors {
+                    for field in &ctor.fields {
+                        Self::discover_generic_in_type_expr(&field.type_expr, generic_defs, out);
+                    }
+                }
+            }
+            Definition::Function(f) => {
+                for p in &f.params {
+                    Self::discover_generic_in_type_expr(&p.type_expr, generic_defs, out);
+                }
+                if let Some(rt) = &f.return_type {
+                    Self::discover_generic_in_type_expr(rt, generic_defs, out);
+                }
+                Self::discover_generic_in_expr(&f.body, generic_defs, out);
+            }
+            _ => {}
+        }
+    }
+
+    fn discover_generic_in_type_expr(
+        ty: &TypeExpr,
+        generic_defs: &HashMap<String, &TypeDef>,
+        out: &mut HashSet<(String, Vec<String>)>,
+    ) {
+        if let TypeExpr::Named { name, args } = ty {
+            let bare = name.rsplit('.').next().unwrap_or(name);
+            if generic_defs.contains_key(bare) && !args.is_empty() {
+                let jass_args: Vec<String> = args.iter().map(Self::type_expr_to_jass).collect();
+                if jass_args.iter().any(|j| j != "integer") {
+                    out.insert((bare.to_string(), jass_args));
+                }
+            }
+            for a in args {
+                Self::discover_generic_in_type_expr(a, generic_defs, out);
+            }
+        }
+    }
+
+    fn discover_generic_in_expr(
+        expr: &Spanned<Expr>,
+        generic_defs: &HashMap<String, &TypeDef>,
+        out: &mut HashSet<(String, Vec<String>)>,
+    ) {
+        match &expr.node {
+            Expr::Let {
+                value,
+                body,
+                type_annotation,
+                ..
+            } => {
+                if let Some(ann) = type_annotation {
+                    Self::discover_generic_in_type_expr(ann, generic_defs, out);
+                }
+                Self::discover_generic_in_expr(value, generic_defs, out);
+                Self::discover_generic_in_expr(body, generic_defs, out);
+            }
+            Expr::Case { subject, arms } => {
+                Self::discover_generic_in_expr(subject, generic_defs, out);
+                for arm in arms {
+                    Self::discover_generic_in_expr(&arm.body, generic_defs, out);
+                    if let Some(g) = &arm.guard {
+                        Self::discover_generic_in_expr(g, generic_defs, out);
+                    }
+                }
+            }
+            Expr::BinOp { left, right, .. } | Expr::Pipe { left, right } => {
+                Self::discover_generic_in_expr(left, generic_defs, out);
+                Self::discover_generic_in_expr(right, generic_defs, out);
+            }
+            Expr::UnaryOp { operand, .. } | Expr::Clone(operand) => {
+                Self::discover_generic_in_expr(operand, generic_defs, out);
+            }
+            Expr::Call { function, args } => {
+                Self::discover_generic_in_expr(function, generic_defs, out);
+                for a in args {
+                    Self::discover_generic_in_expr(a, generic_defs, out);
+                }
+            }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    Self::discover_generic_in_expr(e, generic_defs, out);
+                }
+            }
+            Expr::Lambda { body, params, .. } => {
+                for p in params {
+                    Self::discover_generic_in_type_expr(&p.type_expr, generic_defs, out);
+                }
+                Self::discover_generic_in_expr(body, generic_defs, out);
+            }
+            Expr::Tuple(elems) | Expr::List(elems) => {
+                for e in elems {
+                    Self::discover_generic_in_expr(e, generic_defs, out);
+                }
+            }
+            Expr::ListCons { head, tail } => {
+                Self::discover_generic_in_expr(head, generic_defs, out);
+                Self::discover_generic_in_expr(tail, generic_defs, out);
+            }
+            Expr::FieldAccess { object, .. } => {
+                Self::discover_generic_in_expr(object, generic_defs, out);
+            }
+            Expr::MethodCall { object, args, .. } => {
+                Self::discover_generic_in_expr(object, generic_defs, out);
+                for a in args {
+                    Self::discover_generic_in_expr(a, generic_defs, out);
+                }
+            }
+            Expr::Constructor { args, .. } => {
+                for a in args {
+                    match a {
+                        ast::ConstructorArg::Positional(e) | ast::ConstructorArg::Named(_, e) => {
+                            Self::discover_generic_in_expr(e, generic_defs, out);
+                        }
+                    }
+                }
+            }
+            Expr::RecordUpdate { base, updates, .. } => {
+                Self::discover_generic_in_expr(base, generic_defs, out);
+                for (_, e) in updates {
+                    Self::discover_generic_in_expr(e, generic_defs, out);
+                }
+            }
+            Expr::TcoLoop { body } => {
+                Self::discover_generic_in_expr(body, generic_defs, out);
+            }
+            Expr::TcoContinue { args } => {
+                for (_, e) in args {
+                    Self::discover_generic_in_expr(e, generic_defs, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_type_with_subst(
+        def: &TypeDef,
+        mono_name: &str,
+        subst: &HashMap<&str, &str>,
+    ) -> TypeInfo {
+        let is_enum = !def.is_struct && def.constructors.len() > 1;
+        let variants: Vec<VariantInfo> = def
+            .constructors
+            .iter()
+            .enumerate()
+            .map(|(tag, ctor)| {
+                let fields: Vec<FieldInfo> = ctor
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        let jass_type = Self::type_expr_to_jass_with_subst(&f.type_expr, subst);
+                        FieldInfo {
+                            name: f.name.clone(),
+                            jass_type,
+                        }
+                    })
+                    .collect();
+                VariantInfo {
+                    name: ctor.name.clone(),
+                    tag: i64::try_from(tag).unwrap_or(0),
+                    fields,
+                }
+            })
+            .collect();
+
+        TypeInfo {
+            name: mono_name.to_string(),
+            variants,
+            is_enum,
+        }
+    }
+
+    fn type_expr_to_jass_with_subst(ty: &TypeExpr, subst: &HashMap<&str, &str>) -> String {
+        let TypeExpr::Named { name, .. } = ty else {
+            return "integer".to_string();
+        };
+        if let Some(jass) = subst.get(name.as_str()) {
+            return jass.to_string();
+        }
+        Self::type_expr_to_jass(ty)
     }
 
     fn collect_type(def: &TypeDef) -> TypeInfo {

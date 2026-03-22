@@ -35,7 +35,7 @@ pub enum Spell {
 pub struct OrbSlots { first: Orb, second: Orb, third: Orb }
 
 pub struct InvokerState {
-    unit_id: Int,
+    unit: Unit,
     orbs: OrbSlots,
     active_spell: Option(Spell),
     quas_level: Int,
@@ -48,10 +48,10 @@ pub struct Model {
 }
 
 pub enum Msg {
-    Register { unit_id: Int }
-    CastOrb { unit_id: Int, orb: Orb }
-    Invoke { unit_id: Int }
-    LevelUp { unit_id: Int, orb: Orb }
+    Register { unit: Unit }
+    CastOrb { unit: Unit, orb: Orb }
+    Invoke { unit: Unit }
+    LevelUp { unit: Unit, orb: Orb }
 }
 
 // --- Orb → Spell resolution ---
@@ -143,19 +143,19 @@ fn spell_damage_base(s: Spell, exort_level: Int) -> Int {
 
 // --- Association list helpers ---
 
-fn lookup_invoker(invokers: List(InvokerState), uid: Int) -> InvokerState {
+fn lookup_invoker(invokers: List(InvokerState), u: Unit) -> InvokerState {
     case invokers {
         [] -> InvokerState {
-            unit_id: uid,
+            unit: u,
             orbs: OrbSlots { first: Orb::Quas, second: Orb::Quas, third: Orb::Quas },
             active_spell: Option::None,
             quas_level: 1,
             wex_level: 0,
             exort_level: 0,
         }
-        [h | t] -> case h.unit_id == uid {
+        [h | t] -> case h.unit == u {
             True -> h
-            False -> lookup_invoker(t, uid)
+            False -> lookup_invoker(t, u)
         }
     }
 }
@@ -163,7 +163,7 @@ fn lookup_invoker(invokers: List(InvokerState), uid: Int) -> InvokerState {
 fn upsert_invoker(invokers: List(InvokerState), state: InvokerState) -> List(InvokerState) {
     case invokers {
         [] -> [state]
-        [h | t] -> case h.unit_id == state.unit_id {
+        [h | t] -> case h.unit == state.unit {
             True -> [state | t]
             False -> [h | upsert_invoker(t, state)]
         }
@@ -172,9 +172,9 @@ fn upsert_invoker(invokers: List(InvokerState), state: InvokerState) -> List(Inv
 
 // --- Handlers ---
 
-fn handle_register(model: Model, unit_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_register(model: Model, unit: Unit) -> (Model, List(effect.Effect(Msg))) {
     let state = InvokerState {
-        unit_id,
+        unit,
         orbs: OrbSlots { first: Orb::Quas, second: Orb::Quas, third: Orb::Quas },
         active_spell: Option::None,
         quas_level: 1,
@@ -182,14 +182,14 @@ fn handle_register(model: Model, unit_id: Int) -> #(Model, List(effect.Effect(Ms
         exort_level: 0,
     }
     let new_invokers = upsert_invoker(model.invokers, state)
-    #(Model { invokers: new_invokers }, [])
+    (Model { invokers: new_invokers }, [])
 }
 
-fn handle_cast_orb(model: Model, unit_id: Int, orb: Orb) -> #(Model, List(effect.Effect(Msg))) {
-    let state = lookup_invoker(model.invokers, unit_id)
+fn handle_cast_orb(model: Model, unit: Unit, orb: Orb) -> (Model, List(effect.Effect(Msg))) {
+    let state = lookup_invoker(model.invokers, unit)
     let new_orbs = OrbSlots { first: state.orbs.second, second: state.orbs.third, third: orb }
     let new_state = InvokerState {
-        unit_id: state.unit_id,
+        unit: state.unit,
         orbs: new_orbs,
         active_spell: state.active_spell,
         quas_level: state.quas_level,
@@ -197,14 +197,14 @@ fn handle_cast_orb(model: Model, unit_id: Int, orb: Orb) -> #(Model, List(effect
         exort_level: state.exort_level,
     }
     let new_invokers = upsert_invoker(model.invokers, new_state)
-    #(Model { invokers: new_invokers }, [])
+    (Model { invokers: new_invokers }, [])
 }
 
-fn handle_invoke(model: Model, unit_id: Int) -> #(Model, List(effect.Effect(Msg))) {
-    let state = lookup_invoker(model.invokers, unit_id)
+fn handle_invoke(model: Model, unit: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let state = lookup_invoker(model.invokers, unit)
     let spell_opt = resolve_spell(state.orbs.first, state.orbs.second, state.orbs.third)
     let new_state = InvokerState {
-        unit_id: state.unit_id,
+        unit: state.unit,
         orbs: state.orbs,
         active_spell: spell_opt,
         quas_level: state.quas_level,
@@ -218,14 +218,14 @@ fn handle_invoke(model: Model, unit_id: Int) -> #(Model, List(effect.Effect(Msg)
         ]
         Option::None -> []
     }
-    #(Model { invokers: new_invokers }, fx)
+    (Model { invokers: new_invokers }, fx)
 }
 
-fn handle_level_up(model: Model, unit_id: Int, orb: Orb) -> #(Model, List(effect.Effect(Msg))) {
-    let state = lookup_invoker(model.invokers, unit_id)
+fn handle_level_up(model: Model, unit: Unit, orb: Orb) -> (Model, List(effect.Effect(Msg))) {
+    let state = lookup_invoker(model.invokers, unit)
     let new_state = case orb {
         Quas -> InvokerState {
-            unit_id: state.unit_id,
+            unit: state.unit,
             orbs: state.orbs,
             active_spell: state.active_spell,
             quas_level: int.min(state.quas_level + 1, 7),
@@ -233,7 +233,7 @@ fn handle_level_up(model: Model, unit_id: Int, orb: Orb) -> #(Model, List(effect
             exort_level: state.exort_level,
         }
         Wex -> InvokerState {
-            unit_id: state.unit_id,
+            unit: state.unit,
             orbs: state.orbs,
             active_spell: state.active_spell,
             quas_level: state.quas_level,
@@ -241,7 +241,7 @@ fn handle_level_up(model: Model, unit_id: Int, orb: Orb) -> #(Model, List(effect
             exort_level: state.exort_level,
         }
         Exort -> InvokerState {
-            unit_id: state.unit_id,
+            unit: state.unit,
             orbs: state.orbs,
             active_spell: state.active_spell,
             quas_level: state.quas_level,
@@ -258,20 +258,20 @@ fn handle_level_up(model: Model, unit_id: Int, orb: Orb) -> #(Model, List(effect
         False -> []
     }
     let new_invokers = upsert_invoker(model.invokers, new_state)
-    #(Model { invokers: new_invokers }, fx)
+    (Model { invokers: new_invokers }, fx)
 }
 
 // --- Elm architecture ---
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { invokers: [] }, [])
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { invokers: [] }, [])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        Register(uid) -> handle_register(model, uid)
-        CastOrb(uid, orb) -> handle_cast_orb(model, uid, orb)
-        Invoke(uid) -> handle_invoke(model, uid)
-        LevelUp(uid, orb) -> handle_level_up(model, uid, orb)
+        Register(u) -> handle_register(model, u)
+        CastOrb(u, orb) -> handle_cast_orb(model, u, orb)
+        Invoke(u) -> handle_invoke(model, u)
+        LevelUp(u, orb) -> handle_level_up(model, u, orb)
     }
 }

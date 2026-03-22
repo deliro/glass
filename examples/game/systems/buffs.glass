@@ -2,12 +2,12 @@
 
 pub struct ActiveBuff {
     kind: Int,
-    target_id: Int,
+    target: Unit,
     time_left: Int,
 }
 
-pub fn new_buff(kind: Int, target_id: Int, duration: Int) -> ActiveBuff {
-    ActiveBuff { kind, target_id, time_left: duration }
+pub fn new_buff(kind: Int, target: Unit, duration: Int) -> ActiveBuff {
+    ActiveBuff { kind, target, time_left: duration }
 }
 
 fn tick(b: ActiveBuff) -> ActiveBuff {

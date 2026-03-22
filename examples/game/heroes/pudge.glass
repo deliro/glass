@@ -1,22 +1,20 @@
-// Pudge — Rot (toggle AOE) and Dismember (channeled disable).
-// Owns its own PudgeMsg and update function.
-
 import option { Option }
 import effect
 import int
+import wc3/unit
 
 pub struct PudgeState {
-    unit_id: Int,
+    unit: Unit,
     rot_active: Bool,
     rot_level: Int,
     dismember_level: Int,
     dismember_ticks_left: Int,
-    dismember_target: Option(Int),
+    dismember_target: Option(Unit),
 }
 
-pub fn new_pudge(unit_id: Int) -> PudgeState {
+pub fn new_pudge(u: Unit) -> PudgeState {
     PudgeState {
-        unit_id,
+        unit: u,
         rot_active: False,
         rot_level: 1,
         dismember_level: 1,
@@ -25,62 +23,84 @@ pub fn new_pudge(unit_id: Int) -> PudgeState {
     }
 }
 
-// --- State lookup ---
-
-pub fn find_pudge(xs: List(PudgeState), uid: Int) -> PudgeState {
+pub fn find_pudge(xs: List(PudgeState), u: Unit) -> PudgeState {
     case xs {
-        [] -> new_pudge(uid)
-        [h | t] -> case h.unit_id == uid { True -> h  False -> find_pudge(t, uid) }
+        [] -> new_pudge(u)
+        [h | t] -> case h.unit == u { True -> h  False -> find_pudge(t, u) }
     }
 }
 
 pub fn set_pudge(xs: List(PudgeState), s: PudgeState) -> List(PudgeState) {
     case xs {
         [] -> [s]
-        [h | t] -> case h.unit_id == s.unit_id { True -> [s | t]  False -> [h | set_pudge(t, s)] }
+        [h | t] -> case h.unit == s.unit { True -> [s | t]  False -> [h | set_pudge(t, s)] }
     }
 }
-
-// --- Msg ---
 
 pub enum PudgeMsg {
     ToggleRot
     RotTick
-    CastDismember { target_id: Int }
+    CastDismember { target: Unit }
+    DismemberTick
 }
 
-// --- Update ---
-
-pub fn on_msg(s: PudgeState, msg: PudgeMsg) -> #(PudgeState, List(effect.Effect(PudgeMsg))) {
+pub fn on_msg(s: PudgeState, msg: PudgeMsg) -> (PudgeState, List(effect.Effect(PudgeMsg))) {
     case msg {
         ToggleRot -> {
             let toggled = PudgeState { ..s, rot_active: s.rot_active == False }
             case toggled.rot_active {
-                True -> #(toggled, [
-                    effect.display_text(0, "Rot ON", 2.0),
+                True -> (toggled, [
+                    effect.display_text(0, "[Pudge] Rot ON — " <> int.to_string(rot_damage(s.rot_level)) <> " dps to nearby enemies (and self!)", 3.0),
                     effect.after(1.0, fn() { PudgeMsg::RotTick }),
                 ])
-                False -> #(toggled, [effect.display_text(0, "Rot OFF", 2.0)])
+                False -> (toggled, [
+                    effect.display_text(0, "[Pudge] Rot OFF", 2.0),
+                ])
             }
         }
         RotTick -> case s.rot_active {
-            True -> #(s, [
-                effect.display_text(0, "Rot: " <> int.to_string(rot_damage(s.rot_level)), 1.0),
-                effect.after(1.0, fn() { PudgeMsg::RotTick }),
-            ])
-            False -> #(s, [])
+            True -> {
+                let dmg = rot_damage(s.rot_level)
+                (s, [
+                    effect.display_text(0, "[Pudge Rot] dealing " <> int.to_string(dmg) <> " damage around Pudge", 1.5),
+                    effect.damage_unit(clone(s.unit), clone(s.unit), int.to_float(dmg), unit.attack_type_to_int(AttackType::Magic), unit.damage_type_to_int(DamageType::Magic)),
+                    effect.after(1.0, fn() { PudgeMsg::RotTick }),
+                ])
+            }
+            False -> (s, [])
         }
-        CastDismember(tid) -> {
-            let ds = PudgeState { ..s, dismember_ticks_left: 3, dismember_target: Option::Some(tid) }
-            #(ds, [
-                effect.display_text(0, "Dismember!", 3.0),
-                effect.play_animation(tid, "stand"),
+        CastDismember(target) -> {
+            let dmg = dismember_dps(s.dismember_level)
+            let ds = PudgeState { ..s, dismember_ticks_left: 3, dismember_target: Option::Some(clone(target)) }
+            (ds, [
+                effect.display_text(0, "[Pudge] Dismember! " <> int.to_string(dmg) <> " dps for 3s", 3.0),
+                effect.play_animation(clone(target), "stand"),
+                effect.damage_unit(clone(s.unit), target, int.to_float(dmg), unit.attack_type_to_int(AttackType::Magic), unit.damage_type_to_int(DamageType::Magic)),
+                effect.after(1.0, fn() { PudgeMsg::DismemberTick }),
             ])
+        }
+        DismemberTick -> case s.dismember_ticks_left <= 0 {
+            True -> {
+                let ds = PudgeState { ..s, dismember_target: Option::None }
+                (ds, [
+                    effect.display_text(0, "[Pudge] Dismember finished", 2.0),
+                ])
+            }
+            False -> case s.dismember_target {
+                Some(target) -> {
+                    let dmg = dismember_dps(s.dismember_level)
+                    let ds = PudgeState { ..s, dismember_ticks_left: s.dismember_ticks_left - 1, dismember_target: Option::Some(clone(target)) }
+                    (ds, [
+                        effect.display_text(0, "[Pudge Dismember] tick " <> int.to_string(s.dismember_ticks_left) <> " — " <> int.to_string(dmg) <> " damage", 1.5),
+                        effect.damage_unit(clone(s.unit), target, int.to_float(dmg), unit.attack_type_to_int(AttackType::Magic), unit.damage_type_to_int(DamageType::Magic)),
+                        effect.after(1.0, fn() { PudgeMsg::DismemberTick }),
+                    ])
+                }
+                Option::None -> (s, [])
+            }
         }
     }
 }
-
-// --- Helpers ---
 
 pub fn rot_damage(level: Int) -> Int {
     case level { 1 -> 35  2 -> 60  3 -> 85  4 -> 110  _ -> 0 }

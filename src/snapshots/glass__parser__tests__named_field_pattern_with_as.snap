@@ -21,8 +21,16 @@ Spanned {
                         fields: [
                             FieldPattern {
                                 field_name: "from",
-                                binding: Some(
-                                    "p",
+                                pattern: Some(
+                                    Spanned {
+                                        node: Var(
+                                            "p",
+                                        ),
+                                        span: Span {
+                                            start: 24,
+                                            end: 25,
+                                        },
+                                    },
                                 ),
                             },
                         ],

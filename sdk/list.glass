@@ -103,12 +103,12 @@ pub fn contains(xs: List(a), target: a, eq: fn(a, a) -> Bool) -> Bool {
     }
 }
 
-pub fn zip(xs: List(a), ys: List(b)) -> List(#(a, b)) {
+pub fn zip(xs: List(a), ys: List(b)) -> List((a, b)) {
     case xs {
         [] -> []
         [xh | xt] -> case ys {
             [] -> []
-            [yh | yt] -> [#(xh, yh) | zip(xt, yt)]
+            [yh | yt] -> [(xh, yh) | zip(xt, yt)]
         }
     }
 }
@@ -144,14 +144,14 @@ pub fn drop(xs: List(a), n: Int) -> List(a) {
     }
 }
 
-pub fn enumerate(xs: List(a)) -> List(#(Int, a)) {
+pub fn enumerate(xs: List(a)) -> List((Int, a)) {
     enumerate_helper(xs, 0)
 }
 
-fn enumerate_helper(xs: List(a), idx: Int) -> List(#(Int, a)) {
+fn enumerate_helper(xs: List(a), idx: Int) -> List((Int, a)) {
     case xs {
         [] -> []
-        [h | t] -> [#(idx, h) | enumerate_helper(t, idx + 1)]
+        [h | t] -> [(idx, h) | enumerate_helper(t, idx + 1)]
     }
 }
 
@@ -180,13 +180,13 @@ pub fn product(xs: List(Int)) -> Int {
     fold(xs, 1, fn(acc: Int, x: Int) -> Int { acc * x })
 }
 
-pub fn partition(xs: List(a), f: fn(a) -> Bool) -> #(List(a), List(a)) {
+pub fn partition(xs: List(a), f: fn(a) -> Bool) -> (List(a), List(a)) {
     partition_helper(xs, f, [], [])
 }
 
-fn partition_helper(xs: List(a), f: fn(a) -> Bool, yes: List(a), no: List(a)) -> #(List(a), List(a)) {
+fn partition_helper(xs: List(a), f: fn(a) -> Bool, yes: List(a), no: List(a)) -> (List(a), List(a)) {
     case xs {
-        [] -> #(reverse(yes), reverse(no))
+        [] -> (reverse(yes), reverse(no))
         [h | t] -> case f(h) {
             True -> partition_helper(t, f, [h | yes], no)
             False -> partition_helper(t, f, yes, [h | no])

@@ -5,6 +5,8 @@
 //   let p = player.get(0)
 //   let name = player.get_name(p)
 
+import option { Option }
+
 @external("jass", "Player")
 pub fn get(number: Int) -> Player
 
@@ -31,6 +33,26 @@ pub fn get_state(p: Player, state: Int) -> Int
 
 @external("jass", "SetPlayerState")
 pub fn set_state(p: Player, state: Int, value: Int) -> Int
+
+pub enum PlayerState {
+    Gold
+    Lumber
+}
+
+pub fn player_state_to_int(ps: PlayerState) -> Int {
+    case ps {
+        Gold -> 1
+        Lumber -> 2
+    }
+}
+
+pub fn int_to_player_state(n: Int) -> Option(PlayerState) {
+    case n {
+        1 -> Option::Some(PlayerState::Gold)
+        2 -> Option::Some(PlayerState::Lumber)
+        _ -> Option::None
+    }
+}
 
 pub const STATE_GOLD: Int = 1
 pub const STATE_LUMBER: Int = 2

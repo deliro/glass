@@ -1,0 +1,85 @@
+import effect
+import subscription
+import int
+import color
+
+pub struct Model {
+    time: Int,
+    wave: Int,
+    kills: Int,
+}
+
+pub enum Msg {
+    Tick
+    Attacked { attacker: Unit, target: Unit }
+    Died { unit: Unit, killer: Unit }
+}
+
+fn show(n: Int) -> String { n |> int.to_string }
+
+fn log(text: String) -> effect.Effect(Msg) {
+    effect.display_text(0, text, 15.0)
+}
+
+fn make_board(Model { time, wave, kills }: Model) -> effect.Effect(Msg) {
+    effect.update_board(color.gold("Glass Test"), [
+        effect.board_row("Time", show(time) <> "s"),
+        effect.board_row("Wave", show(wave)),
+        effect.board_row("Next", show(15 - time % 15) <> "s"),
+        effect.board_row("Kills", kills |> show),
+    ])
+}
+
+fn spawn_wave(Model { wave, .. } as m: Model) -> (Model, List(effect.Effect(Msg))) {
+    let w = wave + 1
+    (Model { ..m, wave: w }, [
+        log(color.gold("[WAVE " <> show(w) <> "]") <> " 3 footmen spawned!"),
+        effect.create_unit(24, 'hfoo', 0.0 - 200.0, 500.0, 270.0),
+        effect.create_unit(24, 'hfoo', 0.0, 500.0, 270.0),
+        effect.create_unit(24, 'hfoo', 200.0, 500.0, 270.0),
+    ])
+}
+
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    let m = Model { time: 0, wave: 0, kills: 0 }
+    (m, [
+        log(color.gold("=== GLASS ARENA TEST ===")),
+        log("Paladin at (0, -300). Footmen every 15s."),
+        effect.give_gold(0, 500),
+        effect.create_unit(0, 'Hpal', 0.0, 0.0 - 300.0, 90.0),
+        m |> make_board,
+    ])
+}
+
+pub fn update(Model { time, kills, .. } as m: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case msg {
+        Tick -> {
+            let new_m = Model { ..m, time: time + 1 }
+            case new_m.time % 15 == 0 {
+                True -> {
+                    let (wave_m, wave_fx) = spawn_wave(new_m)
+                    (wave_m, [(wave_m |> make_board) | wave_fx])
+                }
+                False -> (new_m, [new_m |> make_board])
+            }
+        }
+        Attacked { attacker, target } ->
+            (m, [log(color.green("[HIT]") <> " attack event")])
+        Died { unit, killer } -> {
+            let new_m = Model { ..m, kills: kills + 1 }
+            (new_m, [
+                log(color.red("[KILL]") <> " (" <> show(new_m.kills) <> " total)"),
+                effect.give_gold(0, 25),
+                new_m |> make_board,
+            ])
+        }
+    }
+}
+
+pub fn subscriptions(m: Model) -> List(subscription.Subscription(Msg)) {
+    [
+        subscription.on_timer(1.0, fn() -> Msg { Msg::Tick }),
+        subscription.on_attack(fn(a: Unit, t: Unit) -> Msg { Msg::Attacked { attacker: a, target: t } }),
+        subscription.on_death(fn(u: Unit, k: Unit) -> Msg { Msg::Died { unit: u, killer: k } }),
+    ]
+}

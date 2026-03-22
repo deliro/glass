@@ -1,6 +1,6 @@
 ---
 source: src/parser.rs
-expression: "parse_expr_str(\"#(1, 2, 3)\")"
+expression: "parse_expr_str(\"(1, 2, 3)\")"
 ---
 Spanned {
     node: Tuple(
@@ -10,8 +10,8 @@ Spanned {
                     1,
                 ),
                 span: Span {
-                    start: 2,
-                    end: 3,
+                    start: 1,
+                    end: 2,
                 },
             },
             Spanned {
@@ -19,8 +19,8 @@ Spanned {
                     2,
                 ),
                 span: Span {
-                    start: 5,
-                    end: 6,
+                    start: 4,
+                    end: 5,
                 },
             },
             Spanned {
@@ -28,14 +28,14 @@ Spanned {
                     3,
                 ),
                 span: Span {
-                    start: 8,
-                    end: 9,
+                    start: 7,
+                    end: 8,
                 },
             },
         ],
     ),
     span: Span {
         start: 0,
-        end: 10,
+        end: 9,
     },
 }

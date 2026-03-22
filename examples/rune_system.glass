@@ -268,7 +268,7 @@ fn spawn_at_points(points: List(SpawnPoint), next_id: Int, minute: Int) -> Spawn
 
 // --- Handlers ---
 
-fn handle_spawn(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_spawn(model: Model) -> (Model, List(effect.Effect(Msg))) {
     let result = spawn_at_points(model.spawn_points, model.next_rune_id, model.game_minute)
     let all_runes = append_runes(model.runes_on_map, result.runes)
     let new_model = Model {
@@ -279,13 +279,13 @@ fn handle_spawn(model: Model) -> #(Model, List(effect.Effect(Msg))) {
         spawn_points: model.spawn_points,
     }
     let fx = [effect.after(spawn_interval(), fn() { Msg::SpawnRunes })]
-    #(new_model, fx)
+    (new_model, fx)
 }
 
-fn handle_pickup(model: Model, player_id: Int, rune_id: Int) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_pickup(model: Model, player_id: Int, rune_id: Int) -> (Model, List(effect.Effect(Msg))) {
     let rune_opt = find_rune(model.runes_on_map, rune_id)
     case rune_opt {
-        MaybeRune::NoRune -> #(model, [])
+        MaybeRune::NoRune -> (model, [])
         MaybeRune::FoundRune(rune) -> {
             let remaining = remove_rune(model.runes_on_map, rune_id)
             let is_bounty = rune_type_id(rune.rune_type) == 5
@@ -299,7 +299,7 @@ fn handle_pickup(model: Model, player_id: Int, rune_id: Int) -> #(Model, List(ef
                         game_minute: model.game_minute,
                         spawn_points: model.spawn_points,
                     }
-                    #(new_model, [effect.display_text(player_id, "+" <> int.to_string(gold) <> " gold", 2.0)])
+                    (new_model, [effect.display_text(player_id, "+" <> int.to_string(gold) <> " gold", 2.0)])
                 }
                 False -> {
                     let new_buffs = add_or_refresh_buff(model.active_buffs, player_id, rune.rune_type)
@@ -311,14 +311,14 @@ fn handle_pickup(model: Model, player_id: Int, rune_id: Int) -> #(Model, List(ef
                         game_minute: model.game_minute,
                         spawn_points: model.spawn_points,
                     }
-                    #(new_model, [effect.display_text(player_id, text, 3.0)])
+                    (new_model, [effect.display_text(player_id, text, 3.0)])
                 }
             }
         }
     }
 }
 
-fn handle_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
     let new_runes = tick_runes(model.runes_on_map)
     let new_buffs = tick_buffs(model.active_buffs)
     let new_model = Model {
@@ -328,18 +328,18 @@ fn handle_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
         game_minute: model.game_minute + 1,
         spawn_points: model.spawn_points,
     }
-    #(new_model, [effect.after(tick(), fn() { Msg::Tick })])
+    (new_model, [effect.after(tick(), fn() { Msg::Tick })])
 }
 
-fn handle_query(model: Model, pid: Int) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_query(model: Model, pid: Int) -> (Model, List(effect.Effect(Msg))) {
     let n = count_player_buffs(model.active_buffs, pid)
     let text = "Active buffs: " <> int.to_string(n)
-    #(model, [effect.display_text(pid, text, 3.0)])
+    (model, [effect.display_text(pid, text, 3.0)])
 }
 
 // --- Elm architecture ---
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
     let points = [
         SpawnPoint { x: -2000, y: 0 },
         SpawnPoint { x: 2000, y: 0 },
@@ -351,13 +351,13 @@ pub fn init() -> #(Model, List(effect.Effect(Msg))) {
         game_minute: 0,
         spawn_points: points,
     }
-    #(model, [
+    (model, [
         effect.after(spawn_interval(), fn() { Msg::SpawnRunes }),
         effect.after(tick(), fn() { Msg::Tick }),
     ])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
         SpawnRunes -> handle_spawn(model)
         PickupRune(pid, rid) -> handle_pickup(model, pid, rid)

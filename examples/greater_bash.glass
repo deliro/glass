@@ -291,38 +291,38 @@ fn maybe_start_knockback(
 
 fn handle_register(
     model: Model, hero: Unit, chance: Int, damage: Int, stun: Int, speed: Int,
-) -> #(Model, List(effect.Effect(Msg))) {
+) -> (Model, List(effect.Effect(Msg))) {
     let state = BashState {
         owner: hero, miss_streak: 0, chance_pct_x100: chance,
         bonus_damage: damage, stun_duration_ms: stun, knockback_speed: speed,
     }
     let updated_units = upsert_bash_state(model.bash_units, state)
-    #(Model { bash_units: updated_units, active_knockbacks: model.active_knockbacks }, [])
+    (Model { bash_units: updated_units, active_knockbacks: model.active_knockbacks }, [])
 }
 
 fn handle_attack(
     model: Model, attacker: Unit, target: Unit, roll: Int,
-) -> #(Model, List(effect.Effect(Msg))) {
+) -> (Model, List(effect.Effect(Msg))) {
     let walk = find_attacker_and_roll(model.bash_units, clone(attacker), roll)
     let display = bash_display_effects(walk.result)
     let new_knockbacks = maybe_start_knockback(
         walk.result, attacker, target, walk.updated_units, model.active_knockbacks,
     )
     let tick_schedule = schedule_knockback_tick(new_knockbacks)
-    #(Model { bash_units: walk.updated_units, active_knockbacks: new_knockbacks }, display)
+    (Model { bash_units: walk.updated_units, active_knockbacks: new_knockbacks }, display)
 }
 
-fn handle_knockback_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
+fn handle_knockback_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
     let new_knockbacks = advance_all_knockbacks(model.active_knockbacks)
     let tick_schedule = schedule_knockback_tick(new_knockbacks)
-    #(Model { bash_units: model.bash_units, active_knockbacks: new_knockbacks }, tick_schedule)
+    (Model { bash_units: model.bash_units, active_knockbacks: new_knockbacks }, tick_schedule)
 }
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { bash_units: [], active_knockbacks: [] }, [])
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { bash_units: [], active_knockbacks: [] }, [])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
         Msg::RegisterBash { hero, chance, damage, stun, speed, .. } ->
             handle_register(model, hero, chance, damage, stun, speed)

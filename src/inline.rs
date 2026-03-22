@@ -676,9 +676,12 @@ fn collect_pattern_names(pattern: &Pattern, map: &mut HashMap<String, String>, s
         }
         Pattern::ConstructorNamed { fields, .. } => {
             for f in fields {
-                let binding = f.binding.as_ref().unwrap_or(&f.field_name);
-                map.entry(binding.clone())
-                    .or_insert_with(|| format!("{}{}", binding, suffix));
+                if let Some(p) = &f.pattern {
+                    collect_pattern_names(&p.node, map, suffix);
+                } else {
+                    map.entry(f.field_name.clone())
+                        .or_insert_with(|| format!("{}{}", f.field_name, suffix));
+                }
             }
         }
         Pattern::Tuple(elems) | Pattern::List(elems) => {
@@ -902,12 +905,21 @@ fn rename_pattern(pattern: Spanned<Pattern>, map: &HashMap<String, String>) -> S
                 name,
                 fields: fields
                     .into_iter()
-                    .map(|f| FieldPattern {
-                        field_name: f.field_name.clone(),
-                        binding: f
-                            .binding
-                            .map(|b| map.get(&b).cloned().unwrap_or(b))
-                            .or_else(|| map.get(&f.field_name).cloned()),
+                    .map(|f| {
+                        let FieldPattern {
+                            field_name,
+                            pattern,
+                        } = f;
+                        let pattern = pattern.map(|p| rename_pattern(p, map)).or_else(|| {
+                            map.get(&field_name).map(|new_name| Spanned {
+                                node: Pattern::Var(new_name.clone()),
+                                span,
+                            })
+                        });
+                        FieldPattern {
+                            field_name,
+                            pattern,
+                        }
                     })
                     .collect(),
                 rest,

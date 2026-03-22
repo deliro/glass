@@ -91,8 +91,6 @@ pub enum Token {
     LBracket,
     #[token("]")]
     RBracket,
-    #[token("#(")]
-    HashParen,
     #[token(",")]
     Comma,
     #[token(":")]
@@ -282,7 +280,7 @@ mod tests {
     #[test]
     fn delimiters() {
         assert_eq!(
-            token_kinds("( ) { } [ ] #( , : . | @"),
+            token_kinds("( ) { } [ ] , : . | @"),
             vec![
                 Token::LParen,
                 Token::RParen,
@@ -290,7 +288,6 @@ mod tests {
                 Token::RBrace,
                 Token::LBracket,
                 Token::RBracket,
-                Token::HashParen,
                 Token::Comma,
                 Token::Colon,
                 Token::Dot,

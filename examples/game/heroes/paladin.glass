@@ -1,20 +1,17 @@
-// Paladin — Holy Light (heal) and Divine Shield (invulnerability).
-// Owns its own PaladinMsg and update function.
-
 import int
 import effect
 
 pub struct PaladinState {
-    unit_id: Int,
+    unit: Unit,
     holy_light_level: Int,
     divine_shield_level: Int,
     divine_shield_active: Bool,
     divine_shield_ticks: Int,
 }
 
-pub fn new_paladin(unit_id: Int) -> PaladinState {
+pub fn new_paladin(u: Unit) -> PaladinState {
     PaladinState {
-        unit_id,
+        unit: u,
         holy_light_level: 1,
         divine_shield_level: 1,
         divine_shield_active: False,
@@ -22,66 +19,67 @@ pub fn new_paladin(unit_id: Int) -> PaladinState {
     }
 }
 
-// --- State lookup ---
-
-pub fn find_paladin(xs: List(PaladinState), uid: Int) -> PaladinState {
+pub fn find_paladin(xs: List(PaladinState), u: Unit) -> PaladinState {
     case xs {
-        [] -> new_paladin(uid)
-        [h | t] -> case h.unit_id == uid { True -> h  False -> find_paladin(t, uid) }
+        [] -> new_paladin(u)
+        [h | t] -> case h.unit == u { True -> h  False -> find_paladin(t, u) }
     }
 }
 
 pub fn set_paladin(xs: List(PaladinState), s: PaladinState) -> List(PaladinState) {
     case xs {
         [] -> [s]
-        [h | t] -> case h.unit_id == s.unit_id { True -> [s | t]  False -> [h | set_paladin(t, s)] }
+        [h | t] -> case h.unit == s.unit { True -> [s | t]  False -> [h | set_paladin(t, s)] }
     }
 }
 
-// --- Msg ---
-
 pub enum PaladinMsg {
-    CastHolyLight { target_id: Int }
+    CastHolyLight { target: Unit }
     ActivateShield
     ShieldTick
 }
 
-// --- Update ---
-
-pub fn on_msg(s: PaladinState, msg: PaladinMsg) -> #(PaladinState, List(effect.Effect(PaladinMsg))) {
+pub fn on_msg(s: PaladinState, msg: PaladinMsg) -> (PaladinState, List(effect.Effect(PaladinMsg))) {
     case msg {
-        CastHolyLight(target_id) -> {
+        CastHolyLight(target) -> {
             let amount = holy_light_amount(s.holy_light_level)
-            #(s, [
-                effect.display_text(0, "+" <> int.to_string(amount) <> " HP", 2.0),
-                effect.set_unit_hp(target_id, int.to_float(amount)),
+            (s, [
+                effect.display_text(0, "[Paladin] Holy Light — heals " <> int.to_string(amount) <> " HP", 3.0),
+                effect.set_unit_hp(target, int.to_float(amount)),
             ])
         }
         ActivateShield -> {
+            let dur = divine_shield_duration(s.divine_shield_level)
             let ds = PaladinState {
                 ..s,
                 divine_shield_active: True,
-                divine_shield_ticks: divine_shield_duration(s.divine_shield_level),
+                divine_shield_ticks: dur,
             }
-            #(ds, [
-                effect.display_text(0, "Divine Shield!", 3.0),
+            (ds, [
+                effect.display_text(0, "[Paladin] Divine Shield activated! Invulnerable for " <> int.to_string(dur) <> "s", 3.0),
                 effect.after(1.0, fn() { PaladinMsg::ShieldTick }),
             ])
         }
         ShieldTick -> case s.divine_shield_active {
             True -> case s.divine_shield_ticks <= 1 {
-                True -> #(PaladinState { ..s, divine_shield_active: False, divine_shield_ticks: 0 }, [])
-                False -> #(
+                True -> {
+                    let ds = PaladinState { ..s, divine_shield_active: False, divine_shield_ticks: 0 }
+                    (ds, [
+                        effect.display_text(0, "[Paladin] Divine Shield expired", 2.0),
+                    ])
+                }
+                False -> (
                     PaladinState { ..s, divine_shield_ticks: s.divine_shield_ticks - 1 },
-                    [effect.after(1.0, fn() { PaladinMsg::ShieldTick })]
+                    [
+                        effect.display_text(0, "[Paladin] Shield: " <> int.to_string(s.divine_shield_ticks - 1) <> "s remaining", 1.0),
+                        effect.after(1.0, fn() { PaladinMsg::ShieldTick }),
+                    ]
                 )
             }
-            False -> #(s, [])
+            False -> (s, [])
         }
     }
 }
-
-// --- Helpers ---
 
 pub fn holy_light_amount(level: Int) -> Int {
     case level { 1 -> 200  2 -> 400  3 -> 600  _ -> 0 }

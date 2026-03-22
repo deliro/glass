@@ -1,0 +1,5 @@
+---
+source: src/linearity.rs
+expression: "errs[0]"
+---
+clone of moved handle 't'

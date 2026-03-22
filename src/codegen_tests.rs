@@ -146,8 +146,8 @@ fn get_wave(m: Model) -> Int { m.wave }
 )]
 #[case::method_call("method_call", "fn test(h: Unit) -> Bool { h.is_alive() }")]
 // --- Tuples ---
-#[case::tuple_literal("tuple_literal", "fn make() -> Int { #(1, 2, 3) }")]
-#[case::tuple_in_fn("tuple_in_fn", "fn pair(a: Int, b: Int) -> Int { #(a, b) }")]
+#[case::tuple_literal("tuple_literal", "fn make() -> Int { (1, 2, 3) }")]
+#[case::tuple_in_fn("tuple_in_fn", "fn pair(a: Int, b: Int) -> Int { (a, b) }")]
 // --- Lists ---
 #[case::list_literal("list_literal", "fn nums() -> Int { [1, 2, 3] }")]
 #[case::empty_list("empty_list", "fn empty() -> Int { [] }")]
@@ -188,7 +188,7 @@ fn test(x: Int) -> Int {
 #[case::discard("discard", "fn ignore(x: Int) -> Int { let _: Int = x 0 }")]
 #[case::tuple_destructure(
     "tuple_destructure",
-    "fn first(t: Int) -> Int { let #(a, _b): Int = t a }"
+    "fn first(t: Int) -> Int { let (a, _b): Int = t a }"
 )]
 fn parity(#[case] name: &str, #[case] source: &str) {
     insta::assert_snapshot!(name, compile_both(source));
@@ -233,6 +233,21 @@ fn elm_runtime_jass_snapshot() {
     let mut output = String::new();
     crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut output);
     insta::assert_snapshot!(output);
+}
+
+#[test]
+fn dealloc_nulls_handle_fields() {
+    let source = r#"
+pub struct HeroState { hero: Unit, level: Int }
+pub fn init() -> (HeroState, List(Int)) { (HeroState { hero: todo(), level: 1 }, []) }
+pub fn update(m: HeroState, msg: Int) -> (HeroState, List(Int)) { (m, []) }
+"#;
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("set glass_HeroState_HeroState_hero [id] = null"),
+        "dealloc must null handle-typed fields, got:\n{}",
+        jass
+    );
 }
 
 #[test]

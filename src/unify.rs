@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn unify_nested() {
-        // List(?0) ~ List(#(Int, ?1))
+        // List(?0) ~ List((Int, ?1))
         let t1 = Type::list(Type::Var(0));
         let t2 = Type::list(Type::Tuple(vec![Type::int(), Type::Var(1)]));
         let s = unify(&t1, &t2, span()).expect("should unify");

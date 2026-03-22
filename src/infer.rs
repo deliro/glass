@@ -167,8 +167,7 @@ impl Inferencer {
                     env.bind(f.name.clone(), scheme.clone());
                 }
                 if collides && let Some(imps) = name_to_modules.get(f.name.as_str()) {
-                    let modules: Vec<String> =
-                        imps.iter().map(|i| i.module_name.clone()).collect();
+                    let modules: Vec<String> = imps.iter().map(|i| i.module_name.clone()).collect();
                     self.ambiguous_names.insert(f.name.clone(), modules);
                 }
                 if let Some(src_mod) = def_module_map.get(&def_idx) {
@@ -214,8 +213,7 @@ impl Inferencer {
                     env.bind(e.fn_name.clone(), scheme.clone());
                 }
                 if collides && let Some(imps) = name_to_modules.get(e.fn_name.as_str()) {
-                    let modules: Vec<String> =
-                        imps.iter().map(|i| i.module_name.clone()).collect();
+                    let modules: Vec<String> = imps.iter().map(|i| i.module_name.clone()).collect();
                     self.ambiguous_names.insert(e.fn_name.clone(), modules);
                 }
                 if let Some(src_mod) = def_module_map.get(&def_idx) {

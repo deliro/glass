@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
 use crate::closures::LambdaInfo;
+use crate::jass_parser::JassSdk;
 use crate::types::TypeRegistry;
 
 /// Compiler optimization flags. All optimizations are ON by default (opt-out).
@@ -12,6 +13,8 @@ pub struct OptFlags {
     pub tco: bool,
     pub lift: bool,
     pub inline: bool,
+    pub beta: bool,
+    pub const_prop: bool,
 }
 
 impl Default for OptFlags {
@@ -22,6 +25,8 @@ impl Default for OptFlags {
             tco: true,
             lift: true,
             inline: true,
+            beta: true,
+            const_prop: true,
         }
     }
 }
@@ -497,7 +502,15 @@ fn collect_reserved_names(module: &Module) -> HashSet<String> {
         reserved.insert(name.to_string());
     }
 
-    // Collect all user variable names from the module
+    let stub = include_str!("../tests/common_stub.j");
+    let sdk = JassSdk::parse(stub);
+    for native in &sdk.natives {
+        reserved.insert(native.name.clone());
+    }
+    for ty in sdk.types.keys() {
+        reserved.insert(ty.clone());
+    }
+
     for def in &module.definitions {
         match def {
             Definition::Function(f) => {
@@ -617,8 +630,11 @@ fn collect_vars_from_pattern(pat: &Pattern, vars: &mut HashSet<String>) {
         }
         Pattern::ConstructorNamed { fields, .. } => {
             for fp in fields {
-                let binding = fp.binding.as_ref().unwrap_or(&fp.field_name);
-                vars.insert(binding.clone());
+                if let Some(p) = &fp.pattern {
+                    collect_vars_from_pattern(&p.node, vars);
+                } else {
+                    vars.insert(fp.field_name.clone());
+                }
             }
         }
         Pattern::Tuple(pats) | Pattern::List(pats) | Pattern::Or(pats) => {
@@ -873,5 +889,42 @@ pub fn h(p: Pair) -> Int {
         assert!(output.contains("return q[x]"), "got: {}", output);
         // 'x' as param should stay untouched
         assert!(output.contains("takes integer x"), "got: {}", output);
+    }
+
+    #[test]
+    fn test_jass_natives_in_reserved() {
+        use crate::parser::Parser;
+        use crate::token::Lexer;
+
+        let source = "fn test(x: Int) -> Int { x }";
+        let tokens = Lexer::tokenize(source);
+        let module = Parser::new(tokens).parse_module().unwrap();
+        let reserved = collect_reserved_names(&module);
+
+        for native_name in &[
+            "CreateUnit",
+            "RemoveUnit",
+            "ShowUnit",
+            "KillUnit",
+            "CreateTimer",
+            "DestroyTimer",
+            "TimerStart",
+            "CreateGroup",
+            "DestroyGroup",
+            "CreateTrigger",
+            "DestroyTrigger",
+            "DisplayTimedTextToPlayer",
+            "GetHandleId",
+            "I2S",
+            "R2S",
+            "S2I",
+            "Player",
+        ] {
+            assert!(
+                reserved.contains(*native_name),
+                "JASS native '{}' missing from reserved set",
+                native_name,
+            );
+        }
     }
 }

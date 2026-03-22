@@ -1,11 +1,15 @@
 use rstest::rstest;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TEST_ID: AtomicU64 = AtomicU64::new(0);
+
+fn unique_id() -> u64 {
+    TEST_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 fn compile_glass_lua(source: &str) -> String {
-    let tmp = std::env::temp_dir().join(format!(
-        "glass_lua_src_{:?}.glass",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("glass_lua_src_{}.glass", unique_id()));
     std::fs::write(&tmp, source).expect("write temp file");
 
     let output = Command::new(env!("CARGO_BIN_EXE_glass"))
@@ -40,10 +44,7 @@ fn validate_lua(lua_code: &str) {
         eprintln!("luac not found at {:?}, skipping validation", luac);
         return;
     }
-    let tmp = std::env::temp_dir().join(format!(
-        "glass_lua_test_{:?}.lua",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("glass_lua_test_{}.lua", unique_id()));
     std::fs::write(&tmp, lua_code).expect("write temp file");
 
     let output = Command::new(&luac)
@@ -195,7 +196,7 @@ fn test(x: Int) -> Int { x |> double }
 
 #[test]
 fn tuple_creation() {
-    compile_and_validate("fn pair(a: Int, b: Int) -> Int { #(a, b) }");
+    compile_and_validate("fn pair(a: Int, b: Int) -> Int { (a, b) }");
 }
 
 #[test]
@@ -237,15 +238,15 @@ import effect
 pub enum Msg { Increment Decrement Reset }
 pub struct Model { count: Int }
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { count: 0 }, [])
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { count: 0 }, [])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        Msg::Increment -> #(Model { count: model.count + 1 }, [])
-        Msg::Decrement -> #(Model { count: model.count - 1 }, [])
-        Msg::Reset -> #(Model { count: 0 }, [])
+        Msg::Increment -> (Model { count: model.count + 1 }, [])
+        Msg::Decrement -> (Model { count: model.count - 1 }, [])
+        Msg::Reset -> (Model { count: 0 }, [])
     }
 }
 "#,
@@ -261,18 +262,18 @@ import effect
 pub enum Msg { Tick GameStart }
 pub struct Model { count: Int }
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { count: 0 }, [
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { count: 0 }, [
         effect.display_text(0, "Init!", 3.0)
     ])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        Msg::Tick -> #(Model { count: model.count + 1 }, [
+        Msg::Tick -> (Model { count: model.count + 1 }, [
             effect.after(1.0, fn() { Msg::Tick })
         ])
-        Msg::GameStart -> #(model, [])
+        Msg::GameStart -> (model, [])
     }
 }
 "#,
@@ -389,6 +390,80 @@ fn compute(dmg: Int, remaining: Int, decay: Int) -> BounceResult {
 pub fn test_bounces() -> BounceResult {
     compute(100, 5, 80)
 }
+"#,
+    );
+}
+
+// ============================================================
+// Tuple syntax and destructuring (Lua)
+// ============================================================
+
+#[test]
+fn tuple_basic() {
+    compile_and_validate(
+        r#"
+fn pair(a: Int, b: Int) -> (Int, Int) { (a, b) }
+fn first(t: (Int, Int)) -> Int {
+    let (x, _) = t
+    x
+}
+pub fn test() -> Int { first(pair(1, 2)) }
+"#,
+    );
+}
+
+#[test]
+fn struct_destr_let() {
+    compile_and_validate(
+        r#"
+pub struct Point { x: Int, y: Int }
+fn sum(p: Point) -> Int {
+    let Point { x, y } = p
+    x + y
+}
+pub fn test() -> Int { sum(Point { x: 3, y: 4 }) }
+"#,
+    );
+}
+
+#[test]
+fn struct_destr_nested() {
+    compile_and_validate(
+        r#"
+pub struct Point { x: Int, y: Int }
+pub struct Line { start: Point, end_pt: Point }
+fn start_x(l: Line) -> Int {
+    let Line { start: Point { x, .. }, .. } = l
+    x
+}
+pub fn test() -> Int {
+    let l = Line {
+        start: Point { x: 10, y: 20 },
+        end_pt: Point { x: 30, y: 40 },
+    }
+    start_x(l)
+}
+"#,
+    );
+}
+
+#[test]
+fn param_struct_destr() {
+    compile_and_validate(
+        r#"
+pub struct Point { x: Int, y: Int }
+fn sum(Point { x, y }: Point) -> Int { x + y }
+pub fn test() -> Int { sum(Point { x: 3, y: 4 }) }
+"#,
+    );
+}
+
+#[test]
+fn param_tuple_destr() {
+    compile_and_validate(
+        r#"
+fn add((a, b): (Int, Int)) -> Int { a + b }
+pub fn test() -> Int { add((10, 20)) }
 "#,
     );
 }

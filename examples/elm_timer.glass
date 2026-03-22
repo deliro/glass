@@ -9,18 +9,18 @@ pub struct Model {
     count: Int,
 }
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model { count: 0 }, [
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { count: 0 }, [
         effect.display_text(0, "Glass initialized!", 5.0),
     ])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        Msg::Tick -> #(Model { count: model.count + 1 }, [
+        Msg::Tick -> (Model { count: model.count + 1 }, [
             effect.after(1.0, fn() { Msg::Tick }),
         ])
-        Msg::GameStart -> #(model, [
+        Msg::GameStart -> (model, [
             effect.display_text(0, "Game started!", 3.0),
         ])
     }

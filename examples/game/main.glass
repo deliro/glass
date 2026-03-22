@@ -1,11 +1,3 @@
-// WC3 map entry point — Glass Arena
-//
-// Elm architecture with composable sub-modules.
-// Each hero has its own Msg + on_msg. main.glass delegates and maps effects:
-//
-//   let #(new_state, effects) = pudge.on_msg(state, pudge_msg)
-//   effect.map_list(effects, fn(inner) { Msg::Pudge { unit_id, msg: inner } })
-
 import effect
 import subscription
 import int
@@ -22,19 +14,12 @@ import systems/buffs
 import systems/gold
 import ui/messages
 
-// ---------------------------------------------------------------------------
-// Ability rawcodes — used in route_spell pattern matching
-// ---------------------------------------------------------------------------
-
 const ROT_SPELL: Int = 'AUau'
 const DISMEMBER_SPELL: Int = 'AUan'
 const HOLY_LIGHT_SPELL: Int = 'AHhb'
 const DIVINE_SHIELD_SPELL: Int = 'AHds'
 const DAGON_SPELL: Int = 'AIdf'
-
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
+const STARTING_GOLD: Int = 500
 
 pub struct Model {
     pudge_states: List(pudge.PudgeState),
@@ -44,195 +29,225 @@ pub struct Model {
     active_buffs: List(buffs.ActiveBuff),
     wave_count: Int,
     game_time: Int,
+    p0_damage: Int,
+    p1_damage: Int,
+    kills: Int,
 }
 
-// ---------------------------------------------------------------------------
-// Msg — global events + wrapped sub-module messages
-// ---------------------------------------------------------------------------
-
 pub enum Msg {
-    UnitAttacked { attacker_id: Int, target_id: Int }
-    UnitKilled { killer_id: Int }
+    UnitAttacked { attacker: Unit, target: Unit }
+    UnitKilled { dying: Unit, killer: Unit }
     Tick
     WaveSpawn
-    HeroLevelUp { hero_id: Int }
+    HeroLevelUp { hero: Unit }
     BuyItem { player_id: Int, item_id: Int }
     Respawn { player_id: Int }
-    UseDagon { caster_id: Int, target_id: Int, level: Int }
-    Pudge { unit_id: Int, msg: pudge.PudgeMsg }
-    Paladin { unit_id: Int, msg: paladin.PaladinMsg }
+    UseDagon { caster: Unit, target: Unit, level: Int }
+    Pudge { unit: Unit, msg: pudge.PudgeMsg }
+    Paladin { unit: Unit, msg: paladin.PaladinMsg }
     Noop
 }
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
+fn log(text: String) -> effect.Effect(Msg) {
+    effect.display_text(0, text, 15.0)
+}
 
-fn handle_attack(model: Model, attacker_id: Int, target_id: Int) -> #(Model, List(effect.Effect(Msg))) {
-    let sniper_state = sniper.find_sniper(model.sniper_states, attacker_id)
-    let result = sniper.roll_headshot(sniper_state)
+fn str(n: Int) -> String { int.to_string(n) }
+
+fn ensure_sniper(states: List(sniper.SniperState), u: Unit) -> List(sniper.SniperState) {
+    case sniper.has_sniper(states, clone(u)) {
+        True -> states
+        False -> [sniper.new_sniper(u) | states]
+    }
+}
+
+fn handle_attack(model: Model, attacker: Unit, target: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let states = model.sniper_states |> ensure_sniper(clone(attacker))
+    let result = states |> sniper.find_sniper(clone(attacker)) |> sniper.roll_headshot
     case result {
-        HeadshotResult::Procced(headshot_damage, new_sniper_state) -> {
-            let new_model = Model { ..model, sniper_states: sniper.set_sniper(model.sniper_states, new_sniper_state) }
-            #(new_model, [
-                effect.display_text(0, messages.headshot_msg(headshot_damage), 2.0),
-                effect.damage_unit(attacker_id, target_id, int.to_float(headshot_damage), unit.ATTACK_NORMAL, unit.DAMAGE_NORMAL),
-            ])
-        }
-        HeadshotResult::Missed(new_sniper_state) -> {
-            let new_model = Model { ..model, sniper_states: sniper.set_sniper(model.sniper_states, new_sniper_state) }
-            #(new_model, [])
-        }
+        HeadshotResult::Procced(dmg, new_state) -> (
+            Model { ..model,
+                sniper_states: states |> sniper.set_sniper(new_state),
+                p0_damage: model.p0_damage + dmg,
+            },
+            [
+                log("|cffff8800[HEADSHOT]|r bonus dmg |cffff0000" <> str(dmg) <> "|r!"),
+                effect.damage_unit(attacker, target, dmg |> int.to_float, AttackType::Normal |> unit.attack_type_to_int, DamageType::Normal |> unit.damage_type_to_int),
+            ]
+        )
+        HeadshotResult::Missed(new_state) -> (
+            Model { ..model, sniper_states: states |> sniper.set_sniper(new_state) },
+            []
+        )
     }
 }
 
-fn handle_kill(model: Model, killer_id: Int) -> #(Model, List(effect.Effect(Msg))) {
-    let bounty = damage.creep_bounty(model.wave_count)
-    let player_gold = gold.find_player(model.player_gold, 0)
-    let updated_gold = gold.add(player_gold, bounty)
-    let new_model = Model { ..model, player_gold: gold.set_player(model.player_gold, updated_gold) }
-    #(new_model, [
-        effect.display_text(0, messages.kill_msg("Hero", int.to_string(killer_id)), 3.0),
-        effect.display_text(0, messages.gold_msg(bounty), 2.0),
-        effect.after(setup.respawn_delay(1), fn() { Msg::Respawn { player_id: 0 } }),
+fn handle_kill(model: Model, dying: Unit, killer: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let bounty = model.wave_count |> damage.creep_bounty
+    let updated_gold = model.player_gold |> gold.find_player(0) |> gold.add(bounty)
+    let new_model = Model { ..model,
+        kills: model.kills + 1,
+        player_gold: model.player_gold |> gold.set_player(updated_gold),
+    }
+    (new_model, [
+        log("|cffff0000[KILL]|r Unit killed"),
+        log("|cffffcc00  +|r" <> str(bounty) <> " gold (total: " <> str(updated_gold.gold) <> ")"),
+        effect.give_gold(0, bounty),
     ])
 }
 
-fn handle_tick(model: Model) -> #(Model, List(effect.Effect(Msg))) {
-    let updated_buffs = buffs.tick_all(model.active_buffs)
-    #(Model { ..model, game_time: model.game_time + 1, active_buffs: updated_buffs }, [])
-}
-
-fn handle_wave(model: Model) -> #(Model, List(effect.Effect(Msg))) {
-    let next_wave = model.wave_count + 1
-    let creep_type = creeps.creep_type(next_wave)
-    #(Model { ..model, wave_count: next_wave }, [
-        effect.display_text(0, messages.wave_msg(next_wave), 5.0),
-        effect.create_unit(11, creep_type, setup.CREEP_SPAWN_X, setup.CREEP_SPAWN_Y, 270.0),
+fn make_board(m: Model) -> effect.Effect(Msg) {
+    let time_to_wave = 20 - (m.game_time % 20)
+    let p0_gold = m.player_gold |> gold.find_player(0)
+    effect.update_board("|cffffcc00Glass Arena|r", [
+        effect.board_row("Time", str(m.game_time) <> "s"),
+        effect.board_row("Wave", str(m.wave_count)),
+        effect.board_row("Next wave", str(time_to_wave) <> "s"),
+        effect.board_row("---", "---"),
+        effect.board_row("Kills", str(m.kills)),
+        effect.board_row("Gold", str(p0_gold.gold)),
+        effect.board_row("P0 dmg", str(m.p0_damage)),
+        effect.board_row("P1 dmg", str(m.p1_damage)),
     ])
 }
 
-fn handle_dagon(model: Model, caster_id: Int, target_id: Int, level: Int) -> #(Model, List(effect.Effect(Msg))) {
-    let dagon_damage = dagon.damage(level)
-    #(model, [
-        effect.display_text(0, messages.dagon_msg(level, dagon_damage), 3.0),
-        effect.damage_unit(caster_id, target_id, int.to_float(dagon_damage), unit.ATTACK_SPELL, unit.DAMAGE_MAGIC),
+fn handle_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    let new_model = Model { ..model,
+        game_time: model.game_time + 1,
+        active_buffs: model.active_buffs |> buffs.tick_all,
+    }
+    (new_model, [new_model |> make_board])
+}
+
+fn spawn_creep_effects(creep_type: Int, count: Int, wave: Int) -> List(effect.Effect(Msg)) {
+    case count <= 0 {
+        True -> []
+        False -> [
+            effect.create_unit(24, creep_type, setup.CREEP_SPAWN_X + (count |> int.to_float) * 100.0, setup.CREEP_SPAWN_Y, 270.0)
+            | spawn_creep_effects(creep_type, count - 1, wave)
+        ]
+    }
+}
+
+fn handle_wave(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    let w = model.wave_count + 1
+    let creep_type = w |> creeps.creep_type
+    let count = w |> creeps.creeps_per_wave
+    let spawns = spawn_creep_effects(creep_type, count, w)
+    let header = log("|cffff8800[WAVE " <> str(w) <> "]|r Spawning " <> str(count) <> " creeps!")
+    (Model { ..model, wave_count: w }, [header | spawns])
+}
+
+fn handle_dagon(model: Model, caster: Unit, target: Unit, level: Int) -> (Model, List(effect.Effect(Msg))) {
+    let dmg = dagon.damage(level)
+    (model, [
+        log("|cff0088ff[DAGON " <> str(level) <> "]|r |cffff0000" <> str(dmg) <> "|r magic dmg"),
+        effect.damage_unit(caster, target, int.to_float(dmg), unit.attack_type_to_int(AttackType::Chaos), unit.damage_type_to_int(DamageType::Magic)),
     ])
 }
 
-fn handle_level_up(model: Model, hero_id: Int) -> #(Model, List(effect.Effect(Msg))) {
-    #(model, [effect.display_text(0, messages.level_up_msg("Hero", 2), 3.0)])
+fn handle_level_up(model: Model, hero: Unit) -> (Model, List(effect.Effect(Msg))) {
+    (model, [log("|cff00ff00[LEVEL UP]|r Hero leveled up!")])
 }
 
-fn handle_buy_item(model: Model, player_id: Int, item_id: Int) -> #(Model, List(effect.Effect(Msg))) {
-    let item = shop.find_item(item_id)
-    let player_gold = gold.find_player(model.player_gold, player_id)
-    case gold.can_afford(player_gold, item.cost) {
+fn handle_buy_item(model: Model, player_id: Int, item_id: Int) -> (Model, List(effect.Effect(Msg))) {
+    let item = item_id |> shop.find_item
+    let pg = model.player_gold |> gold.find_player(player_id)
+    case pg |> gold.can_afford(item.cost) {
         True -> {
-            let updated_gold = gold.spend(player_gold, item.cost)
-            let new_model = Model { ..model, player_gold: gold.set_player(model.player_gold, updated_gold) }
-            #(new_model, [effect.display_text(player_id, "Bought " <> item.name, 3.0)])
+            let updated = pg |> gold.spend(item.cost)
+            (
+                Model { ..model, player_gold: model.player_gold |> gold.set_player(updated) },
+                [log("|cff00ff00[SHOP]|r P" <> str(player_id) <> " bought " <> item.name <> " (-" <> str(item.cost) <> "g, left: " <> str(updated.gold) <> "g)")]
+            )
         }
-        False -> #(model, [effect.display_text(player_id, "Not enough gold!", 2.0)])
+        False -> (model, [log("|cffff0000[SHOP]|r Can't afford " <> item.name <> " (need " <> str(item.cost) <> ", have " <> str(pg.gold) <> ")")])
     }
 }
 
-fn handle_respawn(model: Model, player_id: Int) -> #(Model, List(effect.Effect(Msg))) {
-    #(model, [
-        effect.display_text(0, messages.respawn_msg("Hero"), 3.0),
-        effect.create_unit(player_id, setup.PALADIN_ID, setup.hero_spawn_x(player_id), setup.hero_spawn_y(player_id), setup.hero_spawn_facing(player_id)),
+fn handle_respawn(model: Model, player_id: Int) -> (Model, List(effect.Effect(Msg))) {
+    (model, [
+        log("|cff00ff00[RESPAWN]|r P" <> str(player_id) <> " hero respawning"),
+        effect.create_unit(player_id, setup.PALADIN_ID, player_id |> setup.hero_spawn_x, player_id |> setup.hero_spawn_y, player_id |> setup.hero_spawn_facing),
     ])
 }
 
-// ---------------------------------------------------------------------------
-// Spell routing — flat pattern match on rawcode
-// ---------------------------------------------------------------------------
-
-fn make_toggle_rot() -> pudge.PudgeMsg { PudgeMsg::ToggleRot }
-fn make_dismember(target_id: Int) -> pudge.PudgeMsg { PudgeMsg::CastDismember { target_id } }
-fn make_holy_light(target_id: Int) -> paladin.PaladinMsg { PaladinMsg::CastHolyLight { target_id } }
-fn make_divine_shield() -> paladin.PaladinMsg { PaladinMsg::ActivateShield }
-
-fn route_spell(caster_id: Int, spell_id: Int, target_id: Int) -> Msg {
+fn route_spell(caster: Unit, spell_id: Int, target: Unit) -> Msg {
     case spell_id {
-        ROT_SPELL            -> Msg::Pudge { unit_id: caster_id, msg: make_toggle_rot() }
-        DISMEMBER_SPELL      -> Msg::Pudge { unit_id: caster_id, msg: make_dismember(target_id) }
-        HOLY_LIGHT_SPELL     -> Msg::Paladin { unit_id: caster_id, msg: make_holy_light(target_id) }
-        DIVINE_SHIELD_SPELL  -> Msg::Paladin { unit_id: caster_id, msg: make_divine_shield() }
-        DAGON_SPELL          -> Msg::UseDagon { caster_id, target_id, level: 1 }
-        _                    -> Msg::Noop
+        ROT_SPELL           -> Msg::Pudge { unit: caster, msg: PudgeMsg::ToggleRot }
+        DISMEMBER_SPELL     -> Msg::Pudge { unit: caster, msg: PudgeMsg::CastDismember { target } }
+        HOLY_LIGHT_SPELL    -> Msg::Paladin { unit: caster, msg: PaladinMsg::CastHolyLight { target } }
+        DIVINE_SHIELD_SPELL -> Msg::Paladin { unit: caster, msg: PaladinMsg::ActivateShield }
+        DAGON_SPELL         -> Msg::UseDagon { caster, target, level: 1 }
+        _                   -> Msg::Noop
     }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-module delegation with effect.map_list
-// ---------------------------------------------------------------------------
-
-fn handle_pudge(model: Model, unit_id: Int, pudge_msg: pudge.PudgeMsg) -> #(Model, List(effect.Effect(Msg))) {
-    let state = pudge.find_pudge(model.pudge_states, unit_id)
-    let #(new_state, effects) = pudge.on_msg(state, pudge_msg)
-    let new_model = Model { ..model, pudge_states: pudge.set_pudge(model.pudge_states, new_state) }
-    #(new_model, effect.map_list(effects, fn(inner: pudge.PudgeMsg) -> Msg { Msg::Pudge { unit_id, msg: inner } }))
+fn handle_pudge(model: Model, unit: Unit, msg: pudge.PudgeMsg) -> (Model, List(effect.Effect(Msg))) {
+    let state = model.pudge_states |> pudge.find_pudge(clone(unit))
+    let (new_state, effects) = state |> pudge.on_msg(msg)
+    (
+        Model { ..model, pudge_states: model.pudge_states |> pudge.set_pudge(new_state) },
+        effects |> effect.map_list(fn(inner: pudge.PudgeMsg) -> Msg { Msg::Pudge { unit, msg: inner } })
+    )
 }
 
-fn handle_paladin(model: Model, unit_id: Int, paladin_msg: paladin.PaladinMsg) -> #(Model, List(effect.Effect(Msg))) {
-    let state = paladin.find_paladin(model.paladin_states, unit_id)
-    let #(new_state, effects) = paladin.on_msg(state, paladin_msg)
-    let new_model = Model { ..model, paladin_states: paladin.set_paladin(model.paladin_states, new_state) }
-    #(new_model, effect.map_list(effects, fn(inner: paladin.PaladinMsg) -> Msg { Msg::Paladin { unit_id, msg: inner } }))
+fn handle_paladin(model: Model, unit: Unit, msg: paladin.PaladinMsg) -> (Model, List(effect.Effect(Msg))) {
+    let state = model.paladin_states |> paladin.find_paladin(clone(unit))
+    let (new_state, effects) = state |> paladin.on_msg(msg)
+    (
+        Model { ..model, paladin_states: model.paladin_states |> paladin.set_paladin(new_state) },
+        effects |> effect.map_list(fn(inner: paladin.PaladinMsg) -> Msg { Msg::Paladin { unit, msg: inner } })
+    )
 }
 
-// ---------------------------------------------------------------------------
-// Elm architecture
-// ---------------------------------------------------------------------------
-
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
-    #(Model {
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model {
         pudge_states: [],
         sniper_states: [],
         paladin_states: [],
-        player_gold: [gold.new_gold(0), gold.new_gold(1)],
+        player_gold: [gold.new_gold(0, STARTING_GOLD), gold.new_gold(1, STARTING_GOLD)],
         active_buffs: [],
         wave_count: 0,
         game_time: 0,
+        p0_damage: 0,
+        p1_damage: 0,
+        kills: 0,
     }, [
-        effect.display_text(0, messages.game_start_msg(), 10.0),
-        effect.create_unit(0, setup.PALADIN_ID, setup.hero_spawn_x(0), setup.hero_spawn_y(0), setup.hero_spawn_facing(0)),
-        effect.create_unit(1, setup.DREADLORD_ID, setup.hero_spawn_x(1), setup.hero_spawn_y(1), setup.hero_spawn_facing(1)),
+        log("|cffffcc00========= GLASS ARENA =========|r"),
+        log("|cffffffff P0: Paladin  |  P1: Dreadlord|r"),
+        log("|cffffffff Waves every 20s. Kill for gold!|r"),
+        log("|cffffcc00==================================|r"),
+        effect.give_gold(0, STARTING_GOLD),
+        effect.give_gold(1, STARTING_GOLD),
+        effect.create_unit(0, setup.PALADIN_ID, 0 |> setup.hero_spawn_x, 0 |> setup.hero_spawn_y, 0 |> setup.hero_spawn_facing),
+        effect.create_unit(1, setup.DREADLORD_ID, 1 |> setup.hero_spawn_x, 1 |> setup.hero_spawn_y, 1 |> setup.hero_spawn_facing),
     ])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        UnitAttacked(attacker_id, target_id) -> handle_attack(model, attacker_id, target_id)
-        UnitKilled(killer_id)                -> handle_kill(model, killer_id)
-        Tick                                 -> handle_tick(model)
-        WaveSpawn                            -> handle_wave(model)
-        HeroLevelUp(hero_id)                 -> handle_level_up(model, hero_id)
-        BuyItem(player_id, item_id)          -> handle_buy_item(model, player_id, item_id)
-        Respawn(player_id)                   -> handle_respawn(model, player_id)
-        UseDagon(caster_id, target_id, level) -> handle_dagon(model, caster_id, target_id, level)
-        Pudge(unit_id, pudge_msg)            -> handle_pudge(model, unit_id, pudge_msg)
-        Paladin(unit_id, paladin_msg)        -> handle_paladin(model, unit_id, paladin_msg)
-        Noop                                 -> #(model, [])
+        UnitAttacked(attacker, target) -> model |> handle_attack(attacker, target)
+        UnitKilled(dying, killer)      -> model |> handle_kill(dying, killer)
+        Tick                           -> model |> handle_tick
+        WaveSpawn                      -> model |> handle_wave
+        HeroLevelUp(hero)              -> model |> handle_level_up(hero)
+        BuyItem(player_id, item_id)    -> model |> handle_buy_item(player_id, item_id)
+        Respawn(player_id)             -> model |> handle_respawn(player_id)
+        UseDagon(caster, target, level) -> model |> handle_dagon(caster, target, level)
+        Pudge(unit, pudge_msg)         -> model |> handle_pudge(unit, pudge_msg)
+        Paladin(unit, paladin_msg)     -> model |> handle_paladin(unit, paladin_msg)
+        Noop                           -> (model, [])
     }
 }
 
 pub fn subscriptions(model: Model) -> List(subscription.Subscription(Msg)) {
     [
-        subscription.on_attack(fn(attacker_id: Int, target_id: Int) -> Msg {
-            Msg::UnitAttacked { attacker_id, target_id }
-        }),
-        subscription.on_death(fn(dying_id: Int, killer_id: Int) -> Msg {
-            Msg::UnitKilled { killer_id }
-        }),
+        subscription.on_attack(fn(a: Unit, t: Unit) -> Msg { Msg::UnitAttacked { attacker: a, target: t } }),
+        subscription.on_death(fn(d: Unit, k: Unit) -> Msg { Msg::UnitKilled { dying: d, killer: k } }),
         subscription.on_timer(1.0, fn() -> Msg { Msg::Tick }),
-        subscription.on_timer(creeps.SPAWN_INTERVAL, fn() -> Msg { Msg::WaveSpawn }),
-        subscription.on_hero_level_up(fn(hero_id: Int) -> Msg {
-            Msg::HeroLevelUp { hero_id }
-        }),
-        subscription.on_spell_effect(fn(caster_id: Int, spell_id: Int, target_id: Int) -> Msg {
-            route_spell(caster_id, spell_id, target_id)
-        }),
+        subscription.on_timer(20.0, fn() -> Msg { Msg::WaveSpawn }),
+        subscription.on_hero_level_up(fn(h: Unit) -> Msg { Msg::HeroLevelUp { hero: h } }),
+        subscription.on_spell_effect(fn(c: Unit, s: Int, t: Unit) -> Msg { route_spell(c, s, t) }),
     ]
 }

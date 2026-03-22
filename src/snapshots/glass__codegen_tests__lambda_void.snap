@@ -11,18 +11,6 @@ function glass_test takes nothing returns integer
     return (0 * 8192)
 endfunction
 
-function glass_dispatch_2 takes integer glass_closure, integer glass_p0, integer glass_p1 returns integer
-    local integer glass_tag = glass_closure / 8192
-    local integer glass_cid = glass_closure - glass_tag * 8192
-    return 0
-endfunction
-
-function glass_dispatch_1 takes integer glass_closure, integer glass_p0 returns integer
-    local integer glass_tag = glass_closure / 8192
-    local integer glass_cid = glass_closure - glass_tag * 8192
-    return 0
-endfunction
-
 function glass_dispatch_0 takes integer glass_closure returns integer
     local integer glass_tag = glass_closure / 8192
     local integer glass_cid = glass_closure - glass_tag * 8192

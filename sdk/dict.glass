@@ -44,21 +44,21 @@ pub fn insert(d: Dict(k, v), key: k, value: v) -> Dict(k, v) {
     }
 }
 
-pub fn get(d: Dict(k, v), key: k) -> #(Option(v), Dict(k, v)) {
+pub fn get(d: Dict(k, v), key: k) -> (Option(v), Dict(k, v)) {
     case d {
         Dict { handle, size, .. } -> {
             case dict_has(handle, 0, key) {
-                True -> #(Option::Some(dict_load(handle, 0, key)), Dict { handle, size })
-                False -> #(Option::None, Dict { handle, size })
+                True -> (Option::Some(dict_load(handle, 0, key)), Dict { handle, size })
+                False -> (Option::None, Dict { handle, size })
             }
         }
     }
 }
 
-pub fn contains_key(d: Dict(k, v), key: k) -> #(Bool, Dict(k, v)) {
+pub fn contains_key(d: Dict(k, v), key: k) -> (Bool, Dict(k, v)) {
     case d {
         Dict { handle, size, .. } ->
-            #(dict_has(handle, 0, key), Dict { handle, size })
+            (dict_has(handle, 0, key), Dict { handle, size })
     }
 }
 
@@ -76,8 +76,8 @@ pub fn remove(d: Dict(k, v), key: k) -> Dict(k, v) {
     }
 }
 
-pub fn size(d: Dict(k, v)) -> #(Int, Dict(k, v)) {
+pub fn size(d: Dict(k, v)) -> (Int, Dict(k, v)) {
     case d {
-        Dict { handle, size, .. } -> #(size, Dict { handle, size })
+        Dict { handle, size, .. } -> (size, Dict { handle, size })
     }
 }

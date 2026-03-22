@@ -8,18 +8,43 @@
 pub enum Effect(M) {
     After { duration: Float, callback: fn() -> M }
     DisplayText { player_id: Int, text: String, duration: Float }
-    DamageUnit { source_id: Int, target_id: Int, amount: Float, attack_type: Int, damage_type: Int }
+    DamageUnit { source: Unit, target: Unit, amount: Float, attack_type: Int, damage_type: Int }
     CreateUnit { owner: Int, type_id: Int, x: Float, y: Float, facing: Float }
-    RemoveUnit { unit_id: Int }
-    MoveUnit { unit_id: Int, x: Float, y: Float }
-    PlayAnimation { unit_id: Int, anim: String }
-    AddAbility { unit_id: Int, ability_id: Int }
+    RemoveUnit { unit: Unit }
+    MoveUnit { unit: Unit, x: Float, y: Float }
+    PlayAnimation { unit: Unit, anim: String }
+    AddAbility { unit: Unit, ability_id: Int }
     AddSfx { model: String, x: Float, y: Float }
-    SetUnitHp { unit_id: Int, hp: Float }
-    SetUnitMana { unit_id: Int, mana: Float }
+    SetUnitHp { unit: Unit, hp: Float }
+    SetUnitMana { unit: Unit, mana: Float }
     PanCamera { player_id: Int, x: Float, y: Float }
     ShowFloatingText { text: String, x: Float, y: Float, size: Float }
     PlaySound { path: String }
+    GiveGold { player_id: Int, gold_amount: Int }
+    GiveLumber { player_id: Int, lumber_amount: Int }
+    UpdateBoard { title: String, rows: List(BoardRow) }
+    FindNearestEnemy { x: Float, y: Float, radius: Float, callback: fn(Unit) -> M }
+    KillUnit { unit: Unit }
+    RemoveAbility { unit: Unit, ability_id: Int }
+    SetUnitOwner { unit: Unit, player_id: Int }
+    PauseUnit { unit: Unit, paused: Bool }
+    ShowUnit { unit: Unit, shown: Bool }
+    SetInvulnerable { unit: Unit, invulnerable: Bool }
+    IssueOrder { unit: Unit, order: String }
+    IssuePointOrder { unit: Unit, order: String, x: Float, y: Float }
+    IssueTargetOrder { unit: Unit, order: String, target: Unit }
+    AddSfxTarget { model: String, unit: Unit, attach_point: String }
+    ReviveHero { unit: Unit, x: Float, y: Float }
+    AddHeroXp { unit: Unit, xp: Int }
+    SetUnitFacing { unit: Unit, facing: Float }
+    PingMinimap { x: Float, y: Float, duration: Float }
+    CreateItem { item_type_id: Int, x: Float, y: Float }
+    SetUnitMoveSpeed { unit: Unit, speed: Float }
+}
+
+pub struct BoardRow {
+    label: String,
+    value: String,
 }
 
 // --- Constructors ---
@@ -32,40 +57,40 @@ pub fn display_text(player_id: Int, text: String, duration: Float) -> Effect(m) 
     Effect::DisplayText { player_id, text, duration }
 }
 
-pub fn damage_unit(source_id: Int, target_id: Int, amount: Float, attack_type: Int, damage_type: Int) -> Effect(m) {
-    Effect::DamageUnit { source_id, target_id, amount, attack_type, damage_type }
+pub fn damage_unit(source: Unit, target: Unit, amount: Float, attack_type: Int, damage_type: Int) -> Effect(m) {
+    Effect::DamageUnit { source, target, amount, attack_type, damage_type }
 }
 
 pub fn create_unit(owner: Int, type_id: Int, x: Float, y: Float, facing: Float) -> Effect(m) {
     Effect::CreateUnit { owner, type_id, x, y, facing }
 }
 
-pub fn remove_unit(unit_id: Int) -> Effect(m) {
-    Effect::RemoveUnit { unit_id }
+pub fn remove_unit(unit: Unit) -> Effect(m) {
+    Effect::RemoveUnit { unit }
 }
 
-pub fn move_unit(unit_id: Int, x: Float, y: Float) -> Effect(m) {
-    Effect::MoveUnit { unit_id, x, y }
+pub fn move_unit(unit: Unit, x: Float, y: Float) -> Effect(m) {
+    Effect::MoveUnit { unit, x, y }
 }
 
-pub fn play_animation(unit_id: Int, anim: String) -> Effect(m) {
-    Effect::PlayAnimation { unit_id, anim }
+pub fn play_animation(unit: Unit, anim: String) -> Effect(m) {
+    Effect::PlayAnimation { unit, anim }
 }
 
-pub fn add_ability(unit_id: Int, ability_id: Int) -> Effect(m) {
-    Effect::AddAbility { unit_id, ability_id }
+pub fn add_ability(unit: Unit, ability_id: Int) -> Effect(m) {
+    Effect::AddAbility { unit, ability_id }
 }
 
 pub fn add_sfx(model: String, x: Float, y: Float) -> Effect(m) {
     Effect::AddSfx { model, x, y }
 }
 
-pub fn set_unit_hp(unit_id: Int, hp: Float) -> Effect(m) {
-    Effect::SetUnitHp { unit_id, hp }
+pub fn set_unit_hp(unit: Unit, hp: Float) -> Effect(m) {
+    Effect::SetUnitHp { unit, hp }
 }
 
-pub fn set_unit_mana(unit_id: Int, mana: Float) -> Effect(m) {
-    Effect::SetUnitMana { unit_id, mana }
+pub fn set_unit_mana(unit: Unit, mana: Float) -> Effect(m) {
+    Effect::SetUnitMana { unit, mana }
 }
 
 pub fn pan_camera(player_id: Int, x: Float, y: Float) -> Effect(m) {
@@ -80,6 +105,90 @@ pub fn play_sound(path: String) -> Effect(m) {
     Effect::PlaySound { path }
 }
 
+pub fn give_gold(player_id: Int, gold_amount: Int) -> Effect(m) {
+    Effect::GiveGold { player_id, gold_amount }
+}
+
+pub fn board_row(label: String, value: String) -> BoardRow {
+    BoardRow { label, value }
+}
+
+pub fn update_board(title: String, rows: List(BoardRow)) -> Effect(m) {
+    Effect::UpdateBoard { title, rows }
+}
+
+pub fn find_nearest_enemy(x: Float, y: Float, radius: Float, callback: fn(Unit) -> m) -> Effect(m) {
+    Effect::FindNearestEnemy { x, y, radius, callback }
+}
+
+pub fn kill_unit(unit: Unit) -> Effect(m) {
+    Effect::KillUnit { unit }
+}
+
+pub fn remove_ability(unit: Unit, ability_id: Int) -> Effect(m) {
+    Effect::RemoveAbility { unit, ability_id }
+}
+
+pub fn set_unit_owner(unit: Unit, player_id: Int) -> Effect(m) {
+    Effect::SetUnitOwner { unit, player_id }
+}
+
+pub fn pause_unit(unit: Unit, paused: Bool) -> Effect(m) {
+    Effect::PauseUnit { unit, paused }
+}
+
+pub fn show_unit(unit: Unit, shown: Bool) -> Effect(m) {
+    Effect::ShowUnit { unit, shown }
+}
+
+pub fn set_invulnerable(unit: Unit, invulnerable: Bool) -> Effect(m) {
+    Effect::SetInvulnerable { unit, invulnerable }
+}
+
+pub fn issue_order(unit: Unit, order: String) -> Effect(m) {
+    Effect::IssueOrder { unit, order }
+}
+
+pub fn issue_point_order(unit: Unit, order: String, x: Float, y: Float) -> Effect(m) {
+    Effect::IssuePointOrder { unit, order, x, y }
+}
+
+pub fn issue_target_order(unit: Unit, order: String, target: Unit) -> Effect(m) {
+    Effect::IssueTargetOrder { unit, order, target }
+}
+
+pub fn add_sfx_target(model: String, unit: Unit, attach_point: String) -> Effect(m) {
+    Effect::AddSfxTarget { model, unit, attach_point }
+}
+
+pub fn revive_hero(unit: Unit, x: Float, y: Float) -> Effect(m) {
+    Effect::ReviveHero { unit, x, y }
+}
+
+pub fn add_hero_xp(unit: Unit, xp: Int) -> Effect(m) {
+    Effect::AddHeroXp { unit, xp }
+}
+
+pub fn set_unit_facing(unit: Unit, facing: Float) -> Effect(m) {
+    Effect::SetUnitFacing { unit, facing }
+}
+
+pub fn give_lumber(player_id: Int, lumber_amount: Int) -> Effect(m) {
+    Effect::GiveLumber { player_id, lumber_amount }
+}
+
+pub fn ping_minimap(x: Float, y: Float, duration: Float) -> Effect(m) {
+    Effect::PingMinimap { x, y, duration }
+}
+
+pub fn create_item(item_type_id: Int, x: Float, y: Float) -> Effect(m) {
+    Effect::CreateItem { item_type_id, x, y }
+}
+
+pub fn set_unit_move_speed(unit: Unit, speed: Float) -> Effect(m) {
+    Effect::SetUnitMoveSpeed { unit, speed }
+}
+
 // --- Functor: map over the message type ---
 // Transforms Effect(a) → Effect(b) by wrapping After's callback.
 // All other variants are phantom in M — reconstructed with new type.
@@ -90,30 +199,70 @@ pub fn map(fx: Effect(a), f: fn(a) -> b) -> Effect(b) {
             Effect::After { duration, callback: fn() { f(callback()) } }
         DisplayText(player_id, text, duration) ->
             Effect::DisplayText { player_id, text, duration }
-        DamageUnit(source_id, target_id, amount, attack_type, damage_type) ->
-            Effect::DamageUnit { source_id, target_id, amount, attack_type, damage_type }
+        DamageUnit(source, target, amount, attack_type, damage_type) ->
+            Effect::DamageUnit { source, target, amount, attack_type, damage_type }
         CreateUnit(owner, type_id, x, y, facing) ->
             Effect::CreateUnit { owner, type_id, x, y, facing }
-        RemoveUnit(unit_id) ->
-            Effect::RemoveUnit { unit_id }
-        MoveUnit(unit_id, x, y) ->
-            Effect::MoveUnit { unit_id, x, y }
-        PlayAnimation(unit_id, anim) ->
-            Effect::PlayAnimation { unit_id, anim }
-        AddAbility(unit_id, ability_id) ->
-            Effect::AddAbility { unit_id, ability_id }
+        RemoveUnit(unit) ->
+            Effect::RemoveUnit { unit }
+        MoveUnit(unit, x, y) ->
+            Effect::MoveUnit { unit, x, y }
+        PlayAnimation(unit, anim) ->
+            Effect::PlayAnimation { unit, anim }
+        AddAbility(unit, ability_id) ->
+            Effect::AddAbility { unit, ability_id }
         AddSfx(model, x, y) ->
             Effect::AddSfx { model, x, y }
-        SetUnitHp(unit_id, hp) ->
-            Effect::SetUnitHp { unit_id, hp }
-        SetUnitMana(unit_id, mana) ->
-            Effect::SetUnitMana { unit_id, mana }
+        SetUnitHp(unit, hp) ->
+            Effect::SetUnitHp { unit, hp }
+        SetUnitMana(unit, mana) ->
+            Effect::SetUnitMana { unit, mana }
         PanCamera(player_id, x, y) ->
             Effect::PanCamera { player_id, x, y }
         ShowFloatingText(text, x, y, size) ->
             Effect::ShowFloatingText { text, x, y, size }
         PlaySound(path) ->
             Effect::PlaySound { path }
+        GiveGold(player_id, gold_amount) ->
+            Effect::GiveGold { player_id, gold_amount }
+        GiveLumber(player_id, lumber_amount) ->
+            Effect::GiveLumber { player_id, lumber_amount }
+        UpdateBoard(title, rows) ->
+            Effect::UpdateBoard { title, rows }
+        FindNearestEnemy(x, y, radius, callback) ->
+            Effect::FindNearestEnemy { x, y, radius, callback: fn(u: Unit) { f(callback(u)) } }
+        KillUnit(unit) ->
+            Effect::KillUnit { unit }
+        RemoveAbility(unit, ability_id) ->
+            Effect::RemoveAbility { unit, ability_id }
+        SetUnitOwner(unit, player_id) ->
+            Effect::SetUnitOwner { unit, player_id }
+        PauseUnit(unit, paused) ->
+            Effect::PauseUnit { unit, paused }
+        ShowUnit(unit, shown) ->
+            Effect::ShowUnit { unit, shown }
+        SetInvulnerable(unit, invulnerable) ->
+            Effect::SetInvulnerable { unit, invulnerable }
+        IssueOrder(unit, order) ->
+            Effect::IssueOrder { unit, order }
+        IssuePointOrder(unit, order, x, y) ->
+            Effect::IssuePointOrder { unit, order, x, y }
+        IssueTargetOrder(unit, order, target) ->
+            Effect::IssueTargetOrder { unit, order, target }
+        AddSfxTarget(model, unit, attach_point) ->
+            Effect::AddSfxTarget { model, unit, attach_point }
+        ReviveHero(unit, x, y) ->
+            Effect::ReviveHero { unit, x, y }
+        AddHeroXp(unit, xp) ->
+            Effect::AddHeroXp { unit, xp }
+        SetUnitFacing(unit, facing) ->
+            Effect::SetUnitFacing { unit, facing }
+        PingMinimap(x, y, duration) ->
+            Effect::PingMinimap { x, y, duration }
+        CreateItem(item_type_id, x, y) ->
+            Effect::CreateItem { item_type_id, x, y }
+        SetUnitMoveSpeed(unit, speed) ->
+            Effect::SetUnitMoveSpeed { unit, speed }
     }
 }
 
