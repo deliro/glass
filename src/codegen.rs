@@ -1307,9 +1307,18 @@ impl JassCodegen {
                 }
 
                 let obj = self.gen_expr(&object.node);
-                // Look up the object's type to generate the correct getter name
                 let mut type_name = self
                     .lookup_full_type(object.span)
+                    .or_else(|| {
+                        if let Expr::Var(name) = &object.node {
+                            self.lookup_full_type(crate::token::Span {
+                                start: object.span.start,
+                                end: object.span.start + name.len(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
                     .map(|ty| match &ty {
                         Type::Con(name) => name.clone(),
                         Type::App(con, _) => match con.as_ref() {
@@ -1351,7 +1360,18 @@ impl JassCodegen {
                 if type_name.is_empty() {
                     format!("glass_get_{}({})", field, obj)
                 } else {
-                    format!("glass_{}_{}_{} [{}]", type_name, type_name, field, obj)
+                    let variant_name = self
+                        .types
+                        .types
+                        .get(&type_name)
+                        .and_then(|info| {
+                            info.variants
+                                .iter()
+                                .find(|v| v.fields.iter().any(|f| f.name == *field))
+                                .map(|v| v.name.clone())
+                        })
+                        .unwrap_or_else(|| type_name.clone());
+                    format!("glass_{}_{}_{} [{}]", type_name, variant_name, field, obj)
                 }
             }
 
