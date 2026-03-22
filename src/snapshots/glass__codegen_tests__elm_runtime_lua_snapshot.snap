@@ -50,7 +50,10 @@ function glass_exec_effect(fx)
         SetTextTagPermanent(tt, false)
         SetTextTagVelocity(tt, 0.0, 0.04)
     elseif fx.tag == glass_TAG_Effect_PlaySound then
-        -- PlaySound not yet implemented
+        local snd = CreateSound(fx.path, false, false, false, 10, 10, "DefaultEAXON")
+        SetSoundVolume(snd, 127)
+        StartSound(snd)
+        KillSoundWhenDone(snd)
     elseif fx.tag == glass_TAG_Effect_FindNearestEnemy then
         local g = CreateGroup()
         GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)

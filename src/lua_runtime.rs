@@ -109,7 +109,12 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("        SetTextTagVelocity(tt, 0.0, 0.04)\n");
 
     output.push_str("    elseif fx.tag == glass_TAG_Effect_PlaySound then\n");
-    output.push_str("        -- PlaySound not yet implemented\n");
+    output.push_str(
+        "        local snd = CreateSound(fx.path, false, false, false, 10, 10, \"DefaultEAXON\")\n",
+    );
+    output.push_str("        SetSoundVolume(snd, 127)\n");
+    output.push_str("        StartSound(snd)\n");
+    output.push_str("        KillSoundWhenDone(snd)\n");
 
     output.push_str("    elseif fx.tag == glass_TAG_Effect_FindNearestEnemy then\n");
     output.push_str("        local g = CreateGroup()\n");

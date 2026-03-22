@@ -32,6 +32,12 @@ function glass_timer_callback takes nothing returns nothing
     local unit u
     local effect sfx
     local texttag tt
+    local sound snd
+    local integer row_count
+    local integer row_cur
+    local integer row_data
+    local multiboarditem mbi
+    local integer ri
     if cb_type == 1 then
         set msg_result = glass_dispatch_1_unit(closure_id, cb_unit)
     else
@@ -155,6 +161,44 @@ function glass_timer_callback takes nothing returns nothing
             endloop
             call DestroyGroup(glass_group_temp)
             set glass_group_temp = null
+        elseif fx_tag == glass_TAG_Effect_PlaySound then
+            set snd = CreateSound(glass_Effect_PlaySound_path[fx_id], false, false, false, 10, 10, "DefaultEAXON")
+            call SetSoundVolume(snd, 127)
+            call StartSound(snd)
+            call KillSoundWhenDone(snd)
+            set snd = null
+        elseif fx_tag == glass_TAG_Effect_UpdateBoard then
+            set row_count = 0
+            set row_cur = glass_Effect_UpdateBoard_rows[fx_id]
+            loop
+                exitwhen row_cur == -1
+                set row_count = row_count + 1
+                set row_cur = glass_List_integer_tail[row_cur]
+            endloop
+            if glass_multiboard == null then
+                set glass_multiboard = CreateMultiboard()
+            endif
+            call MultiboardSetColumnCount(glass_multiboard, 2)
+            call MultiboardSetRowCount(glass_multiboard, row_count)
+            call MultiboardSetTitleText(glass_multiboard, glass_Effect_UpdateBoard_title[fx_id])
+            call MultiboardDisplay(glass_multiboard, true)
+            set row_cur = glass_Effect_UpdateBoard_rows[fx_id]
+            set ri = 0
+            loop
+                exitwhen row_cur == -1
+                set row_data = glass_List_integer_head[row_cur]
+                set mbi = MultiboardGetItem(glass_multiboard, ri, 0)
+                call MultiboardSetItemValue(mbi, glass_BoardRow_label[row_data])
+                call MultiboardSetItemWidth(mbi, 0.10)
+                call MultiboardReleaseItem(mbi)
+                set mbi = MultiboardGetItem(glass_multiboard, ri, 1)
+                call MultiboardSetItemValue(mbi, glass_BoardRow_value[row_data])
+                call MultiboardSetItemWidth(mbi, 0.08)
+                call MultiboardReleaseItem(mbi)
+                set ri = ri + 1
+                set row_cur = glass_List_integer_tail[row_cur]
+            endloop
+            set mbi = null
         endif
         call glass_Effect_dealloc(fx_id)
         set current = glass_List_integer_tail[current]
@@ -167,6 +211,12 @@ function glass_exec_effect takes integer fx_id returns nothing
     local unit u
     local effect sfx
     local texttag tt
+    local sound snd
+    local integer row_count
+    local integer row_cur
+    local integer row_data
+    local multiboarditem mbi
+    local integer ri
     if fx_tag == glass_TAG_Effect_After then
         set t = CreateTimer()
         call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_After_callback[fx_id])
@@ -270,6 +320,44 @@ function glass_exec_effect takes integer fx_id returns nothing
         endloop
         call DestroyGroup(glass_group_temp)
         set glass_group_temp = null
+    elseif fx_tag == glass_TAG_Effect_PlaySound then
+        set snd = CreateSound(glass_Effect_PlaySound_path[fx_id], false, false, false, 10, 10, "DefaultEAXON")
+        call SetSoundVolume(snd, 127)
+        call StartSound(snd)
+        call KillSoundWhenDone(snd)
+        set snd = null
+    elseif fx_tag == glass_TAG_Effect_UpdateBoard then
+        set row_count = 0
+        set row_cur = glass_Effect_UpdateBoard_rows[fx_id]
+        loop
+            exitwhen row_cur == -1
+            set row_count = row_count + 1
+            set row_cur = glass_List_integer_tail[row_cur]
+        endloop
+        if glass_multiboard == null then
+            set glass_multiboard = CreateMultiboard()
+        endif
+        call MultiboardSetColumnCount(glass_multiboard, 2)
+        call MultiboardSetRowCount(glass_multiboard, row_count)
+        call MultiboardSetTitleText(glass_multiboard, glass_Effect_UpdateBoard_title[fx_id])
+        call MultiboardDisplay(glass_multiboard, true)
+        set row_cur = glass_Effect_UpdateBoard_rows[fx_id]
+        set ri = 0
+        loop
+            exitwhen row_cur == -1
+            set row_data = glass_List_integer_head[row_cur]
+            set mbi = MultiboardGetItem(glass_multiboard, ri, 0)
+            call MultiboardSetItemValue(mbi, glass_BoardRow_label[row_data])
+            call MultiboardSetItemWidth(mbi, 0.10)
+            call MultiboardReleaseItem(mbi)
+            set mbi = MultiboardGetItem(glass_multiboard, ri, 1)
+            call MultiboardSetItemValue(mbi, glass_BoardRow_value[row_data])
+            call MultiboardSetItemWidth(mbi, 0.08)
+            call MultiboardReleaseItem(mbi)
+            set ri = ri + 1
+            set row_cur = glass_List_integer_tail[row_cur]
+        endloop
+        set mbi = null
     endif
     call glass_Effect_dealloc(fx_id)
 endfunction

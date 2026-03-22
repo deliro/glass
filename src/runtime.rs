@@ -70,6 +70,9 @@ pub fn collect_runtime_globals(globals: &mut Vec<String>) {
     // Timer data hashtable for closure dispatch
     globals.push("    hashtable glass_timer_ht = null".into());
     globals.push("    group glass_group_temp = null".into());
+    globals.push("    multiboard glass_multiboard = null".into());
+    globals.push("    string array glass_BoardRow_label".into());
+    globals.push("    string array glass_BoardRow_value".into());
 }
 
 /// Generate the Elm runtime JASS functions (after user code).
@@ -118,6 +121,12 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("    local unit u\n");
     output.push_str("    local effect sfx\n");
     output.push_str("    local texttag tt\n");
+    output.push_str("    local sound snd\n");
+    output.push_str("    local integer row_count\n");
+    output.push_str("    local integer row_cur\n");
+    output.push_str("    local integer row_data\n");
+    output.push_str("    local multiboarditem mbi\n");
+    output.push_str("    local integer ri\n");
 
     // After — timer-based delayed callback
     output.push_str("    if fx_tag == glass_TAG_Effect_After then\n");
@@ -290,6 +299,50 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("        call DestroyGroup(glass_group_temp)\n");
     output.push_str("        set glass_group_temp = null\n");
 
+    // PlaySound
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_PlaySound then\n");
+    output.push_str("        set snd = CreateSound(glass_Effect_PlaySound_path[fx_id], false, false, false, 10, 10, \"DefaultEAXON\")\n");
+    output.push_str("        call SetSoundVolume(snd, 127)\n");
+    output.push_str("        call StartSound(snd)\n");
+    output.push_str("        call KillSoundWhenDone(snd)\n");
+    output.push_str("        set snd = null\n");
+
+    // UpdateBoard
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_UpdateBoard then\n");
+    output.push_str("        set row_count = 0\n");
+    output.push_str("        set row_cur = glass_Effect_UpdateBoard_rows[fx_id]\n");
+    output.push_str("        loop\n");
+    output.push_str("            exitwhen row_cur == -1\n");
+    output.push_str("            set row_count = row_count + 1\n");
+    output.push_str("            set row_cur = glass_List_integer_tail[row_cur]\n");
+    output.push_str("        endloop\n");
+    output.push_str("        if glass_multiboard == null then\n");
+    output.push_str("            set glass_multiboard = CreateMultiboard()\n");
+    output.push_str("        endif\n");
+    output.push_str("        call MultiboardSetColumnCount(glass_multiboard, 2)\n");
+    output.push_str("        call MultiboardSetRowCount(glass_multiboard, row_count)\n");
+    output.push_str("        call MultiboardSetTitleText(glass_multiboard, glass_Effect_UpdateBoard_title[fx_id])\n");
+    output.push_str("        call MultiboardDisplay(glass_multiboard, true)\n");
+    output.push_str("        set row_cur = glass_Effect_UpdateBoard_rows[fx_id]\n");
+    output.push_str("        set ri = 0\n");
+    output.push_str("        loop\n");
+    output.push_str("            exitwhen row_cur == -1\n");
+    output.push_str("            set row_data = glass_List_integer_head[row_cur]\n");
+    output.push_str("            set mbi = MultiboardGetItem(glass_multiboard, ri, 0)\n");
+    output
+        .push_str("            call MultiboardSetItemValue(mbi, glass_BoardRow_label[row_data])\n");
+    output.push_str("            call MultiboardSetItemWidth(mbi, 0.10)\n");
+    output.push_str("            call MultiboardReleaseItem(mbi)\n");
+    output.push_str("            set mbi = MultiboardGetItem(glass_multiboard, ri, 1)\n");
+    output
+        .push_str("            call MultiboardSetItemValue(mbi, glass_BoardRow_value[row_data])\n");
+    output.push_str("            call MultiboardSetItemWidth(mbi, 0.08)\n");
+    output.push_str("            call MultiboardReleaseItem(mbi)\n");
+    output.push_str("            set ri = ri + 1\n");
+    output.push_str("            set row_cur = glass_List_integer_tail[row_cur]\n");
+    output.push_str("        endloop\n");
+    output.push_str("        set mbi = null\n");
+
     output.push_str("    endif\n");
     output.push_str("    call glass_Effect_dealloc(fx_id)\n");
     output.push_str("endfunction\n\n");
@@ -328,6 +381,12 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("    local unit u\n");
     output.push_str("    local effect sfx\n");
     output.push_str("    local texttag tt\n");
+    output.push_str("    local sound snd\n");
+    output.push_str("    local integer row_count\n");
+    output.push_str("    local integer row_cur\n");
+    output.push_str("    local integer row_data\n");
+    output.push_str("    local multiboarditem mbi\n");
+    output.push_str("    local integer ri\n");
     // Dispatch closure → get Msg (void or unit callback)
     output.push_str("    if cb_type == 1 then\n");
     output.push_str("        set msg_result = glass_dispatch_1_unit(closure_id, cb_unit)\n");
@@ -492,6 +551,50 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("            endloop\n");
     output.push_str("            call DestroyGroup(glass_group_temp)\n");
     output.push_str("            set glass_group_temp = null\n");
+    // PlaySound
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_PlaySound then\n");
+    output.push_str("            set snd = CreateSound(glass_Effect_PlaySound_path[fx_id], false, false, false, 10, 10, \"DefaultEAXON\")\n");
+    output.push_str("            call SetSoundVolume(snd, 127)\n");
+    output.push_str("            call StartSound(snd)\n");
+    output.push_str("            call KillSoundWhenDone(snd)\n");
+    output.push_str("            set snd = null\n");
+    // UpdateBoard
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_UpdateBoard then\n");
+    output.push_str("            set row_count = 0\n");
+    output.push_str("            set row_cur = glass_Effect_UpdateBoard_rows[fx_id]\n");
+    output.push_str("            loop\n");
+    output.push_str("                exitwhen row_cur == -1\n");
+    output.push_str("                set row_count = row_count + 1\n");
+    output.push_str("                set row_cur = glass_List_integer_tail[row_cur]\n");
+    output.push_str("            endloop\n");
+    output.push_str("            if glass_multiboard == null then\n");
+    output.push_str("                set glass_multiboard = CreateMultiboard()\n");
+    output.push_str("            endif\n");
+    output.push_str("            call MultiboardSetColumnCount(glass_multiboard, 2)\n");
+    output.push_str("            call MultiboardSetRowCount(glass_multiboard, row_count)\n");
+    output.push_str("            call MultiboardSetTitleText(glass_multiboard, glass_Effect_UpdateBoard_title[fx_id])\n");
+    output.push_str("            call MultiboardDisplay(glass_multiboard, true)\n");
+    output.push_str("            set row_cur = glass_Effect_UpdateBoard_rows[fx_id]\n");
+    output.push_str("            set ri = 0\n");
+    output.push_str("            loop\n");
+    output.push_str("                exitwhen row_cur == -1\n");
+    output.push_str("                set row_data = glass_List_integer_head[row_cur]\n");
+    output.push_str("                set mbi = MultiboardGetItem(glass_multiboard, ri, 0)\n");
+    output.push_str(
+        "                call MultiboardSetItemValue(mbi, glass_BoardRow_label[row_data])\n",
+    );
+    output.push_str("                call MultiboardSetItemWidth(mbi, 0.10)\n");
+    output.push_str("                call MultiboardReleaseItem(mbi)\n");
+    output.push_str("                set mbi = MultiboardGetItem(glass_multiboard, ri, 1)\n");
+    output.push_str(
+        "                call MultiboardSetItemValue(mbi, glass_BoardRow_value[row_data])\n",
+    );
+    output.push_str("                call MultiboardSetItemWidth(mbi, 0.08)\n");
+    output.push_str("                call MultiboardReleaseItem(mbi)\n");
+    output.push_str("                set ri = ri + 1\n");
+    output.push_str("                set row_cur = glass_List_integer_tail[row_cur]\n");
+    output.push_str("            endloop\n");
+    output.push_str("            set mbi = null\n");
     output.push_str("        endif\n");
     output.push_str("        call glass_Effect_dealloc(fx_id)\n");
     output.push_str("        set current = glass_List_integer_tail[current]\n");
