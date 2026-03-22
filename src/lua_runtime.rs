@@ -121,6 +121,13 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("            glass_send_msg(msg)\n");
     output.push_str("        end\n");
 
+    output.push_str("    elseif fx.tag == glass_TAG_Effect_CreateUnitCallback then\n");
+    output.push_str(
+        "        local u = CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)\n",
+    );
+    output.push_str("        local msg = fx.callback(u)\n");
+    output.push_str("        glass_send_msg(msg)\n");
+
     output.push_str("    elseif fx.tag == glass_TAG_Effect_GiveGold then\n");
     output.push_str("        SetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_GOLD) + fx.gold_amount)\n");
 

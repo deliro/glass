@@ -24,6 +24,7 @@ pub enum Effect(M) {
     GiveLumber { player_id: Int, lumber_amount: Int }
     UpdateBoard { title: String, rows: List(BoardRow) }
     FindNearestEnemy { x: Float, y: Float, radius: Float, callback: fn(Unit) -> M }
+    CreateUnitCallback { owner: Int, type_id: Int, x: Float, y: Float, facing: Float, callback: fn(Unit) -> M }
     KillUnit { unit: Unit }
     RemoveAbility { unit: Unit, ability_id: Int }
     SetUnitOwner { unit: Unit, player_id: Int }
@@ -119,6 +120,10 @@ pub fn update_board(title: String, rows: List(BoardRow)) -> Effect(m) {
 
 pub fn find_nearest_enemy(x: Float, y: Float, radius: Float, callback: fn(Unit) -> m) -> Effect(m) {
     Effect::FindNearestEnemy { x, y, radius, callback }
+}
+
+pub fn create_unit_callback(owner: Int, type_id: Int, x: Float, y: Float, facing: Float, callback: fn(Unit) -> m) -> Effect(m) {
+    Effect::CreateUnitCallback { owner, type_id, x, y, facing, callback }
 }
 
 pub fn kill_unit(unit: Unit) -> Effect(m) {
@@ -231,6 +236,8 @@ pub fn map(fx: Effect(a), f: fn(a) -> b) -> Effect(b) {
             Effect::UpdateBoard { title, rows }
         FindNearestEnemy(x, y, radius, callback) ->
             Effect::FindNearestEnemy { x, y, radius, callback: fn(u: Unit) { f(callback(u)) } }
+        CreateUnitCallback(owner, type_id, x, y, facing, callback) ->
+            Effect::CreateUnitCallback { owner, type_id, x, y, facing, callback: fn(u: Unit) { f(callback(u)) } }
         KillUnit(unit) ->
             Effect::KillUnit { unit }
         RemoveAbility(unit, ability_id) ->

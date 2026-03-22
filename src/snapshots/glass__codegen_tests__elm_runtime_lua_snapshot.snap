@@ -60,6 +60,10 @@ function glass_exec_effect(fx)
             local msg = fx.callback(best)
             glass_send_msg(msg)
         end
+    elseif fx.tag == glass_TAG_Effect_CreateUnitCallback then
+        local u = CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)
+        local msg = fx.callback(u)
+        glass_send_msg(msg)
     elseif fx.tag == glass_TAG_Effect_GiveGold then
         SetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_GOLD) + fx.gold_amount)
     elseif fx.tag == glass_TAG_Effect_GiveLumber then

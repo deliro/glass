@@ -20,6 +20,8 @@ function glass_timer_callback takes nothing returns nothing
     local timer t = GetExpiredTimer()
     local integer hid = GetHandleId(t)
     local integer closure_id = LoadInteger(glass_timer_ht, hid, 0)
+    local integer cb_type = LoadInteger(glass_timer_ht, hid, 2)
+    local unit cb_unit = LoadUnitHandle(glass_timer_ht, hid, 1)
     local integer msg_result = 0
     local integer glass_result
     local integer glass_effects
@@ -30,10 +32,15 @@ function glass_timer_callback takes nothing returns nothing
     local unit u
     local effect sfx
     local texttag tt
-    set msg_result = glass_dispatch_void(closure_id)
+    if cb_type == 1 then
+        set msg_result = glass_dispatch_1_unit(closure_id, cb_unit)
+    else
+        set msg_result = glass_dispatch_void(closure_id)
+    endif
     call FlushChildHashtable(glass_timer_ht, hid)
     call DestroyTimer(t)
     set t = null
+    set cb_unit = null
     set glass_msg_tag = msg_result
     set glass_msg_p0 = 0
     set glass_msg_p1 = 0
@@ -123,6 +130,15 @@ function glass_timer_callback takes nothing returns nothing
             call CreateItem(glass_Effect_CreateItem_item_type_id[fx_id], glass_Effect_CreateItem_x[fx_id], glass_Effect_CreateItem_y[fx_id])
         elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then
             call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])
+        elseif fx_tag == glass_TAG_Effect_CreateUnitCallback then
+            set t2 = CreateTimer()
+            set u = CreateUnit(Player(glass_Effect_CreateUnitCallback_owner[fx_id]), glass_Effect_CreateUnitCallback_type_id[fx_id], glass_Effect_CreateUnitCallback_x[fx_id], glass_Effect_CreateUnitCallback_y[fx_id], glass_Effect_CreateUnitCallback_facing[fx_id])
+            call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_CreateUnitCallback_callback[fx_id])
+            call SaveUnitHandle(glass_timer_ht, GetHandleId(t2), 1, u)
+            call SaveInteger(glass_timer_ht, GetHandleId(t2), 2, 1)
+            call TimerStart(t2, 0.0, false, function glass_timer_callback)
+            set u = null
+            set t2 = null
         endif
         call glass_Effect_dealloc(fx_id)
         set current = glass_List_integer_tail[current]
@@ -213,6 +229,15 @@ function glass_exec_effect takes integer fx_id returns nothing
         call CreateItem(glass_Effect_CreateItem_item_type_id[fx_id], glass_Effect_CreateItem_x[fx_id], glass_Effect_CreateItem_y[fx_id])
     elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then
         call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])
+    elseif fx_tag == glass_TAG_Effect_CreateUnitCallback then
+        set t = CreateTimer()
+        set u = CreateUnit(Player(glass_Effect_CreateUnitCallback_owner[fx_id]), glass_Effect_CreateUnitCallback_type_id[fx_id], glass_Effect_CreateUnitCallback_x[fx_id], glass_Effect_CreateUnitCallback_y[fx_id], glass_Effect_CreateUnitCallback_facing[fx_id])
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_CreateUnitCallback_callback[fx_id])
+        call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 1)
+        call TimerStart(t, 0.0, false, function glass_timer_callback)
+        set u = null
+        set t = null
     endif
     call glass_Effect_dealloc(fx_id)
 endfunction

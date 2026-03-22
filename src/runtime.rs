@@ -260,6 +260,17 @@ fn gen_exec_effect(output: &mut String) {
     output.push_str("    elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then\n");
     output.push_str("        call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])\n");
 
+    // CreateUnitCallback — deferred via 0-duration timer, cb_type=1 for unit dispatch
+    output.push_str("    elseif fx_tag == glass_TAG_Effect_CreateUnitCallback then\n");
+    output.push_str("        set t = CreateTimer()\n");
+    output.push_str("        set u = CreateUnit(Player(glass_Effect_CreateUnitCallback_owner[fx_id]), glass_Effect_CreateUnitCallback_type_id[fx_id], glass_Effect_CreateUnitCallback_x[fx_id], glass_Effect_CreateUnitCallback_y[fx_id], glass_Effect_CreateUnitCallback_facing[fx_id])\n");
+    output.push_str("        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_CreateUnitCallback_callback[fx_id])\n");
+    output.push_str("        call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)\n");
+    output.push_str("        call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 1)\n");
+    output.push_str("        call TimerStart(t, 0.0, false, function glass_timer_callback)\n");
+    output.push_str("        set u = null\n");
+    output.push_str("        set t = null\n");
+
     output.push_str("    endif\n");
     output.push_str("    call glass_Effect_dealloc(fx_id)\n");
     output.push_str("endfunction\n\n");
@@ -286,6 +297,8 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("    local timer t = GetExpiredTimer()\n");
     output.push_str("    local integer hid = GetHandleId(t)\n");
     output.push_str("    local integer closure_id = LoadInteger(glass_timer_ht, hid, 0)\n");
+    output.push_str("    local integer cb_type = LoadInteger(glass_timer_ht, hid, 2)\n");
+    output.push_str("    local unit cb_unit = LoadUnitHandle(glass_timer_ht, hid, 1)\n");
     output.push_str("    local integer msg_result = 0\n");
     output.push_str("    local integer glass_result\n");
     output.push_str("    local integer glass_effects\n");
@@ -296,12 +309,17 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("    local unit u\n");
     output.push_str("    local effect sfx\n");
     output.push_str("    local texttag tt\n");
-    // Dispatch closure → get Msg
-    output.push_str("    set msg_result = glass_dispatch_void(closure_id)\n");
+    // Dispatch closure → get Msg (void or unit callback)
+    output.push_str("    if cb_type == 1 then\n");
+    output.push_str("        set msg_result = glass_dispatch_1_unit(closure_id, cb_unit)\n");
+    output.push_str("    else\n");
+    output.push_str("        set msg_result = glass_dispatch_void(closure_id)\n");
+    output.push_str("    endif\n");
     // Cleanup expired timer
     output.push_str("    call FlushChildHashtable(glass_timer_ht, hid)\n");
     output.push_str("    call DestroyTimer(t)\n");
     output.push_str("    set t = null\n");
+    output.push_str("    set cb_unit = null\n");
     // Call update (inlined send_msg)
     output.push_str("    set glass_msg_tag = msg_result\n");
     output.push_str("    set glass_msg_p0 = 0\n");
@@ -426,7 +444,16 @@ fn gen_timer_callback(output: &mut String) {
     // SetUnitMoveSpeed
     output.push_str("        elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then\n");
     output.push_str("            call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])\n");
-    // FindNearestEnemy
+    // CreateUnitCallback — deferred via 0-duration timer, cb_type=1 for unit dispatch
+    output.push_str("        elseif fx_tag == glass_TAG_Effect_CreateUnitCallback then\n");
+    output.push_str("            set t2 = CreateTimer()\n");
+    output.push_str("            set u = CreateUnit(Player(glass_Effect_CreateUnitCallback_owner[fx_id]), glass_Effect_CreateUnitCallback_type_id[fx_id], glass_Effect_CreateUnitCallback_x[fx_id], glass_Effect_CreateUnitCallback_y[fx_id], glass_Effect_CreateUnitCallback_facing[fx_id])\n");
+    output.push_str("            call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_CreateUnitCallback_callback[fx_id])\n");
+    output.push_str("            call SaveUnitHandle(glass_timer_ht, GetHandleId(t2), 1, u)\n");
+    output.push_str("            call SaveInteger(glass_timer_ht, GetHandleId(t2), 2, 1)\n");
+    output.push_str("            call TimerStart(t2, 0.0, false, function glass_timer_callback)\n");
+    output.push_str("            set u = null\n");
+    output.push_str("            set t2 = null\n");
     output.push_str("        endif\n");
     output.push_str("        call glass_Effect_dealloc(fx_id)\n");
     output.push_str("        set current = glass_List_integer_tail[current]\n");

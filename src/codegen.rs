@@ -267,7 +267,7 @@ impl JassCodegen {
 
         // Phase 2.5: Closure dispatch functions with inlined lambda bodies.
         // Must be after user functions so lambda bodies can call them without forward references.
-        self.gen_closure_dispatch();
+        self.gen_closure_dispatch(elm_entry.is_some());
 
         // Phase 3: Emit Elm runtime functions (after user functions)
         if let Some(entry) = elm_entry {
@@ -538,15 +538,24 @@ impl JassCodegen {
     }
 
     /// Emit dispatch functions with inlined lambda bodies (after user code).
-    fn gen_closure_dispatch(&mut self) {
+    fn gen_closure_dispatch(&mut self, has_elm_entry: bool) {
         if self.lambdas.is_empty() {
-            // Always generate stub dispatch_void for runtime compatibility
             self.emit("function glass_dispatch_void takes integer glass_closure returns integer");
             self.indent += 1;
             self.emit("return 0");
             self.indent -= 1;
             self.emit("endfunction");
             self.output.push('\n');
+            if has_elm_entry {
+                self.emit(
+                    "function glass_dispatch_1_unit takes integer glass_closure, unit glass_p0 returns integer",
+                );
+                self.indent += 1;
+                self.emit("return 0");
+                self.indent -= 1;
+                self.emit("endfunction");
+                self.output.push('\n');
+            }
             return;
         }
 
@@ -727,6 +736,17 @@ impl JassCodegen {
         self.indent -= 1;
         self.emit("endfunction");
         self.output.push('\n');
+
+        if has_elm_entry && !sorted_sigs.iter().any(|s| s == &["unit".to_string()]) {
+            self.emit(
+                "function glass_dispatch_1_unit takes integer glass_closure, unit glass_p0 returns integer",
+            );
+            self.indent += 1;
+            self.emit("return 0");
+            self.indent -= 1;
+            self.emit("endfunction");
+            self.output.push('\n');
+        }
     }
 
     fn gen_alloc_fn(&mut self, type_name: &str) {
@@ -1303,25 +1323,28 @@ impl JassCodegen {
                 // Fallback: if type_map gave a primitive or empty name, search TypeRegistry
                 // for a user-defined type that has this field.
                 if type_name.is_empty() || !self.types.types.contains_key(&type_name) {
-                    let mut candidates: Vec<String> = Vec::new();
-                    for (tn, info) in &self.types.types {
-                        for variant in &info.variants {
-                            if variant.fields.iter().any(|f| f.name == *field) {
-                                candidates.push(tn.clone());
-                                break;
-                            }
-                        }
-                    }
+                    let mut candidates: Vec<String> = self
+                        .types
+                        .types
+                        .iter()
+                        .filter(|(_, info)| {
+                            info.variants
+                                .iter()
+                                .any(|v| v.fields.iter().any(|f| f.name == *field))
+                        })
+                        .map(|(tn, _)| tn.clone())
+                        .collect();
+                    candidates.sort();
                     if candidates.len() == 1 {
                         type_name = candidates.into_iter().next().unwrap_or_default();
                     } else if candidates.len() > 1 {
-                        // Disambiguate: prefer a type that matches a current function parameter
                         let param_match = candidates
                             .iter()
-                            .find(|c| self.current_fn_param_type_names.contains(c));
-                        if let Some(matched) = param_match {
-                            type_name = matched.clone();
-                        }
+                            .find(|c| self.current_fn_param_type_names.contains(c))
+                            .cloned();
+                        type_name = param_match
+                            .or_else(|| candidates.into_iter().next())
+                            .unwrap_or_default();
                     }
                 }
 
