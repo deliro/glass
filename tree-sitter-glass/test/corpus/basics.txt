@@ -1,0 +1,463 @@
+================
+Function definition
+================
+
+fn add(a: Int, b: Int) -> Int { a + b }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list
+      (parameter (pattern (lower_identifier)) (type_name (upper_identifier)))
+      (parameter (pattern (lower_identifier)) (type_name (upper_identifier))))
+    (type_name (upper_identifier))
+    (block
+      (binary_expr
+        (lower_identifier)
+        (lower_identifier)))))
+
+================
+Import simple
+================
+
+import effect
+
+---
+
+(source_file
+  (import_definition
+    (import_path (lower_identifier))))
+
+================
+Import with path
+================
+
+import wc3/unit
+
+---
+
+(source_file
+  (import_definition
+    (import_path
+      (lower_identifier)
+      (lower_identifier))))
+
+================
+Import with exposing
+================
+
+import option { Option }
+
+---
+
+(source_file
+  (import_definition
+    (import_path (lower_identifier))
+    (import_exposing
+      (import_item (upper_identifier)))))
+
+================
+Import with as
+================
+
+import option { Option as Opt }
+
+---
+
+(source_file
+  (import_definition
+    (import_path (lower_identifier))
+    (import_exposing
+      (import_item
+        (upper_identifier)
+        (upper_identifier)))))
+
+================
+Enum with variants
+================
+
+pub enum Msg { Tick Reset }
+
+---
+
+(source_file
+  (enum_definition
+    (visibility)
+    (upper_identifier)
+    (variant (upper_identifier))
+    (variant (upper_identifier))))
+
+================
+Enum with named fields
+================
+
+pub enum Msg {
+    Attack { attacker: Unit, target: Unit }
+}
+
+---
+
+(source_file
+  (enum_definition
+    (visibility)
+    (upper_identifier)
+    (variant
+      (upper_identifier)
+      (field_declaration (lower_identifier) (type_name (upper_identifier)))
+      (field_declaration (lower_identifier) (type_name (upper_identifier))))))
+
+================
+Enum with type params
+================
+
+pub enum Option(T) { Some(T) None }
+
+---
+
+(source_file
+  (enum_definition
+    (visibility)
+    (upper_identifier)
+    (type_params (upper_identifier))
+    (variant (upper_identifier) (type_name (upper_identifier)))
+    (variant (upper_identifier))))
+
+================
+Struct definition
+================
+
+pub struct Model { count: Int }
+
+---
+
+(source_file
+  (struct_definition
+    (visibility)
+    (upper_identifier)
+    (field_declaration
+      (lower_identifier)
+      (type_name (upper_identifier)))))
+
+================
+Const with rawcode
+================
+
+const id: Int = 'Otch'
+
+---
+
+(source_file
+  (const_definition
+    (lower_identifier)
+    (type_name (upper_identifier))
+    (rawcode_literal)))
+
+================
+Const with float
+================
+
+pub const speed: Float = 1600.0
+
+---
+
+(source_file
+  (const_definition
+    (visibility)
+    (lower_identifier)
+    (type_name (upper_identifier))
+    (float_literal)))
+
+================
+Case expression
+================
+
+fn test(x: Int) -> Int {
+    case x {
+        0 -> 1
+        _ -> x
+    }
+}
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list
+      (parameter (pattern (lower_identifier)) (type_name (upper_identifier))))
+    (type_name (upper_identifier))
+    (block
+      (case_expr
+        (lower_identifier)
+        (case_arm (pattern (int_literal)) (int_literal))
+        (case_arm (pattern (wildcard_pattern)) (lower_identifier))))))
+
+================
+Let binding
+================
+
+fn test() -> Int {
+    let x = 42
+    x
+}
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (type_name (upper_identifier))
+    (block
+      (let_binding
+        (pattern (lower_identifier))
+        (int_literal))
+      (lower_identifier))))
+
+================
+String literal
+================
+
+const s: String = "hello world"
+
+---
+
+(source_file
+  (const_definition
+    (lower_identifier)
+    (type_name (upper_identifier))
+    (string_literal)))
+
+================
+Boolean literal
+================
+
+fn test() -> Bool { True }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (type_name (upper_identifier))
+    (block (bool_literal))))
+
+================
+External function
+================
+
+@external("jass", "I2S")
+pub fn to_string(n: Int) -> String
+
+---
+
+(source_file
+  (external_definition
+    (attribute (lower_identifier) (string_literal) (string_literal))
+    (visibility)
+    (lower_identifier)
+    (parameter_list
+      (parameter (pattern (lower_identifier)) (type_name (upper_identifier))))
+    (type_name (upper_identifier))))
+
+================
+List expression
+================
+
+fn test() -> List(Int) { [1, 2, 3] }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (generic_type (upper_identifier) (type_name (upper_identifier)))
+    (block
+      (list_expr
+        (int_literal)
+        (int_literal)
+        (int_literal)))))
+
+================
+Empty list
+================
+
+fn test() -> List(Int) { [] }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (generic_type (upper_identifier) (type_name (upper_identifier)))
+    (block (list_expr))))
+
+================
+Cons list
+================
+
+fn test(h: Int, t: List(Int)) -> List(Int) { [h | t] }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list
+      (parameter (pattern (lower_identifier)) (type_name (upper_identifier)))
+      (parameter (pattern (lower_identifier)) (generic_type (upper_identifier) (type_name (upper_identifier)))))
+    (generic_type (upper_identifier) (type_name (upper_identifier)))
+    (block
+      (list_expr
+        (lower_identifier)
+        (lower_identifier)))))
+
+================
+Pipe operator
+================
+
+fn test(x: Int) -> String { x |> show }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list
+      (parameter (pattern (lower_identifier)) (type_name (upper_identifier))))
+    (type_name (upper_identifier))
+    (block
+      (binary_expr
+        (lower_identifier)
+        (lower_identifier)))))
+
+================
+Qualified constructor
+================
+
+fn test() -> Msg { Msg::Tick }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (type_name (upper_identifier))
+    (block
+      (qualified_upper
+        (upper_identifier)
+        (upper_identifier)))))
+
+================
+Record expression
+================
+
+fn test() -> Model { Model { count: 0 } }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (type_name (upper_identifier))
+    (block
+      (record_expr
+        (upper_identifier)
+        (field_init
+          (lower_identifier)
+          (int_literal))))))
+
+================
+Tuple expression
+================
+
+fn test() -> (Int, Int) { (1, 2) }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (tuple_type (type_name (upper_identifier)) (type_name (upper_identifier)))
+    (block
+      (tuple_expr
+        (int_literal)
+        (int_literal)))))
+
+================
+Lambda expression
+================
+
+fn test() -> fn(Int) -> Int { fn(x: Int) -> Int { x + 1 } }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (function_type (type_name (upper_identifier)) (type_name (upper_identifier)))
+    (block
+      (lambda_expr
+        (parameter (pattern (lower_identifier)) (type_name (upper_identifier)))
+        (type_name (upper_identifier))
+        (block
+          (binary_expr (lower_identifier) (int_literal)))))))
+
+================
+Clone expression
+================
+
+fn test(u: Unit) -> Unit { clone(u) }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list
+      (parameter (pattern (lower_identifier)) (type_name (upper_identifier))))
+    (type_name (upper_identifier))
+    (block
+      (clone_expr (lower_identifier)))))
+
+================
+Todo expression
+================
+
+fn test() -> Int { todo("not implemented") }
+
+---
+
+(source_file
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (type_name (upper_identifier))
+    (block
+      (todo_expr (string_literal)))))
+
+================
+Line comment
+================
+
+// this is a comment
+fn test() -> Int { 0 }
+
+---
+
+(source_file
+  (line_comment)
+  (function_definition
+    (lower_identifier)
+    (parameter_list)
+    (type_name (upper_identifier))
+    (block (int_literal))))

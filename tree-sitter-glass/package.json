@@ -1,0 +1,12 @@
+{
+  "name": "tree-sitter-glass",
+  "version": "0.1.0",
+  "main": "bindings/node",
+  "scripts": {
+    "build": "tree-sitter generate",
+    "test": "tree-sitter test"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.24.0"
+  }
+}
