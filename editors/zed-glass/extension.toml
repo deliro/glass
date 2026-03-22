@@ -6,5 +6,5 @@ authors = ["Glass Contributors"]
 description = "Glass language support"
 
 [grammars.glass]
-repository = "https://github.com/aspect-build/tree-sitter-glass"
-commit = "main"
+repository = "file:///Users/tochkamac/projects/own/glass/tree-sitter-glass"
+rev = "HEAD"
