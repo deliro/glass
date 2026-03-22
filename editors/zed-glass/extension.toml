@@ -5,6 +5,10 @@ schema_version = 1
 authors = ["Glass Contributors"]
 description = "Glass language support"
 
+[language_servers.glass]
+name = "Glass Language Server"
+languages = ["Glass"]
+
 [grammars.glass]
 repository = "file:///Users/tochkamac/projects/own/glass/tree-sitter-glass"
 rev = "adc9a35bd6f8ffb2a77820b14b304711c71ac867"

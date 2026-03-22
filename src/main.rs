@@ -12,6 +12,7 @@ mod inline;
 mod jass_parser;
 mod lift;
 mod linearity;
+mod lsp;
 mod lua_codegen;
 mod lua_runtime;
 mod modules;
@@ -109,6 +110,8 @@ enum Command {
         #[arg(value_name = "INPUT")]
         input: String,
     },
+    /// Start LSP server on stdin/stdout
+    Lsp,
 }
 
 fn main() {
@@ -117,6 +120,7 @@ fn main() {
     match cli.command {
         Some(Command::GenBindings { jass_file }) => cmd_gen_bindings(&jass_file),
         Some(Command::Check { input }) => cmd_check(&input),
+        Some(Command::Lsp) => lsp::run_lsp(),
         None => {
             let Some(input) = cli.input else {
                 eprintln!("Usage: glass <INPUT> [-o OUTPUT]");
