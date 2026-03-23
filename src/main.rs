@@ -265,7 +265,6 @@ fn cmd_compile(
     }
 }
 
-/// Run all checks using an already-computed InferResult.
 fn run_checks_with_result(
     filename: &str,
     source: &str,
@@ -294,7 +293,8 @@ fn run_checks_with_result(
     let _mono_types = mono::collect_mono_types(module, inferencer);
 
     // Linearity
-    let linearity_result = linearity::LinearityChecker::new().check_module(module);
+    let handle_types = build_handle_types(filename);
+    let linearity_result = linearity::LinearityChecker::new(handle_types).check_module(module);
     for w in &linearity_result.warnings {
         emit_warning(&w.message, w.span, "this handle", &named_src);
     }
@@ -313,7 +313,6 @@ fn run_checks_with_result(
     error_count
 }
 
-/// Run all checks (standalone — creates its own inferencer).
 fn run_checks(
     filename: &str,
     source: &str,
@@ -351,6 +350,23 @@ fn emit_warning(
         .with_severity(Severity::Warning)
         .with_label(LabeledSpan::at(span.start..span.end, label));
     eprintln!("{:?}", Report::new(diag).with_source_code(src.clone()));
+}
+
+fn build_handle_types(input: &str) -> std::collections::HashSet<String> {
+    let input_path = std::path::Path::new(input);
+    let mut candidates = Vec::new();
+    if let Some(parent) = input_path.parent() {
+        candidates.push(parent.join("sdk").join("common.j"));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("sdk").join("common.j"));
+    }
+    for path in candidates {
+        if let Ok(source) = std::fs::read_to_string(&path) {
+            return jass_parser::JassSdk::parse(&source).handle_type_names();
+        }
+    }
+    std::collections::HashSet::new()
 }
 
 fn resolve_imports(
