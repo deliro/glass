@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
+use crate::suggest::closest_match;
 use crate::token::Span;
 use crate::type_env::{ConstructorInfo, ConstructorRegistry, TypeEnv};
 use crate::type_repr::TypeVarId;
@@ -553,8 +554,13 @@ impl Inferencer {
                         });
                         self.var_gen.fresh()
                     } else {
+                        let suggestion = closest_match(name, env.all_names().into_iter());
+                        let message = match suggestion {
+                            Some(s) => format!("undefined variable '{name}', did you mean '{s}'?"),
+                            None => format!("undefined variable '{name}'"),
+                        };
                         self.errors.push(TypeError {
-                            message: format!("undefined variable '{name}'"),
+                            message,
                             span: expr.span,
                         });
                         self.var_gen.fresh()
@@ -623,16 +629,31 @@ impl Inferencer {
                 let arg_types: Vec<Type> = args.iter().map(|a| self.infer_expr(a, env)).collect();
                 let ret_type = self.var_gen.fresh();
 
+                let resolved_func = func_type.apply(&self.subst);
+                if let Type::Fn(ref params, _) = resolved_func
+                    && params.len() != arg_types.len()
+                {
+                    let fn_name = match &function.node {
+                        Expr::Var(n) => n.clone(),
+                        _ => "function".to_string(),
+                    };
+                    self.errors.push(TypeError {
+                        message: format!(
+                            "function '{}' expects {} arguments, got {}",
+                            fn_name,
+                            params.len(),
+                            arg_types.len()
+                        ),
+                        span: expr.span,
+                    });
+                    return ret_type;
+                }
+
                 let expected_fn = Type::Fn(arg_types, Box::new(ret_type.clone()));
-                match unify::unify(
-                    &func_type.apply(&self.subst),
-                    &expected_fn.apply(&self.subst),
-                    expr.span,
-                ) {
+                match unify::unify(&resolved_func, &expected_fn.apply(&self.subst), expr.span) {
                     Ok(s) => {
                         self.subst = self.subst.compose(&s);
                         let resolved = ret_type.apply(&self.subst);
-                        // Record for monomorphization
                         self.inferred_types.push(resolved.clone());
                         resolved
                     }
@@ -656,12 +677,23 @@ impl Inferencer {
                             args.iter().map(|a| self.infer_expr(a, env)).collect();
                         let ret_type = self.var_gen.fresh();
                         let fn_type = env.instantiate(&scheme, &mut self.var_gen);
+                        let resolved_fn = fn_type.apply(&self.subst);
+                        if let Type::Fn(ref params, _) = resolved_fn
+                            && params.len() != arg_types.len()
+                        {
+                            self.errors.push(TypeError {
+                                message: format!(
+                                    "function '{}' expects {} arguments, got {}",
+                                    qualified,
+                                    params.len(),
+                                    arg_types.len()
+                                ),
+                                span: expr.span,
+                            });
+                            return ret_type;
+                        }
                         let expected = Type::Fn(arg_types, Box::new(ret_type.clone()));
-                        match unify::unify(
-                            &fn_type.apply(&self.subst),
-                            &expected.apply(&self.subst),
-                            expr.span,
-                        ) {
+                        match unify::unify(&resolved_fn, &expected.apply(&self.subst), expr.span) {
                             Ok(s) => {
                                 self.subst = self.subst.compose(&s);
                                 let resolved = ret_type.apply(&self.subst);
@@ -679,12 +711,23 @@ impl Inferencer {
                             args.iter().map(|a| self.infer_expr(a, env)).collect();
                         let ret_type = self.var_gen.fresh();
                         let fn_type = env.instantiate(&scheme, &mut self.var_gen);
+                        let resolved_fn = fn_type.apply(&self.subst);
+                        if let Type::Fn(ref params, _) = resolved_fn
+                            && params.len() != arg_types.len()
+                        {
+                            self.errors.push(TypeError {
+                                message: format!(
+                                    "function '{}' expects {} arguments, got {}",
+                                    method,
+                                    params.len(),
+                                    arg_types.len()
+                                ),
+                                span: expr.span,
+                            });
+                            return ret_type;
+                        }
                         let expected = Type::Fn(arg_types, Box::new(ret_type.clone()));
-                        match unify::unify(
-                            &fn_type.apply(&self.subst),
-                            &expected.apply(&self.subst),
-                            expr.span,
-                        ) {
+                        match unify::unify(&resolved_fn, &expected.apply(&self.subst), expr.span) {
                             Ok(s) => {
                                 self.subst = self.subst.compose(&s);
                                 let resolved = ret_type.apply(&self.subst);
@@ -709,12 +752,23 @@ impl Inferencer {
                 match env.lookup(method) {
                     Some(scheme) => {
                         let fn_type = env.instantiate(scheme, &mut self.var_gen);
+                        let resolved_fn = fn_type.apply(&self.subst);
+                        if let Type::Fn(ref params, _) = resolved_fn
+                            && params.len() != all_arg_types.len()
+                        {
+                            self.errors.push(TypeError {
+                                message: format!(
+                                    "function '{}' expects {} arguments, got {}",
+                                    method,
+                                    params.len(),
+                                    all_arg_types.len()
+                                ),
+                                span: expr.span,
+                            });
+                            return ret_type;
+                        }
                         let expected = Type::Fn(all_arg_types, Box::new(ret_type.clone()));
-                        match unify::unify(
-                            &fn_type.apply(&self.subst),
-                            &expected.apply(&self.subst),
-                            expr.span,
-                        ) {
+                        match unify::unify(&resolved_fn, &expected.apply(&self.subst), expr.span) {
                             Ok(s) => {
                                 self.subst = self.subst.compose(&s);
                                 ret_type.apply(&self.subst)
@@ -773,8 +827,23 @@ impl Inferencer {
                             return ft.apply(&self.subst);
                         }
                     }
+                    let known_fields = self
+                        .constructors
+                        .all()
+                        .filter(|info| info.type_name == tn)
+                        .flat_map(|info| info.field_types.iter().map(|(n, _)| n.as_str()));
+                    let suggestion = closest_match(field, known_fields);
+                    let message = match suggestion {
+                        Some(s) => {
+                            format!(
+                                "type '{}' has no field '{}', did you mean '{}'?",
+                                tn, field, s
+                            )
+                        }
+                        None => format!("type '{}' has no field '{}'", tn, field),
+                    };
                     self.errors.push(TypeError {
-                        message: format!("type '{}' has no field '{}'", tn, field),
+                        message,
                         span: object.span,
                     });
                 }
@@ -820,8 +889,18 @@ impl Inferencer {
                         }
                     }
                     None => {
+                        let suggestion = closest_match(
+                            name,
+                            self.constructors.constructors.keys().map(|s| s.as_str()),
+                        );
+                        let message = match suggestion {
+                            Some(s) => {
+                                format!("unknown constructor '{name}', did you mean '{s}'?")
+                            }
+                            None => format!("unknown constructor '{name}'"),
+                        };
                         self.errors.push(TypeError {
-                            message: format!("unknown constructor '{name}'"),
+                            message,
                             span: expr.span,
                         });
                         self.var_gen.fresh()
@@ -860,8 +939,21 @@ impl Inferencer {
                         }
                     }
                     if !found {
+                        let known_fields = self
+                            .constructors
+                            .all()
+                            .filter(|info| info.type_name == *name)
+                            .flat_map(|info| info.field_types.iter().map(|(n, _)| n.as_str()));
+                        let suggestion = closest_match(field_name, known_fields);
+                        let message = match suggestion {
+                            Some(s) => format!(
+                                "type '{}' has no field '{}', did you mean '{}'?",
+                                name, field_name, s
+                            ),
+                            None => format!("type '{}' has no field '{}'", name, field_name),
+                        };
                         self.errors.push(TypeError {
-                            message: format!("type '{}' has no field '{}'", name, field_name),
+                            message,
                             span: val.span,
                         });
                     }
@@ -1273,13 +1365,19 @@ impl Inferencer {
                                 );
                             }
                         } else {
-                            self.errors.push(TypeError {
-                                message: format!(
+                            let known_fields = info.field_types.iter().map(|(n, _)| n.as_str());
+                            let suggestion = closest_match(&fp.field_name, known_fields);
+                            let message = match suggestion {
+                                Some(s) => format!(
+                                    "unknown field '{}' in constructor '{}', did you mean '{}'?",
+                                    fp.field_name, name, s
+                                ),
+                                None => format!(
                                     "unknown field '{}' in constructor '{}'",
                                     fp.field_name, name
                                 ),
-                                span,
-                            });
+                            };
+                            self.errors.push(TypeError { message, span });
                         }
                     }
                     // If no `..`, all fields must be mentioned
@@ -1981,6 +2079,121 @@ fn test() -> Option(Int) {
         assert_eq!(
             Type::Tuple(vec![Type::int(), Type::float()]).to_jass(),
             "integer"
+        );
+    }
+
+    #[test]
+    fn undefined_variable_suggestion() {
+        let errs = infer_errors("fn test(length: Int) -> Int { lenght }");
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].contains("undefined variable 'lenght'"));
+        assert!(errs[0].contains("did you mean 'length'?"));
+    }
+
+    #[test]
+    fn undefined_variable_no_suggestion_when_distant() {
+        let errs = infer_errors("fn test(x: Int) -> Int { completely_unknown }");
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].contains("undefined variable 'completely_unknown'"));
+        assert!(!errs[0].contains("did you mean"));
+    }
+
+    #[test]
+    fn unknown_field_suggestion_in_pattern() {
+        let source = r#"
+pub struct Model { wave: Int, score: Int }
+fn test(m: Model) -> Int {
+    case m {
+        Model { wafe, .. } -> wafe
+    }
+}
+"#;
+        let errs = infer_errors(source);
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("unknown field 'wafe'") && e.contains("did you mean 'wave'?")),
+            "expected suggestion for 'wafe', got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn unknown_field_no_suggestion_when_distant() {
+        let source = r#"
+pub struct Model { wave: Int }
+fn test(m: Model) -> Int {
+    case m {
+        Model { zzz, .. } -> zzz
+    }
+}
+"#;
+        let errs = infer_errors(source);
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("unknown field 'zzz'") && !e.contains("did you mean")),
+            "expected no suggestion for 'zzz', got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn arity_mismatch_too_few_args() {
+        let source = r#"
+fn add(a: Int, b: Int) -> Int { a + b }
+fn test() -> Int { add(1) }
+"#;
+        let errs = infer_errors(source);
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("expects 2 arguments, got 1")),
+            "expected arity mismatch error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn arity_mismatch_too_many_args() {
+        let source = r#"
+fn inc(a: Int) -> Int { a + 1 }
+fn test() -> Int { inc(1, 2) }
+"#;
+        let errs = infer_errors(source);
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("expects 1 arguments, got 2")),
+            "expected arity mismatch error, got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn unknown_constructor_suggestion() {
+        let source = r#"
+pub enum Phase { Lobby Playing Ended }
+fn test() -> Phase { Lobbu }
+"#;
+        let errs = infer_errors(source);
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("unknown constructor 'Lobbu'")
+                    && e.contains("did you mean 'Lobby'?")),
+            "expected suggestion for 'Lobbu', got: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn unknown_constructor_no_suggestion_when_distant() {
+        let source = r#"
+pub enum Phase { Lobby Playing Ended }
+fn test() -> Phase { Xyzzy }
+"#;
+        let errs = infer_errors(source);
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("unknown constructor 'Xyzzy'") && !e.contains("did you mean")),
+            "expected no suggestion for 'Xyzzy', got: {:?}",
+            errs
         );
     }
 }
