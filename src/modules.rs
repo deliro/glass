@@ -230,7 +230,10 @@ impl ModuleResolver {
             import: imp.clone(),
         })?;
 
-        let tokens = Lexer::tokenize(&source);
+        let tokens = Lexer::tokenize(&source).map_err(|e| ModuleError {
+            message: format!("lex error in '{}': {}", file_path.display(), e),
+            import: imp.clone(),
+        })?;
         let mut parser = Parser::new(tokens);
         let parsed = parser.parse_module().map_err(|e| ModuleError {
             message: format!("parse error in '{}': {}", file_path.display(), e.message),
@@ -291,7 +294,7 @@ mod tests {
         let mut resolver = ModuleResolver::new(&input);
 
         let source = "import option";
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
@@ -322,7 +325,7 @@ mod tests {
         let mut resolver = ModuleResolver::new(&input);
 
         let source = "import option { Option, option_map }";
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
@@ -339,7 +342,7 @@ mod tests {
         let mut resolver = ModuleResolver::new(&input);
 
         let source = "import option { Option, self }";
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
@@ -361,7 +364,7 @@ mod tests {
         let mut resolver = ModuleResolver::new(&input);
 
         let source = std::fs::read_to_string(&input).unwrap();
-        let tokens = Lexer::tokenize(&source);
+        let tokens = Lexer::tokenize(&source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 
@@ -377,7 +380,7 @@ mod tests {
         let mut resolver = ModuleResolver::new(&input);
 
         let source = "import nonexistent_module";
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().unwrap();
 

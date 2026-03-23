@@ -29,7 +29,21 @@ impl GlassLsp {
             }
         };
         let source_len = source.len();
-        let tokens = crate::token::Lexer::tokenize(&source);
+        let tokens = match crate::token::Lexer::tokenize(&source) {
+            Ok(t) => t,
+            Err(e) => {
+                let diag = Diagnostic {
+                    range: span_to_range(&source, e.span),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: format!("unexpected character: {:?}", e.text),
+                    ..Default::default()
+                };
+                self.client
+                    .publish_diagnostics(uri.clone(), vec![diag], None)
+                    .await;
+                return;
+            }
+        };
         let mut parser = crate::parser::Parser::new(tokens);
         let module = match parser.parse_module() {
             Ok(m) => m,

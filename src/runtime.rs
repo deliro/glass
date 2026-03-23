@@ -652,7 +652,7 @@ mod tests {
     use crate::token::Lexer;
 
     fn detect_entry_points(source: &str) -> Option<ElmEntryPoints> {
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().expect("parse failed");
         let types = TypeRegistry::from_module(&module);

@@ -9,7 +9,7 @@ use crate::types::TypeRegistry;
 use rstest::rstest;
 
 fn compile_jass(source: &str) -> String {
-    let tokens = Lexer::tokenize(source);
+    let tokens = Lexer::tokenize(source).expect("lex failed");
     let mut parser = Parser::new(tokens);
     let module = parser.parse_module().expect("parse failed");
     let types = TypeRegistry::from_module(&module);
@@ -27,7 +27,7 @@ fn compile_jass(source: &str) -> String {
 }
 
 fn compile_lua(source: &str) -> String {
-    let tokens = Lexer::tokenize(source);
+    let tokens = Lexer::tokenize(source).expect("lex failed");
     let mut parser = Parser::new(tokens);
     let module = parser.parse_module().expect("parse failed");
     let types = TypeRegistry::from_module(&module);

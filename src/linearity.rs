@@ -681,7 +681,7 @@ mod tests {
     use rstest::rstest;
 
     fn check(source: &str) -> LinearityResult {
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().expect("parse failed");
         LinearityChecker::new().check_module(&module)
@@ -704,7 +704,7 @@ mod tests {
     }
 
     fn local_fn_errs(source: &str) -> Vec<String> {
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().expect("parse failed");
         check_local_fns(&module)
