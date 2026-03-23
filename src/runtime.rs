@@ -64,9 +64,6 @@ pub fn collect_runtime_globals(globals: &mut Vec<String>) {
     globals.push("    // ========== Glass Elm Runtime ==========".into());
     globals.push("    integer glass_model = 0".into());
     globals.push("    integer glass_msg_tag = 0".into());
-    for i in 0..4 {
-        globals.push(format!("    integer glass_msg_p{} = 0", i));
-    }
     // Timer data hashtable for closure dispatch
     globals.push("    hashtable glass_timer_ht = null".into());
     globals.push("    group glass_group_temp = null".into());
@@ -400,8 +397,6 @@ fn gen_timer_callback(output: &mut String) {
     output.push_str("    set cb_unit = null\n");
     // Call update (inlined send_msg)
     output.push_str("    set glass_msg_tag = msg_result\n");
-    output.push_str("    set glass_msg_p0 = 0\n");
-    output.push_str("    set glass_msg_p1 = 0\n");
     output.push_str("    set glass_result = glass_dispatch_update()\n");
     output.push_str("    set glass_model = glass_rt_tuple_0(glass_result)\n");
     output.push_str("    set glass_effects = glass_rt_tuple_1(glass_result)\n");
@@ -612,21 +607,16 @@ fn gen_msg_dispatch(_entry: &ElmEntryPoints, output: &mut String) {
 /// glass_send_msg: call update, extract (model, effects), store model, process effects.
 fn gen_send_msg(output: &mut String) {
     output.push_str(
-        "function glass_send_msg takes integer tag, integer p0, integer p1 returns nothing\n",
+        "function glass_send_msg takes integer msg returns nothing\n",
     );
     output.push_str("    local integer glass_result\n");
     output.push_str("    local integer glass_new_model\n");
     output.push_str("    local integer glass_effects\n");
-    output.push_str("    set glass_msg_tag = tag\n");
-    output.push_str("    set glass_msg_p0 = p0\n");
-    output.push_str("    set glass_msg_p1 = p1\n");
-    // Call update → returns tuple (Model, List(Effect))
+    output.push_str("    set glass_msg_tag = msg\n");
     output.push_str("    set glass_result = glass_dispatch_update()\n");
-    // Extract tuple fields
     output.push_str("    set glass_new_model = glass_rt_tuple_0(glass_result)\n");
     output.push_str("    set glass_effects = glass_rt_tuple_1(glass_result)\n");
     output.push_str("    set glass_model = glass_new_model\n");
-    // Process the returned effects
     output.push_str("    call glass_process_effects(glass_effects)\n");
     output.push_str("endfunction\n\n");
 }

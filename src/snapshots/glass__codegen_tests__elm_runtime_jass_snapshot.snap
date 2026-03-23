@@ -48,8 +48,6 @@ function glass_timer_callback takes nothing returns nothing
     set t = null
     set cb_unit = null
     set glass_msg_tag = msg_result
-    set glass_msg_p0 = 0
-    set glass_msg_p1 = 0
     set glass_result = glass_dispatch_update()
     set glass_model = glass_rt_tuple_0(glass_result)
     set glass_effects = glass_rt_tuple_1(glass_result)
@@ -371,13 +369,11 @@ function glass_process_effects takes integer effect_list returns nothing
     endloop
 endfunction
 
-function glass_send_msg takes integer tag, integer p0, integer p1 returns nothing
+function glass_send_msg takes integer msg returns nothing
     local integer glass_result
     local integer glass_new_model
     local integer glass_effects
-    set glass_msg_tag = tag
-    set glass_msg_p0 = p0
-    set glass_msg_p1 = p1
+    set glass_msg_tag = msg
     set glass_result = glass_dispatch_update()
     set glass_new_model = glass_rt_tuple_0(glass_result)
     set glass_effects = glass_rt_tuple_1(glass_result)
