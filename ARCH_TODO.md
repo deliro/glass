@@ -50,7 +50,7 @@
 
 - [x] **14. ~~131 `unwrap`/`expect`/`panic!` calls~~** — false positive. The 75 `parser.rs` hits were `Parser::expect(Token)` method calls (returns `Result`), not `Option::expect()`. Actual count: 14 `.unwrap()` + 4 `panic!`, all in `#[cfg(test)]` blocks. Production code is clean.
 
-- [ ] **15. Captured var types default to `"integer"`** — `CapturedVar.jass_type` is a `String` set to `"integer"` when the actual type can't be resolved. Wrong type → JASS pjass validation failure or runtime corruption for non-integer captures.
+- [x] **15. ~~Captured var types default to `"integer"`~~** — fixed: `CapturedVar` now stores the span of the first variable usage; codegen resolves the actual JASS type via `type_map` lookup at emission time.
 
 - [ ] **16. Lexer continues after lex errors** — `token.rs` tokenize doesn't short-circuit on `Err(())` from logos. Garbage tokens can propagate to the parser.
 

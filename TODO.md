@@ -32,13 +32,13 @@
 
 - [x] **11.3 Field access for variant types** — `glass_get_Playing_wave(x)` → `glass_get_Phase_Playing_wave(x)`. Type name missing from getter. Fixed for single-variant types via type_map; broken for vars bound in pattern arms of multi-variant case.
 
-- [ ] **11.4 Positional field access** — `glass_field_0(x)` generated for `Constructor(val)` patterns. Should be `glass_get_{Type}_{Variant}_{field}[x]` like named fields.
+- [x] **11.4 Positional field access** — `glass_field_0(x)` generated for `Constructor(val)` patterns. Should be `glass_get_{Type}_{Variant}_{field}[x]` like named fields.
 
 - [x] **11.5 @external resolution for qualified module calls** — `int.to_string(x)` → `I2S(x)`, `float.to_string(y)` → `R2S(y)`. Qualified external names resolve correctly.
 
 - [x] **11.6 Module name collision** — `import int` + `import float` no longer breaks. Fix: module resolver deduplicates by qualified name (module.fn), inferencer maps each definition to its source module, colliding unqualified names are not bound (only qualified access works). Remaining issue: DCE keeps both versions of colliding imported pub functions → duplicate JASS function definitions when both modules imported.
 
-- [ ] **11.6b Duplicate imported functions in codegen** — when two modules export same-named pub functions (e.g. `int.min` and `float.min`), both end up in JASS output as `glass_min` causing a redefinition error. Fix: either qualify JASS names (`glass_int_min`) or improve DCE to only keep imported functions reachable from user code.
+- [x] **11.6b Duplicate imported functions in codegen** — when two modules export same-named pub functions (e.g. `int.min` and `float.min`), both end up in JASS output as `glass_min` causing a redefinition error. Fix: either qualify JASS names (`glass_int_min`) or improve DCE to only keep imported functions reachable from user code.
 
 - [x] **11.7 Lambda `_` parameter** — `fn(_: a)` generates `glass_unused_N`.
 
@@ -48,7 +48,7 @@
 
 **Lower priority:**
 
-- [ ] **11.10 `todo()` expression** — compile to runtime crash.
+- [x] **11.10 `todo()` expression** — compile to runtime crash.
 - [ ] **11.11 `extend` blocks codegen** — not implemented.
 
 ## Milestone 11b: Codegen correctness (fixes applied)
@@ -72,7 +72,7 @@
 
 ## Milestone 12: Юзабилити
 
-- [ ] **12.1 Multiline expressions** — verify pipe chains, case arms parse across line breaks.
+- [x] **12.1 Multiline expressions** — lexer treats newlines as whitespace, pipe chains and case arms parse across line breaks naturally.
 - [ ] **12.2 Better error messages** — "did you mean?", arg count mismatches, unknown fields.
 - [ ] **12.3 Watch mode** — `glass watch file.glass`.
 - [ ] **12.4 LSP / editor integration** — tree-sitter grammar or minimal language server.
@@ -263,6 +263,29 @@
 
 ---
 
+## Milestone 19: Syntax & pattern matching improvements
+
+### 19.1 Tuple syntax: `#(..)` → `(..)`
+- [x] **19.1.1** Remove `HashParen` token, parse `(expr, ...)` as tuple (2+ elements or trailing comma)
+- [x] **19.1.2** Update tuple type syntax `#(A, B)` → `(A, B)`
+- [x] **19.1.3** Update tuple pattern syntax `#(a, b)` → `(a, b)`
+- [x] **19.1.4** Update all examples, SDK files, tests (16 .glass + 9 .rs files)
+- [x] **19.1.5** Call disambiguation: `(` only parsed as call on Var/FieldAccess/Lambda targets
+- [x] **19.1.6** Tests pass (429), fmt, clippy clean
+
+### 19.2 Full destructuring (Rust-style)
+- [x] **19.2.1** Struct destructuring in let: `let Point { x, y } = p`
+- [x] **19.2.2** Nested destructuring: `let Pair { a: Point { x, y }, b } = p` (FieldPattern extended with `pattern: Option<Spanned<Pattern>>`)
+- [x] **19.2.3** Destructuring in function parameters: `fn foo(Point { x, y }: Point) -> Int` (desugared to `glass_dpN` param + let binding)
+- [x] **19.2.4** Tuple destructuring in function parameters: `fn foo((a, b): (Int, Int)) -> Int`
+- [x] **19.2.5** Wildcard in struct patterns: `Point { x, .. }` ignores remaining fields
+- [x] **19.2.6** Exhaustiveness: partial field patterns with `..` are exhaustive
+- [x] **19.2.7** Tuple patterns in case arms: codegen generates correct SoA field access
+- [x] **19.2.8** Comprehensive tests: 14 JASS + 5 Lua validity tests, 429 total green
+- [x] **19.2.9** Linearity: `Pattern as name` creates implicit clone — reject when Pattern contains handle fields
+
+---
+
 ## Milestone 18: Optimizations
 
 ### Phase 1 — Quick wins (no IR needed)
@@ -286,9 +309,9 @@
   - Lua: native TCO via `return f(...)` in tail position
   - `--no-tco` opt-out, topo sort handles TCO'd function dependencies, 391 tests green
 
-- [ ] **18.3 Beta reduction** — inline immediately-applied lambdas
-  - `(\x -> x + 1)(5)` → `5 + 1`
-  - Simple AST pass
+- [x] **18.3 Beta reduction** — inline immediately-applied lambdas
+  - `(fn(x) { body })(arg)` → `let x = arg in body`, also handles pipe into lambda
+  - AST pass (`beta.rs`), `--no-beta` opt-out, 410 tests green
 
 ### Phase 2 — Lambda lifting + Inlining
 
@@ -310,9 +333,10 @@
   - After lifting + inlining, only truly dynamic dispatch remains
   - Known call sites → direct calls instead of `glass_dispatch_N`
 
-- [ ] **18.7 Constant propagation** — propagate let-bound constants
-  - `let x = 5 in ... x ...` → substitute 5
-  - Extend from top-level `const` to `let` bindings
+- [x] **18.7 Constant propagation** — propagate let-bound constants
+  - Cheap values (Int, Float, String, Bool, Rawcode, Var) propagated into use sites
+  - Dead let bindings eliminated, single-use trivial values substituted
+  - AST pass (`const_prop.rs`), `--no-const-prop` opt-out, 410 tests green
 
 ### Phase 3 — Advanced (introduce ANF IR here)
 

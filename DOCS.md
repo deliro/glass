@@ -54,7 +54,7 @@ local fn update_camera(model: Model) {
   // create_unit(...)  // ОШИБКА КОМПИЛЯЦИИ: handle creation in local fn
 }
 
-fn update(model: Model, msg: Msg) -> #(Model, List(Effect(Msg))) {
+fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
   // get_local_player()  // ОШИБКА: не в local fn
   // ...
 }
@@ -199,7 +199,7 @@ primary         = LOWER_IDENT                                      (* variable *
                 | INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL
                 | RAWCODE_LITERAL                                  (* 'hfoo' — JASS raw codes *)
                 | "True" | "False"
-                | "#(" [ expr { "," expr } ] ")"                   (* tuple *)
+                | "(" [ expr { "," expr } ] ")"                   (* tuple *)
                 | "[" [ expr { "," expr } ] "]"                    (* list *)
                 | "[" expr "|" expr "]"                            (* list cons: [head | tail] *)
                 | "(" expr ")"                                     (* grouping *)
@@ -218,7 +218,7 @@ pattern         = "_"                                              (* discard *)
                 | "True" | "False"
                 | ctor_name [ "(" pattern { "," pattern } ")" ]    (* positional: Option::Some(x) *)
                 | ctor_name "{" field_pat { "," field_pat } [ "," ".." ] "}"  (* named: Phase::Playing { wave, .. } *)
-                | "#(" pattern { "," pattern } ")"                 (* tuple *)
+                | "(" pattern { "," pattern } ")"                 (* tuple *)
                 | "[" [ pattern { "," pattern } [ "|" pattern ] ] "]"  (* list *)
                 | pattern "|" pattern                              (* or pattern *)
                 | pattern "as" LOWER_IDENT ;                       (* alias *)
@@ -228,7 +228,7 @@ field_pat       = LOWER_IDENT [ "as" LOWER_IDENT ] ;              (* field or fi
 (* === Type expressions === *)
 type_expr       = UPPER_IDENT [ "(" type_expr { "," type_expr } ")" ]
                 | "fn" "(" [ type_expr { "," type_expr } ] ")" "->" type_expr
-                | "#(" type_expr { "," type_expr } ")" ;
+                | "(" type_expr { "," type_expr } ")" ;
 
 (* === Tokens === *)
 LOWER_IDENT     = [a-z_][a-zA-Z0-9_]* ;
@@ -282,22 +282,22 @@ pub enum Msg {
   UnitDied { killer_id: Int, bounty: Int }
 }
 
-pub fn init() -> #(Model, List(effect.Effect(Msg))) {
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
   let model = Model { phase: Phase::Lobby, tick: 0 }
-  #(model, [
+  (model, [
     effect.display_text(0, "Waiting for players...", 5.0),
     effect.after(5.0, fn() { Msg::StartGame }),
   ])
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
   case msg {
     Msg::StartGame -> {
       let new_model = Model {
         phase: Phase::Playing { wave: 1, lives: 20, gold: 100 },
         tick: 0,
       }
-      #(new_model, [
+      (new_model, [
         effect.display_text(0, "Wave 1 — Fight!", 5.0),
         effect.after(2.0, fn() { Msg::WaveTick }),
       ])
@@ -310,20 +310,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
             phase: Phase::Playing { wave, lives, gold },
             tick: model.tick + 1,
           }
-          #(new_model, [
+          (new_model, [
             effect.display_text(0, "Tick " <> int.to_string(model.tick), 2.0),
             effect.after(1.5, fn() { Msg::WaveTick }),
           ])
         }
-        _ -> #(model, [])
+        _ -> (model, [])
       }
     }
 
     Msg::UnitDied { bounty, .. } -> {
       case model.phase {
         Phase::Playing { wave, lives, gold, .. } ->
-          #(Model { phase: Phase::Playing { wave, lives, gold: gold + bounty }, tick: model.tick }, [])
-        _ -> #(model, [])
+          (Model { phase: Phase::Playing { wave, lives, gold: gold + bounty }, tick: model.tick }, [])
+        _ -> (model, [])
       }
     }
   }
@@ -338,7 +338,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
 
 - [ ] **1.1 Настройка проекта** — добавить `logos` в Cargo.toml, настроить структуру модулей (`lexer.rs`, `token.rs`, `ast.rs`, `parser.rs`, `codegen.rs`, `error.rs`). Точка входа: CLI принимает `.glass` файл, выводит `.j` файл.
 
-- [ ] **1.2 Лексер** — реализовать tokenizer на `logos`. Токены: ключевые слова (`fn`, `let`, `case`, `if`, `else`, `type`, `pub`, `import`, `local`, `const`, `extend`, `clone`, `todo`, `True`, `False`), идентификаторы (lower_ident, UPPER_IDENT), литералы (int, float, string, rawcode `'xxxx'`), операторы (`+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, `|>`, `<>`, `->`, `..`, `=`), разделители (`(`, `)`, `{`, `}`, `[`, `]`, `#(`, `,`, `:`, `.`, `|`), комментарии `//`. Тесты: каждый тип токена отдельно + полный файл.
+- [ ] **1.2 Лексер** — реализовать tokenizer на `logos`. Токены: ключевые слова (`fn`, `let`, `case`, `if`, `else`, `type`, `pub`, `import`, `local`, `const`, `extend`, `clone`, `todo`, `True`, `False`), идентификаторы (lower_ident, UPPER_IDENT), литералы (int, float, string, rawcode `'xxxx'`), операторы (`+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, `|>`, `<>`, `->`, `..`, `=`), разделители (`(`, `)`, `{`, `}`, `[`, `]`, `(`, `,`, `:`, `.`, `|`), комментарии `//`. Тесты: каждый тип токена отдельно + полный файл.
 
 - [ ] **1.3 AST** — определить типы AST нод. `Module { definitions }`. `Definition`: `TypeDef`, `FnDef`, `ConstDef`, `ExtendDef`, `ExternalDef`, `ImportDef`. `Expr`: `Let`, `Case`, `If`, `BinOp`, `UnaryOp`, `Call`, `FieldAccess`, `MethodCall`, `Var`, `Constructor`, `RecordUpdate`, `Literal`, `Tuple`, `List`, `Lambda`, `Pipe`, `Block`, `Clone`, `Todo`. `Pattern`: `Var`, `Discard`, `Literal`, `Constructor`, `Tuple`, `List`, `ListCons` (`[h|t]`), `As`. `TypeExpr`: `Named`, `Fn`, `Tuple`. Все ноды имеют `Span` (offset + length) для error reporting.
 
@@ -356,7 +356,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
 
 - [ ] **2.3 Record update** — `Model(..old, wave: 5)` компилируется в: alloc новый ID, скопировать все поля из old, перезаписать указанные. Для линейных типов: dealloc old. Тест: обновление одного поля, нескольких полей.
 
-- [ ] **2.4 Кортежи (tuples)** — `#(a, b, c)` компилируется в **отдельные переменные** (inline, zero overhead). `#(Int, Float)` → два locals: `_t0_0` integer, `_t0_1` real. Деструктуризация `let #(x, y) = expr` → присвоение из соответствующих переменных. Тест: создание, деструктуризация, передача в функцию.
+- [ ] **2.4 Кортежи (tuples)** — `(a, b, c)` компилируется в **отдельные переменные** (inline, zero overhead). `(Int, Float)` → два locals: `_t0_0` integer, `_t0_1` real. Деструктуризация `let (x, y) = expr` → присвоение из соответствующих переменных. Тест: создание, деструктуризация, передача в функцию.
 
 - [ ] **2.5 Списки (linked list)** — `List(a)` — встроенный generic тип. Реализация: SoA с полями `_head` (значение) и `_tail` (ID следующего или -1). `[]` = -1. `[1, 2, 3]` = цепочка аллокаций. Pattern `[h | t]` = проверка != -1, загрузка head и tail. Мономорфизация: `List(Int)` и `List(Unit)` = разные массивы. Тест: создание, pattern match, list.map.
 
@@ -374,7 +374,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, List(effect.Effect(Msg))) {
 
 - [ ] **4.1 Runtime preamble** — генерировать JASS-код runtime при компиляции: global для model ID, msg dispatch function, effect queue (массивы: `_fx_tag`, `_fx_int_0..N`, `_fx_real_0..N`, `_fx_count`), `glass_init` (вызывает user init, процессит начальные эффекты), `glass_send_msg` (сохраняет payload → dispatch → process effects). Runtime встраивается в начало output .j файла.
 
-- [ ] **4.2 init/update компиляция** — распознать `pub fn init()` и `pub fn update(model, msg)` как entry points. `init` должен возвращать `#(Model, List(Effect(Msg)))`. `update` принимает Model + Msg, возвращает `#(Model, List(Effect(Msg)))`. Компилятор генерирует `glass_user_init` и `glass_user_update` + dispatch по Msg tag. Тест: init создаёт модель, update обрабатывает 2 типа сообщений.
+- [ ] **4.2 init/update компиляция** — распознать `pub fn init()` и `pub fn update(model, msg)` как entry points. `init` должен возвращать `(Model, List(Effect(Msg)))`. `update` принимает Model + Msg, возвращает `(Model, List(Effect(Msg)))`. Компилятор генерирует `glass_user_init` и `glass_user_update` + dispatch по Msg tag. Тест: init создаёт модель, update обрабатывает 2 типа сообщений.
 
 - [ ] **4.3 One-shot эффекты** — определить Effect как built-in тип. Варианты: `After(Float, closure)`, `CreateUnit(Player, Int, Float, Float, Float, closure)`, `DisplayText(Player, String, Float)`, `Batch(List(Effect))`, `None`. Компиляция `After`: создать timer, сохранить closure ID через GetHandleId в hashtable, TimerStart с generated callback. Callback: GetExpiredTimer → load closure ID → dispatch → destroy timer. Тест: effect.after(5.0, fn() { Tick }) работает в WC3.
 

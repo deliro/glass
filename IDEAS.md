@@ -9,6 +9,6 @@
 
 ## Low Priority
 - [ ] JASS интерпретатор для runtime-тестов. Варианты: JassBot, свой на Rust. **Не сейчас, snapshot + pjass достаточно.**
-- [ ] Чистые эффекты: update возвращает `#(Model, List(Effect))`, runtime обрабатывает. **Блокировано type checker. Делать в M6+.**
+- [ ] Чистые эффекты: update возвращает `(Model, List(Effect))`, runtime обрабатывает. **Блокировано type checker. Делать в M6+.**
 - [ ] Timer heap queue (один timer + priority queue вместо множества CreateTimer). Экономит handle'ы. **Оптимизация для M7+.**
 - [ ] mangle names
