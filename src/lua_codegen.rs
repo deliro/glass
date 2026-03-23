@@ -29,6 +29,7 @@ pub struct LuaCodegen {
     mono_generated: HashSet<String>,
     fn_defs: HashMap<String, FnDef>,
     const_values: HashMap<String, String>,
+    extend_methods: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -58,6 +59,7 @@ impl LuaCodegen {
             mono_generated: HashSet::new(),
             fn_defs: HashMap::new(),
             const_values: HashMap::new(),
+            extend_methods: HashMap::new(),
         }
     }
 
@@ -86,6 +88,14 @@ impl LuaCodegen {
                 }
                 Definition::Function(f) => {
                     self.fn_defs.insert(f.name.clone(), f.clone());
+                }
+                Definition::Extend(ext) => {
+                    for method in &ext.methods {
+                        let prefixed = format!("{}_{}", ext.type_name, method.name);
+                        self.extend_methods
+                            .insert(method.name.clone(), prefixed.clone());
+                        self.fn_defs.insert(prefixed, method.clone());
+                    }
                 }
                 _ => {}
             }
@@ -186,10 +196,14 @@ impl LuaCodegen {
         match def {
             Definition::Function(f) => self.gen_fn_def(f),
             Definition::Const(c) => self.gen_const_def(c),
-            Definition::External(_)
-            | Definition::Type(_)
-            | Definition::Import(_)
-            | Definition::Extend(_) => {}
+            Definition::Extend(ext) => {
+                for method in &ext.methods {
+                    let mut prefixed = method.clone();
+                    prefixed.name = format!("{}_{}", ext.type_name, method.name);
+                    self.gen_fn_def(&prefixed);
+                }
+            }
+            Definition::External(_) | Definition::Type(_) | Definition::Import(_) => {}
         }
     }
 
@@ -451,6 +465,15 @@ impl LuaCodegen {
                         return format!("{}({})", ext.lua_name, args_str.join(", "));
                     }
 
+                    if let Some(prefixed) = self.extend_methods.get(method.as_str()).cloned() {
+                        let obj = self.gen_expr(&object.node);
+                        let mut all_args = vec![obj];
+                        for a in args {
+                            all_args.push(self.gen_expr(&a.node));
+                        }
+                        return format!("glass_{}({})", prefixed, all_args.join(", "));
+                    }
+
                     // Check monomorphization
                     if self.mono_needed.contains(method.as_str()) {
                         let concrete_types: Vec<Type> = args
@@ -474,12 +497,14 @@ impl LuaCodegen {
                     return format!("glass_{}({})", method, args_str.join(", "));
                 }
 
+                let resolved = self.extend_methods.get(method.as_str()).cloned();
+                let name = resolved.as_deref().unwrap_or(method.as_str());
                 let obj = self.gen_expr(&object.node);
                 let mut all_args = vec![obj];
                 for a in args {
                     all_args.push(self.gen_expr(&a.node));
                 }
-                format!("glass_{}({})", method, all_args.join(", "))
+                format!("glass_{}({})", name, all_args.join(", "))
             }
 
             Expr::Let {
