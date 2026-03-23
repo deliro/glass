@@ -8,6 +8,11 @@ pub struct Parser {
 
 type ParseResult<T> = Result<T, ParseError>;
 
+pub struct ParseOutput {
+    pub module: Module,
+    pub errors: Vec<ParseError>,
+}
+
 #[derive(Debug)]
 pub struct ParseError {
     pub message: String,
@@ -104,12 +109,43 @@ impl Parser {
 
     // === Module ===
 
-    pub fn parse_module(&mut self) -> ParseResult<Module> {
+    pub fn parse_module(&mut self) -> ParseOutput {
         let mut definitions = Vec::new();
+        let mut errors = Vec::new();
         while !self.at_end() {
-            definitions.extend(self.parse_definition()?);
+            match self.parse_definition() {
+                Ok(defs) => definitions.extend(defs),
+                Err(e) => {
+                    errors.push(e);
+                    self.synchronize();
+                }
+            }
         }
-        Ok(Module { definitions })
+        ParseOutput {
+            module: Module { definitions },
+            errors,
+        }
+    }
+
+    fn synchronize(&mut self) {
+        loop {
+            match self.peek() {
+                None
+                | Some(
+                    Token::Fn
+                    | Token::Pub
+                    | Token::Enum
+                    | Token::Struct
+                    | Token::Import
+                    | Token::Const
+                    | Token::Extend
+                    | Token::At,
+                ) => return,
+                _ => {
+                    self.advance();
+                }
+            }
+        }
     }
 
     // === Definitions ===
@@ -1858,7 +1894,13 @@ mod tests {
     fn parse(source: &str) -> Module {
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        parser.parse_module().unwrap()
+        let output = parser.parse_module();
+        assert!(
+            output.errors.is_empty(),
+            "parse errors: {:?}",
+            output.errors
+        );
+        output.module
     }
 
     fn parse_expr_str(source: &str) -> Spanned<Expr> {
@@ -2108,5 +2150,77 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 }
 "#;
         insta::assert_debug_snapshot!(parse(source));
+    }
+
+    #[test]
+    fn recovers_after_bad_definition() {
+        let tokens = Lexer::tokenize("fn foo( fn bar(x: Int) -> Int { x }");
+        let mut parser = Parser::new(tokens);
+        let output = parser.parse_module();
+        assert_eq!(output.errors.len(), 1);
+        assert_eq!(output.module.definitions.len(), 1);
+    }
+
+    #[test]
+    fn recovers_multiple_errors() {
+        let tokens = Lexer::tokenize("fn a( fn b( fn c(x: Int) -> Int { x }");
+        let mut parser = Parser::new(tokens);
+        let output = parser.parse_module();
+        assert_eq!(output.errors.len(), 2);
+        assert_eq!(output.module.definitions.len(), 1);
+    }
+
+    #[test]
+    fn recovers_at_enum_sync_point() {
+        let tokens = Lexer::tokenize("fn bad( enum Color { Red Green Blue }");
+        let mut parser = Parser::new(tokens);
+        let output = parser.parse_module();
+        assert_eq!(output.errors.len(), 1);
+        assert_eq!(output.module.definitions.len(), 1);
+    }
+
+    #[test]
+    fn recovers_at_struct_sync_point() {
+        let tokens = Lexer::tokenize("fn bad( struct Point { x: Int, y: Int }");
+        let mut parser = Parser::new(tokens);
+        let output = parser.parse_module();
+        assert_eq!(output.errors.len(), 1);
+        assert_eq!(output.module.definitions.len(), 1);
+    }
+
+    #[test]
+    fn recovers_at_import_sync_point() {
+        let tokens = Lexer::tokenize("fn bad( import option");
+        let mut parser = Parser::new(tokens);
+        let output = parser.parse_module();
+        assert_eq!(output.errors.len(), 1);
+        assert_eq!(output.module.definitions.len(), 1);
+    }
+
+    #[test]
+    fn recovers_at_const_sync_point() {
+        let tokens = Lexer::tokenize("fn bad( const x: Int = 5");
+        let mut parser = Parser::new(tokens);
+        let output = parser.parse_module();
+        assert_eq!(output.errors.len(), 1);
+        assert_eq!(output.module.definitions.len(), 1);
+    }
+
+    #[test]
+    fn recovers_at_pub_sync_point() {
+        let tokens = Lexer::tokenize("fn bad( pub fn good(x: Int) -> Int { x }");
+        let mut parser = Parser::new(tokens);
+        let output = parser.parse_module();
+        assert_eq!(output.errors.len(), 1);
+        assert_eq!(output.module.definitions.len(), 1);
+    }
+
+    #[test]
+    fn no_errors_on_valid_input() {
+        let tokens = Lexer::tokenize("fn foo(x: Int) -> Int { x }");
+        let mut parser = Parser::new(tokens);
+        let output = parser.parse_module();
+        assert!(output.errors.is_empty());
+        assert_eq!(output.module.definitions.len(), 1);
     }
 }

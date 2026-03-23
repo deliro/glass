@@ -678,8 +678,9 @@ mod tests {
     fn check(source: &str) -> LinearityResult {
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().expect("parse failed");
-        LinearityChecker::new(test_handle_types()).check_module(&module)
+        let output = parser.parse_module();
+        assert!(output.errors.is_empty(), "parse errors: {:?}", output.errors);
+        LinearityChecker::new(test_handle_types()).check_module(&output.module)
     }
 
     fn errors(source: &str) -> Vec<String> {
@@ -701,7 +702,11 @@ mod tests {
     fn local_fn_errs(source: &str) -> Vec<String> {
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().expect("parse failed");
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
         check_local_fns(&module)
             .iter()
             .map(|e| e.message.clone())

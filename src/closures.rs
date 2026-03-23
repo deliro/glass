@@ -173,7 +173,11 @@ mod tests {
     fn collect(source: &str) -> Vec<LambdaInfo> {
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().expect("parse failed");
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
         let mut collector = LambdaCollector::new();
         collector.collect_module(&module);
         collector.lambdas

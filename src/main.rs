@@ -415,14 +415,18 @@ fn parse_source(filename: &str, source: &str) -> ast::Module {
         }
     };
     let mut parser = Parser::new(tokens);
-    match parser.parse_module() {
-        Ok(m) => m,
-        Err(e) => {
-            let named_src = miette::NamedSource::new(filename, source.to_string());
-            let diag = MietteDiagnostic::new(e.message)
+    let output = parser.parse_module();
+    if !output.errors.is_empty() {
+        let named_src = miette::NamedSource::new(filename, source.to_string());
+        for e in &output.errors {
+            let diag = MietteDiagnostic::new(&e.message)
                 .with_label(LabeledSpan::at(e.span.start..e.span.end, "here"));
-            eprintln!("{:?}", Report::new(diag).with_source_code(named_src));
-            std::process::exit(1);
+            eprintln!(
+                "{:?}",
+                Report::new(diag).with_source_code(named_src.clone())
+            );
         }
+        std::process::exit(1);
     }
+    output.module
 }
