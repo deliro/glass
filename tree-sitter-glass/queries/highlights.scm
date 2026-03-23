@@ -34,8 +34,9 @@
 (external_definition (attribute) (visibility) . (lower_identifier) @function)
 (external_definition (attribute) . (lower_identifier) @function)
 
-; Function calls: first child of call_expr that is lower_identifier
+; Function calls
 (call_expr . (lower_identifier) @function.call)
+(call_expr (qualified_access_expr _ . (lower_identifier) @function.call))
 
 ; Field access: last child of field_access_expr
 (field_access_expr _ . (lower_identifier) @property)

@@ -11,4 +11,4 @@ languages = ["Glass"]
 
 [grammars.glass]
 repository = "file:///Users/tochkamac/projects/own/glass/tree-sitter-glass"
-rev = "adc9a35bd6f8ffb2a77820b14b304711c71ac867"
+rev = "4a8d0ef5605fee00dd67c98fbfc0edcb87c5288e"

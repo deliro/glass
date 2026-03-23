@@ -361,60 +361,51 @@ impl LanguageServer for GlassLsp {
         let offset = position_to_offset(&doc.source, pos);
         let word = find_word_at_offset(&doc.source, offset);
 
+        let is_local =
+            |span: crate::token::Span| span.start < doc.source_len && span.end <= doc.source_len;
+
+        let mut last_local: Option<crate::token::Span> = None;
         for def in &doc.definitions {
-            match def {
-                crate::ast::Definition::Function(f) if f.name == word => {
-                    if f.span.start < doc.source_len && f.span.end <= doc.source_len {
-                        let range = span_to_range(&doc.source, f.span);
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: uri.clone(),
-                            range,
-                        })));
-                    }
-                }
-                crate::ast::Definition::Type(t) if t.name == word => {
-                    if t.span.start < doc.source_len && t.span.end <= doc.source_len {
-                        let range = span_to_range(&doc.source, t.span);
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: uri.clone(),
-                            range,
-                        })));
-                    }
-                }
-                crate::ast::Definition::Const(c) if c.name == word => {
-                    if c.span.start < doc.source_len && c.span.end <= doc.source_len {
-                        let range = span_to_range(&doc.source, c.span);
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: uri.clone(),
-                            range,
-                        })));
-                    }
-                }
-                _ => {}
+            let span = match def {
+                crate::ast::Definition::Function(f) if f.name == word => Some(f.span),
+                crate::ast::Definition::Type(t) if t.name == word => Some(t.span),
+                crate::ast::Definition::Const(c) if c.name == word => Some(c.span),
+                _ => None,
+            };
+            if let Some(s) = span
+                && is_local(s)
+            {
+                last_local = Some(s);
             }
         }
 
-        for type_info in doc.type_registry.types.values() {
-            for variant in &type_info.variants {
-                if variant.fields.iter().any(|f| f.name == word) {
-                    for def in &doc.definitions {
-                        if let crate::ast::Definition::Type(t) = def
-                            && t.name == type_info.name
-                            && t.span.start < doc.source_len
-                            && t.span.end <= doc.source_len
-                        {
-                            let range = span_to_range(&doc.source, t.span);
-                            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                                uri: uri.clone(),
-                                range,
-                            })));
+        if last_local.is_none() {
+            for type_info in doc.type_registry.types.values() {
+                for variant in &type_info.variants {
+                    if variant.fields.iter().any(|f| f.name == word) {
+                        for def in &doc.definitions {
+                            if let crate::ast::Definition::Type(t) = def
+                                && t.name == type_info.name
+                                && is_local(t.span)
+                            {
+                                last_local = Some(t.span);
+                            }
                         }
                     }
                 }
             }
         }
 
-        Ok(None)
+        match last_local {
+            Some(span) => {
+                let range = span_to_range(&doc.source, span);
+                Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: uri.clone(),
+                    range,
+                })))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
