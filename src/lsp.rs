@@ -11,6 +11,7 @@ struct DocumentState {
     type_map: HashMap<(usize, usize), crate::type_repr::Type>,
     type_registry: crate::types::TypeRegistry,
     definitions: Vec<crate::ast::Definition>,
+    source_len: usize,
 }
 
 struct GlassLsp {
@@ -27,6 +28,7 @@ impl GlassLsp {
                 None => return,
             }
         };
+        let source_len = source.len();
         let tokens = crate::token::Lexer::tokenize(&source);
         let mut parser = crate::parser::Parser::new(tokens);
         let module = match parser.parse_module() {
@@ -64,51 +66,66 @@ impl GlassLsp {
 
         let mut diagnostics = Vec::new();
         for err in &infer_result.errors {
-            diagnostics.push(Diagnostic {
-                range: span_to_range(&source, err.span),
-                severity: Some(DiagnosticSeverity::ERROR),
-                message: err.message.clone(),
-                ..Default::default()
-            });
+            if err.span.start < source_len && err.span.end <= source_len {
+                diagnostics.push(Diagnostic {
+                    range: span_to_range(&source, err.span),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: err.message.clone(),
+                    ..Default::default()
+                });
+            }
         }
 
         let linearity_result =
             crate::linearity::LinearityChecker::new().check_module(&resolved_module);
         for err in &linearity_result.errors {
-            diagnostics.push(Diagnostic {
-                range: span_to_range(&source, err.span),
-                severity: Some(DiagnosticSeverity::ERROR),
-                message: err.message.clone(),
-                ..Default::default()
-            });
+            if err.span.start < source_len && err.span.end <= source_len {
+                diagnostics.push(Diagnostic {
+                    range: span_to_range(&source, err.span),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: err.message.clone(),
+                    ..Default::default()
+                });
+            }
         }
         for warn in &linearity_result.warnings {
-            diagnostics.push(Diagnostic {
-                range: span_to_range(&source, warn.span),
-                severity: Some(DiagnosticSeverity::WARNING),
-                message: warn.message.clone(),
-                ..Default::default()
-            });
+            if warn.span.start < source_len && warn.span.end <= source_len {
+                diagnostics.push(Diagnostic {
+                    range: span_to_range(&source, warn.span),
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: warn.message.clone(),
+                    ..Default::default()
+                });
+            }
         }
 
         let local_fn_errors = crate::linearity::check_local_fns(&resolved_module);
         for err in &local_fn_errors {
-            diagnostics.push(Diagnostic {
-                range: span_to_range(&source, err.span),
-                severity: Some(DiagnosticSeverity::ERROR),
-                message: err.message.clone(),
-                ..Default::default()
-            });
+            if err.span.start < source_len && err.span.end <= source_len {
+                diagnostics.push(Diagnostic {
+                    range: span_to_range(&source, err.span),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: err.message.clone(),
+                    ..Default::default()
+                });
+            }
         }
 
         let type_registry = crate::types::TypeRegistry::from_module(&resolved_module);
 
+        let local_type_map: HashMap<(usize, usize), crate::type_repr::Type> = infer_result
+            .type_map
+            .into_iter()
+            .filter(|((s, e), _)| *s < source_len && *e <= source_len)
+            .collect();
+
         {
             let mut docs = self.documents.write().await;
             if let Some(doc) = docs.get_mut(uri) {
-                doc.type_map = infer_result.type_map;
+                doc.type_map = local_type_map;
                 doc.type_registry = type_registry;
                 doc.definitions = resolved_module.definitions;
+                doc.source_len = source_len;
             }
         }
 
@@ -129,6 +146,7 @@ impl LanguageServer for GlassLsp {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions::default()),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -156,6 +174,7 @@ impl LanguageServer for GlassLsp {
                     type_map: HashMap::new(),
                     type_registry: empty_registry(),
                     definitions: Vec::new(),
+                    source_len: 0,
                 },
             );
         }
@@ -174,6 +193,7 @@ impl LanguageServer for GlassLsp {
                         type_map: HashMap::new(),
                         type_registry: empty_registry(),
                         definitions: Vec::new(),
+                        source_len: 0,
                     },
                 );
             }
@@ -192,15 +212,15 @@ impl LanguageServer for GlassLsp {
 
         let offset = position_to_offset(&doc.source, pos);
 
-        let mut best: Option<(&(usize, usize), &crate::type_repr::Type)> = None;
+        let mut best: Option<((usize, usize), &crate::type_repr::Type)> = None;
         for (span, ty) in &doc.type_map {
-            if span.0 <= offset && offset <= span.1 {
+            if span.0 <= offset && offset < span.1 {
                 match best {
                     Some((best_span, _)) if (span.1 - span.0) < (best_span.1 - best_span.0) => {
-                        best = Some((span, ty));
+                        best = Some((*span, ty));
                     }
                     None => {
-                        best = Some((span, ty));
+                        best = Some((*span, ty));
                     }
                     _ => {}
                 }
@@ -209,6 +229,10 @@ impl LanguageServer for GlassLsp {
 
         match best {
             Some((span, ty)) => {
+                let ty_str = format!("{ty}");
+                if ty_str.starts_with('?') {
+                    return Ok(None);
+                }
                 let range = span_to_range(
                     &doc.source,
                     crate::token::Span {
@@ -217,7 +241,10 @@ impl LanguageServer for GlassLsp {
                     },
                 );
                 Ok(Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(format!("{ty}"))),
+                    contents: HoverContents::Scalar(MarkedString::LanguageString(LanguageString {
+                        language: "glass".to_string(),
+                        value: ty_str,
+                    })),
                     range: Some(range),
                 }))
             }
@@ -274,7 +301,9 @@ impl LanguageServer for GlassLsp {
 
                 for def in &doc.definitions {
                     match def {
-                        crate::ast::Definition::Function(f) => {
+                        crate::ast::Definition::Function(f)
+                            if f.is_pub || f.span.start < doc.source_len =>
+                        {
                             items.push(CompletionItem {
                                 label: f.name.clone(),
                                 kind: Some(CompletionItemKind::FUNCTION),
@@ -335,31 +364,113 @@ impl LanguageServer for GlassLsp {
         for def in &doc.definitions {
             match def {
                 crate::ast::Definition::Function(f) if f.name == word => {
-                    let range = span_to_range(&doc.source, f.span);
-                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                        uri: uri.clone(),
-                        range,
-                    })));
+                    if f.span.start < doc.source_len && f.span.end <= doc.source_len {
+                        let range = span_to_range(&doc.source, f.span);
+                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                            uri: uri.clone(),
+                            range,
+                        })));
+                    }
                 }
                 crate::ast::Definition::Type(t) if t.name == word => {
-                    let range = span_to_range(&doc.source, t.span);
-                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                        uri: uri.clone(),
-                        range,
-                    })));
+                    if t.span.start < doc.source_len && t.span.end <= doc.source_len {
+                        let range = span_to_range(&doc.source, t.span);
+                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                            uri: uri.clone(),
+                            range,
+                        })));
+                    }
                 }
                 crate::ast::Definition::Const(c) if c.name == word => {
-                    let range = span_to_range(&doc.source, c.span);
-                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                        uri: uri.clone(),
-                        range,
-                    })));
+                    if c.span.start < doc.source_len && c.span.end <= doc.source_len {
+                        let range = span_to_range(&doc.source, c.span);
+                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                            uri: uri.clone(),
+                            range,
+                        })));
+                    }
                 }
                 _ => {}
             }
         }
 
+        for type_info in doc.type_registry.types.values() {
+            for variant in &type_info.variants {
+                if variant.fields.iter().any(|f| f.name == word) {
+                    for def in &doc.definitions {
+                        if let crate::ast::Definition::Type(t) = def
+                            && t.name == type_info.name
+                            && t.span.start < doc.source_len
+                            && t.span.end <= doc.source_len
+                        {
+                            let range = span_to_range(&doc.source, t.span);
+                            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                                uri: uri.clone(),
+                                range,
+                            })));
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(None)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+
+        let docs = self.documents.read().await;
+        let Some(doc) = docs.get(uri) else {
+            return Ok(None);
+        };
+
+        let offset = position_to_offset(&doc.source, pos);
+        let word = find_word_at_offset(&doc.source, offset);
+
+        if word.is_empty() {
+            return Ok(None);
+        }
+
+        let mut locations = Vec::new();
+        let bytes = doc.source.as_bytes();
+        let word_bytes = word.as_bytes();
+        let wlen = word_bytes.len();
+
+        let mut i = 0;
+        while i + wlen <= bytes.len() {
+            if doc.source.get(i..i + wlen) == Some(&word) {
+                let before_ok = i == 0
+                    || bytes
+                        .get(i - 1)
+                        .is_some_and(|b| !b.is_ascii_alphanumeric() && *b != b'_');
+                let after_ok = i + wlen >= bytes.len()
+                    || bytes
+                        .get(i + wlen)
+                        .is_some_and(|b| !b.is_ascii_alphanumeric() && *b != b'_');
+                if before_ok && after_ok {
+                    let range = span_to_range(
+                        &doc.source,
+                        crate::token::Span {
+                            start: i,
+                            end: i + wlen,
+                        },
+                    );
+                    locations.push(Location {
+                        uri: uri.clone(),
+                        range,
+                    });
+                }
+            }
+            i += 1;
+        }
+
+        if locations.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(locations))
+        }
     }
 }
 
