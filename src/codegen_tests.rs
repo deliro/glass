@@ -262,3 +262,108 @@ fn elm_runtime_lua_snapshot() {
     crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut output);
     insta::assert_snapshot!(output);
 }
+
+#[test]
+fn elm_runtime_jass_with_subs_snapshot() {
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: true,
+        msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
+    };
+    let mut output = String::new();
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut output);
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn elm_runtime_lua_with_subs_snapshot() {
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: true,
+        msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
+    };
+    let mut output = String::new();
+    crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut output);
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn lua_send_msg_reconciles_subs() {
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: true,
+        msg_variants: vec![],
+    };
+    let mut output = String::new();
+    crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut output);
+    assert!(
+        output.contains("glass_reconcile_subs(glass_subscriptions(glass_model))"),
+        "send_msg must reconcile subscriptions"
+    );
+}
+
+#[test]
+fn jass_send_msg_reconciles_subs() {
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: true,
+        msg_variants: vec![],
+    };
+    let mut output = String::new();
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut output);
+    assert!(
+        output.contains("call glass_reconcile_subs()"),
+        "send_msg must reconcile subscriptions"
+    );
+}
+
+#[test]
+fn lua_reconcile_destroys_old_subs() {
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: true,
+        msg_variants: vec![],
+    };
+    let mut output = String::new();
+    crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut output);
+    assert!(output.contains("glass_unregister_one_sub(key)"));
+    assert!(output.contains("DestroyTrigger(entry.handle)"));
+    assert!(output.contains("DestroyTimer(entry.handle)"));
+}
+
+#[test]
+fn jass_reconcile_destroys_old_subs() {
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: true,
+        msg_variants: vec![],
+    };
+    let mut output = String::new();
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut output);
+    assert!(output.contains("call glass_unregister_one_sub(idx)"));
+    assert!(output.contains("call DestroyTrigger(glass_sub_triggers[idx])"));
+    assert!(output.contains("call DestroyTimer(glass_sub_timers[idx])"));
+}
+
+#[test]
+fn no_reconciliation_without_subs() {
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: false,
+        msg_variants: vec![],
+    };
+    let mut jass_output = String::new();
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut jass_output);
+    assert!(!jass_output.contains("glass_reconcile_subs"));
+
+    let mut lua_output = String::new();
+    crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut lua_output);
+    assert!(!lua_output.contains("glass_reconcile_subs"));
+}

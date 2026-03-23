@@ -13,7 +13,11 @@ pub fn gen_lua_elm_runtime(entry: &ElmEntryPoints, output: &mut String) {
 
     output.push_str("local glass_model = nil\n");
     output.push_str("local glass_timer_ht = nil\n");
-    output.push_str("local glass_multiboard = nil\n\n");
+    output.push_str("local glass_multiboard = nil\n");
+    if entry.has_subscriptions {
+        output.push_str("local glass_active_subs = {}\n");
+    }
+    output.push('\n');
 
     // Effect executor
     gen_exec_effect(output);
@@ -21,12 +25,12 @@ pub fn gen_lua_elm_runtime(entry: &ElmEntryPoints, output: &mut String) {
     // Process effects (walk a linked list of effects)
     gen_process_effects(output);
 
-    // Send message
-    gen_send_msg(output);
+    gen_send_msg(entry, output);
 
-    // Subscription registration
     if entry.has_subscriptions {
-        gen_register_subscriptions(output);
+        gen_register_one_sub(output);
+        gen_unregister_one_sub(output);
+        gen_reconcile_subscriptions(output);
     }
 
     // Runtime init
@@ -242,278 +246,299 @@ fn gen_process_effects(output: &mut String) {
     output.push_str("end\n\n");
 }
 
-fn gen_send_msg(output: &mut String) {
+fn gen_send_msg(entry: &ElmEntryPoints, output: &mut String) {
     output.push_str("function glass_send_msg(msg)\n");
     output.push_str("    local result = glass_update(glass_model, msg)\n");
     output.push_str("    glass_model = result[1]\n");
     output.push_str("    glass_process_effects(result[2])\n");
+    if entry.has_subscriptions {
+        output.push_str("    glass_reconcile_subs(glass_subscriptions(glass_model))\n");
+    }
     output.push_str("end\n\n");
 }
 
-/// Generate subscription registration: walk a List(Subscription) and register
-/// WC3 triggers that call glass_send_msg with messages from handler closures.
-fn gen_register_subscriptions(output: &mut String) {
-    output.push_str("function glass_register_subscriptions(subs)\n");
-    output.push_str("    local current = subs\n");
+fn gen_register_one_sub(output: &mut String) {
+    output.push_str("function glass_register_one_sub(sub, key)\n");
+    output.push_str("    local handler = sub.handler\n");
+
+    output.push_str("    if sub.tag == glass_TAG_Subscription_OnAttack then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_ATTACKED, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetAttacker(), GetTriggerUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnDeath then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str(
+        "            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DEATH, nil)\n",
+    );
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetKillingUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnTimer then\n");
+    output.push_str("        local t = CreateTimer()\n");
+    output.push_str("        TimerStart(t, sub.interval, true, function()\n");
+    output.push_str("            glass_send_msg(handler())\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"timer\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnSpellEffect then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_EFFECT, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnItemPickup then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_PICKUP_ITEM, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnSpellCast then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_CAST, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnSpellChannel then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_CHANNEL, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnDamage then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DAMAGED, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetEventDamageSource(), GetTriggerUnit(), GetEventDamage()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnItemUse then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_USE_ITEM, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnItemDrop then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DROP_ITEM, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnChat then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerChatEvent(t, Player(i), \"\", false)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetPlayerId(GetTriggerPlayer()), GetEventPlayerChatString()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnPlayerLeave then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerEvent(t, Player(i), EVENT_PLAYER_LEAVE)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetPlayerId(GetTriggerPlayer())))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnHeroLevelUp then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str(
+        "            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_HERO_LEVEL, nil)\n",
+    );
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnConstructionFinish then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_CONSTRUCT_FINISH, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnSpellGround then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_EFFECT, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetX(), GetSpellTargetY()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnSummon then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str(
+        "            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SUMMON, nil)\n",
+    );
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetSummonedUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnUnitSold then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str(
+        "            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SELL, nil)\n",
+    );
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetSoldUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnItemSold then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SELL_ITEM, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str(
+        "            glass_send_msg(handler(GetTriggerUnit(), GetItemTypeId(GetSoldItem())))\n",
+    );
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnUnitTrained then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_TRAIN_FINISH, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetTrainedUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnResearchFinish then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_RESEARCH_FINISH, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetResearched()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnConstructionStart then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_CONSTRUCT_START, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnSpellFinish then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_FINISH, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    elseif sub.tag == glass_TAG_Subscription_OnOrderIssued then\n");
+    output.push_str("        local t = CreateTrigger()\n");
+    output.push_str("        for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
+    output.push_str("            TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_ISSUED_ORDER, nil)\n");
+    output.push_str("        end\n");
+    output.push_str("        TriggerAddAction(t, function()\n");
+    output.push_str("            glass_send_msg(handler(GetTriggerUnit(), GetIssuedOrderId()))\n");
+    output.push_str("        end)\n");
+    output.push_str("        glass_active_subs[key] = { handle = t, kind = \"trigger\" }\n");
+
+    output.push_str("    end\n");
+    output.push_str("end\n\n");
+}
+
+fn gen_unregister_one_sub(output: &mut String) {
+    output.push_str("function glass_unregister_one_sub(key)\n");
+    output.push_str("    local entry = glass_active_subs[key]\n");
+    output.push_str("    if entry ~= nil then\n");
+    output.push_str("        if entry.kind == \"timer\" then\n");
+    output.push_str("            PauseTimer(entry.handle)\n");
+    output.push_str("            DestroyTimer(entry.handle)\n");
+    output.push_str("        else\n");
+    output.push_str("            DisableTrigger(entry.handle)\n");
+    output.push_str("            DestroyTrigger(entry.handle)\n");
+    output.push_str("        end\n");
+    output.push_str("        glass_active_subs[key] = nil\n");
+    output.push_str("    end\n");
+    output.push_str("end\n\n");
+}
+
+fn gen_reconcile_subscriptions(output: &mut String) {
+    output.push_str("function glass_reconcile_subs(new_subs)\n");
+    output.push_str("    local new_keys = {}\n");
+    output.push_str("    local current = new_subs\n");
+    output.push_str("    local idx = 0\n");
     output.push_str("    while current ~= nil do\n");
     output.push_str("        local sub = current.head\n");
-
-    // OnAttack: register EVENT_PLAYER_UNIT_ATTACKED for all players
-    output.push_str("        if sub.tag == glass_TAG_Subscription_OnAttack then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_ATTACKED, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetAttacker(), GetTriggerUnit()))\n");
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnDeath then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DEATH, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output
-        .push_str("                glass_send_msg(handler(GetTriggerUnit(), GetKillingUnit()))\n");
-    output.push_str("            end)\n");
-
-    // OnTimer: create a repeating timer
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnTimer then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTimer()\n");
-    output.push_str("            TimerStart(t, sub.interval, true, function()\n");
-    output.push_str("                glass_send_msg(handler())\n");
-    output.push_str("            end)\n");
-
-    // OnSpellEffect: register EVENT_PLAYER_UNIT_SPELL_EFFECT for all players
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnSpellEffect then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_EFFECT, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetUnit()))\n");
-    output.push_str("            end)\n");
-
-    // OnItemPickup: register EVENT_PLAYER_UNIT_PICKUP_ITEM for all players
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnItemPickup then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_PICKUP_ITEM, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())))\n");
-    output.push_str("            end)\n");
-
-    // OnSpellCast
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnSpellCast then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_CAST, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str(
-        "                glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId()))\n",
-    );
-    output.push_str("            end)\n");
-
-    // OnSpellChannel
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnSpellChannel then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_CHANNEL, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str(
-        "                glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId()))\n",
-    );
-    output.push_str("            end)\n");
-
-    // OnDamage (uses EVENT_PLAYER_UNIT_DAMAGED)
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnDamage then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DAMAGED, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetEventDamageSource(), GetTriggerUnit(), GetEventDamage()))\n");
-    output.push_str("            end)\n");
-
-    // OnItemUse
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnItemUse then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_USE_ITEM, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())))\n");
-    output.push_str("            end)\n");
-
-    // OnItemDrop
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnItemDrop then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DROP_ITEM, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())))\n");
-    output.push_str("            end)\n");
-
-    // OnChat
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnChat then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerChatEvent(t, Player(i), \"\", false)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetPlayerId(GetTriggerPlayer()), GetEventPlayerChatString()))\n");
-    output.push_str("            end)\n");
-
-    // OnPlayerLeave
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnPlayerLeave then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output
-        .push_str("                TriggerRegisterPlayerEvent(t, Player(i), EVENT_PLAYER_LEAVE)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetPlayerId(GetTriggerPlayer())))\n");
-    output.push_str("            end)\n");
-
-    // OnHeroLevelUp
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnHeroLevelUp then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_HERO_LEVEL, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit()))\n");
-    output.push_str("            end)\n");
-
-    // OnConstructionFinish
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnConstructionFinish then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_CONSTRUCT_FINISH, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit()))\n");
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnSpellGround then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_EFFECT, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetX(), GetSpellTargetY()))\n");
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnSummon then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SUMMON, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output
-        .push_str("                glass_send_msg(handler(GetTriggerUnit(), GetSummonedUnit()))\n");
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnUnitSold then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SELL, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit(), GetSoldUnit()))\n");
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnItemSold then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SELL_ITEM, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str(
-        "                glass_send_msg(handler(GetTriggerUnit(), GetItemTypeId(GetSoldItem())))\n",
-    );
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnUnitTrained then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_TRAIN_FINISH, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output
-        .push_str("                glass_send_msg(handler(GetTriggerUnit(), GetTrainedUnit()))\n");
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnResearchFinish then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_RESEARCH_FINISH, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit(), GetResearched()))\n");
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnConstructionStart then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_CONSTRUCT_START, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str("                glass_send_msg(handler(GetTriggerUnit()))\n");
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnSpellFinish then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_FINISH, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str(
-        "                glass_send_msg(handler(GetTriggerUnit(), GetSpellAbilityId()))\n",
-    );
-    output.push_str("            end)\n");
-
-    output.push_str("        elseif sub.tag == glass_TAG_Subscription_OnOrderIssued then\n");
-    output.push_str("            local handler = sub.handler\n");
-    output.push_str("            local t = CreateTrigger()\n");
-    output.push_str("            for i = 0, bj_MAX_PLAYER_SLOTS - 1 do\n");
-    output.push_str("                TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_ISSUED_ORDER, nil)\n");
-    output.push_str("            end\n");
-    output.push_str("            TriggerAddAction(t, function()\n");
-    output.push_str(
-        "                glass_send_msg(handler(GetTriggerUnit(), GetIssuedOrderId()))\n",
-    );
-    output.push_str("            end)\n");
-
-    output.push_str("        end\n");
+    output.push_str("        local key = tostring(sub.tag) .. \"_\" .. tostring(idx)\n");
+    output.push_str("        new_keys[key] = sub\n");
+    output.push_str("        idx = idx + 1\n");
     output.push_str("        current = current.tail\n");
+    output.push_str("    end\n");
+    output.push_str("    for key, _ in pairs(glass_active_subs) do\n");
+    output.push_str("        if new_keys[key] == nil then\n");
+    output.push_str("            glass_unregister_one_sub(key)\n");
+    output.push_str("        end\n");
+    output.push_str("    end\n");
+    output.push_str("    for key, sub in pairs(new_keys) do\n");
+    output.push_str("        if glass_active_subs[key] == nil then\n");
+    output.push_str("            glass_register_one_sub(sub, key)\n");
+    output.push_str("        end\n");
     output.push_str("    end\n");
     output.push_str("end\n\n");
 }
@@ -525,8 +550,7 @@ fn gen_runtime_init(entry: &ElmEntryPoints, output: &mut String) {
     output.push_str("    glass_model = result[1]\n");
     output.push_str("    glass_process_effects(result[2])\n");
     if entry.has_subscriptions {
-        output.push_str("    local subs = glass_subscriptions(glass_model)\n");
-        output.push_str("    glass_register_subscriptions(subs)\n");
+        output.push_str("    glass_reconcile_subs(glass_subscriptions(glass_model))\n");
     }
     output.push_str("end\n\n");
 }
