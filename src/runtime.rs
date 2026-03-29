@@ -239,9 +239,8 @@ const SUB_DEFS: &[SubDef] = &[
     },
 ];
 
-fn sub_global_name(name: &str) -> String {
-    let lower = name
-        .chars()
+fn sub_snake_name(name: &str) -> String {
+    name.chars()
         .enumerate()
         .fold(String::new(), |mut acc, (i, c)| {
             if c.is_uppercase() && i > 0 {
@@ -249,8 +248,11 @@ fn sub_global_name(name: &str) -> String {
             }
             acc.push(c.to_ascii_lowercase());
             acc
-        });
-    format!("glass_sub_{}", lower)
+        })
+}
+
+fn sub_global_name(name: &str) -> String {
+    format!("glass_sub_{}", sub_snake_name(name))
 }
 
 /// Collect runtime globals (merged into the single globals block).
@@ -329,19 +331,7 @@ fn gen_subscription_callbacks(dispatch_sigs: &HashSet<String>, output: &mut Stri
         if !dispatch_sigs.contains(sub.dispatch) {
             continue;
         }
-        let cb_name = format!(
-            "glass_sub_cb_{}",
-            sub.name
-                .chars()
-                .enumerate()
-                .fold(String::new(), |mut acc, (i, c)| {
-                    if c.is_uppercase() && i > 0 {
-                        acc.push('_');
-                    }
-                    acc.push(c.to_ascii_lowercase());
-                    acc
-                })
-        );
+        let cb_name = format!("glass_sub_cb_{}", sub_snake_name(sub.name));
         let global = sub_global_name(sub.name);
 
         output.push_str(&format!(
@@ -385,20 +375,7 @@ fn gen_register_subscriptions(dispatch_sigs: &HashSet<String>, output: &mut Stri
         }
         let tag = format!("glass_TAG_Subscription_{}", sub_def.name);
         let global = sub_global_name(sub_def.name);
-        let cb_name = format!(
-            "glass_sub_cb_{}",
-            sub_def
-                .name
-                .chars()
-                .enumerate()
-                .fold(String::new(), |mut acc, (i, c)| {
-                    if c.is_uppercase() && i > 0 {
-                        acc.push('_');
-                    }
-                    acc.push(c.to_ascii_lowercase());
-                    acc
-                })
-        );
+        let cb_name = format!("glass_sub_cb_{}", sub_snake_name(sub_def.name));
 
         let keyword = if first { "if" } else { "elseif" };
         first = false;

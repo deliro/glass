@@ -679,9 +679,6 @@ impl JassCodegen {
 
         for sig in &sorted_sigs {
             let dispatch_name = Self::dispatch_fn_name(sig);
-            if sig.is_empty() {
-                self.dispatch_sigs.insert("glass_dispatch_void".into());
-            }
             let public_name = if sig.is_empty() {
                 "glass_dispatch_void".to_string()
             } else {
