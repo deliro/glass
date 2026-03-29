@@ -1635,7 +1635,7 @@ impl JassCodegen {
                     let raw_type = self.lookup_full_type(elems[0].span);
                     let elem_type = raw_type
                         .as_ref()
-                        .filter(|ty| matches!(ty, Type::Con(_)))
+                        .filter(|ty| !matches!(ty, Type::Var(_)))
                         .map(|ty| ty.to_jass().to_string())
                         .filter(|jt| self.types.list_types.contains(jt.as_str()))
                         .or_else(|| self.current_list_elem_type.clone())
@@ -1667,7 +1667,7 @@ impl JassCodegen {
                 let head_type = self.lookup_full_type(head.span);
                 let elem_type = head_type
                     .as_ref()
-                    .filter(|ty| matches!(ty, Type::Con(_)))
+                    .filter(|ty| !matches!(ty, Type::Var(_)))
                     .map(|ty| ty.to_jass().to_string())
                     .filter(|jt| self.types.list_types.contains(jt.as_str()))
                     .or_else(|| self.current_list_elem_type.clone())
