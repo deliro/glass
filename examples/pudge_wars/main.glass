@@ -1,0 +1,97 @@
+import effect
+import subscription
+import option { Option }
+import types
+import arena
+
+pub enum Msg {
+    SpellCast { caster: Unit, spell_id: Int, target: Unit }
+    SpellGround { caster: Unit, spell_id: Int, x: Float, y: Float }
+    HookTick
+    UnitDied { victim: Unit, killer: Unit }
+    ChatCommand { player_id: Int, text: String }
+    PlayerLeft { player_id: Int }
+    HeroLevelUp { hero: Unit }
+    DamageTaken { source: Unit, target: Unit, amount: Float }
+}
+
+pub struct Model {
+    phase: types.Phase,
+    mode: Option(types.GameMode),
+    players: List(types.PlayerData),
+    hooks: List(types.HookData),
+    tick_count: Int,
+}
+
+fn make_west_players(i: Int) -> List(types.PlayerData) {
+    case i > 4 {
+        True -> []
+        False -> [types.new_player(i, Team::West) | make_west_players(i + 1)]
+    }
+}
+
+fn make_east_players(i: Int) -> List(types.PlayerData) {
+    case i > 10 {
+        True -> []
+        False -> [types.new_player(i, Team::East) | make_east_players(i + 1)]
+    }
+}
+
+fn append(xs: List(types.PlayerData), ys: List(types.PlayerData)) -> List(types.PlayerData) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append(t, ys)]
+    }
+}
+
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    let players = append(make_west_players(0), make_east_players(6))
+    let model = Model {
+        phase: Phase::WaitingForMode,
+        mode: Option::None,
+        players: players,
+        hooks: [],
+        tick_count: 0,
+    }
+    (model, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case msg {
+        SpellCast(caster, spell_id, target) -> (model, [])
+        SpellGround(caster, spell_id, x, y) -> (model, [])
+        HookTick -> (model, [])
+        UnitDied(victim, killer) -> (model, [])
+        ChatCommand(player_id, text) -> (model, [])
+        PlayerLeft(player_id) -> (model, [])
+        HeroLevelUp(hero) -> (model, [])
+        DamageTaken(source, target, amount) -> (model, [])
+    }
+}
+
+pub fn subscriptions(model: Model) -> List(subscription.Subscription(Msg)) {
+    [
+        subscription.on_spell_effect(fn(c: Unit, s: Int, t: Unit) -> Msg {
+            Msg::SpellCast { caster: c, spell_id: s, target: t }
+        }),
+        subscription.on_spell_ground(fn(c: Unit, s: Int, x: Float, y: Float) -> Msg {
+            Msg::SpellGround { caster: c, spell_id: s, x: x, y: y }
+        }),
+        subscription.on_timer(0.025, fn() -> Msg { Msg::HookTick }),
+        subscription.on_death(fn(v: Unit, k: Unit) -> Msg {
+            Msg::UnitDied { victim: v, killer: k }
+        }),
+        subscription.on_chat(fn(pid: Int, txt: String) -> Msg {
+            Msg::ChatCommand { player_id: pid, text: txt }
+        }),
+        subscription.on_player_leave(fn(pid: Int) -> Msg {
+            Msg::PlayerLeft { player_id: pid }
+        }),
+        subscription.on_hero_level_up(fn(h: Unit) -> Msg {
+            Msg::HeroLevelUp { hero: h }
+        }),
+        subscription.on_damage(fn(s: Unit, t: Unit, a: Float) -> Msg {
+            Msg::DamageTaken { source: s, target: t, amount: a }
+        }),
+    ]
+}

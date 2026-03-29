@@ -1,0 +1,31 @@
+pub fn min_x() -> Float { 736.0 }
+pub fn max_x() -> Float { 3360.0 }
+pub fn min_y() -> Float { 352.0 }
+pub fn max_y() -> Float { 3744.0 }
+
+pub fn river_min_x() -> Float { 1792.0 }
+pub fn river_max_x() -> Float { 2304.0 }
+
+pub fn center_x() -> Float { 2048.0 }
+pub fn center_y() -> Float { 2048.0 }
+pub fn center_deflect_radius() -> Float { 266.0 }
+
+pub fn chain_link_spacing() -> Float { 27.0 }
+pub fn hook_tick_interval() -> Float { 0.025 }
+
+pub fn west_spawn_x() -> Float { 1024.0 }
+pub fn west_spawn_y() -> Float { 2048.0 }
+pub fn east_spawn_x() -> Float { 3072.0 }
+pub fn east_spawn_y() -> Float { 2048.0 }
+
+pub fn is_in_bounds(x: Float, y: Float) -> Bool {
+    x >= min_x() && x <= max_x() && y >= min_y() && y <= max_y()
+}
+
+pub fn is_west_side(x: Float) -> Bool {
+    x < river_min_x()
+}
+
+pub fn is_east_side(x: Float) -> Bool {
+    x > river_max_x()
+}

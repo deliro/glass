@@ -391,6 +391,7 @@ pub fn test() -> Int {
 #[case("game/main.glass")]
 #[case("sdk_smoke.glass")]
 #[case("stdlib_smoke.glass")]
+#[case("pudge_wars/main.glass")]
 fn example_compiles(#[case] filename: &str) {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = manifest.join("examples").join(filename);

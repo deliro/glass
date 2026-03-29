@@ -1,0 +1,72 @@
+import option { Option }
+
+pub enum Team {
+    West
+    East
+}
+
+pub enum GameMode {
+    KillMode { target: Int }
+    RoundMode { target: Int }
+    TimedMode { minutes: Int }
+}
+
+pub enum Phase {
+    WaitingForMode
+    Playing
+    Victory { winner: Team }
+}
+
+pub enum HookState {
+    Idle
+    Launching
+    Retracting
+    RetractingWithTarget
+}
+
+pub struct HookData {
+    state: HookState,
+    tip_x: Float,
+    tip_y: Float,
+    angle: Float,
+    cos_a: Float,
+    sin_a: Float,
+    velocity: Float,
+    max_range: Float,
+    distance: Float,
+    damage: Float,
+    radius: Float,
+    owner_index: Int,
+}
+
+pub struct PlayerData {
+    index: Int,
+    team: Team,
+    alive: Bool,
+    kills: Int,
+    deaths: Int,
+    spree: Int,
+    hook_speed: Float,
+    hook_damage: Float,
+    hook_range: Float,
+    hook_radius: Float,
+    respawn_timer: Float,
+    gold: Int,
+}
+
+pub fn new_player(idx: Int, team: Team) -> PlayerData {
+    PlayerData {
+        index: idx,
+        team: team,
+        alive: True,
+        kills: 0,
+        deaths: 0,
+        spree: 0,
+        hook_speed: 1600.0,
+        hook_damage: 360.0,
+        hook_range: 1300.0,
+        hook_radius: 150.0,
+        respawn_timer: 0.0,
+        gold: 0,
+    }
+}
