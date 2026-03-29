@@ -101,6 +101,9 @@ pub struct JassCodegen {
     /// Constants are fully inlined — no globals emitted.
     const_values: HashMap<String, String>,
     dispatch_sigs: HashSet<String>,
+    current_list_elem_type: Option<String>,
+    var_list_elem_types: HashMap<String, String>,
+    local_var_jass_types: HashMap<String, String>,
 }
 
 struct ClosureEmitInfo {
@@ -145,6 +148,9 @@ impl JassCodegen {
             current_fn_param_type_names: Vec::new(),
             const_values: HashMap::new(),
             dispatch_sigs: HashSet::new(),
+            current_list_elem_type: None,
+            var_list_elem_types: HashMap::new(),
+            local_var_jass_types: HashMap::new(),
         }
     }
 
@@ -904,6 +910,16 @@ impl JassCodegen {
             .filter_map(|p| Self::extract_inner_type_name(&p.type_expr))
             .collect();
 
+        self.current_list_elem_type = None;
+        self.var_list_elem_types.clear();
+        for p in &f.params {
+            if let Some(elem) = Self::extract_list_elem_jass_type(&p.type_expr) {
+                if self.types.list_types.contains(&elem) {
+                    self.var_list_elem_types.insert(p.name.clone(), elem);
+                }
+            }
+        }
+
         let params = f
             .params
             .iter()
@@ -937,6 +953,16 @@ impl JassCodegen {
         // Collect user-defined locals (let bindings, pattern vars)
         let mut locals = Vec::new();
         self.collect_locals(&f.body.node, &mut locals);
+
+        self.local_var_jass_types.clear();
+        for (name, jass_type) in &locals {
+            self.local_var_jass_types
+                .insert(name.clone(), jass_type.clone());
+        }
+        for p in &f.params {
+            self.local_var_jass_types
+                .insert(p.name.clone(), self.type_to_jass(&p.type_expr));
+        }
 
         // Reset temp counter for this function, generate body into buffer
         let saved_temp = self.temp_counter;
@@ -1052,6 +1078,12 @@ impl JassCodegen {
                             _ => None,
                         });
 
+                let new_list_type = self.extract_list_elem_type_from_subject(subject);
+                let prev_list_type = match new_list_type {
+                    Some(et) => self.current_list_elem_type.replace(et),
+                    None => None,
+                };
+
                 let subj = if subject_type_name.as_deref() == Some("Bool")
                     && subj.contains("glass_dispatch_")
                 {
@@ -1086,6 +1118,9 @@ impl JassCodegen {
                     self.indent -= 1;
                 }
                 self.emit("endif");
+                if let Some(prev) = prev_list_type {
+                    self.current_list_elem_type = Some(prev);
+                }
             }
             Expr::Let {
                 pattern,
@@ -1480,10 +1515,14 @@ impl JassCodegen {
                         let jt = self.type_to_jass_from_type(&ty);
                         // Guard against stale type_map for imported functions.
                         // Infer the correct type from the arm body expression.
+                        if jt != "real"
+                            && arms
+                                .iter()
+                                .any(|a| self.expr_has_float(&a.body.node))
+                        {
+                            return "real".to_string();
+                        }
                         if let Some(arm) = arms.first() {
-                            if jt != "real" && Self::expr_has_float(&arm.body.node) {
-                                return "real".to_string();
-                            }
                             if jt == "string"
                                 && matches!(
                                     &arm.body.node,
@@ -1523,6 +1562,12 @@ impl JassCodegen {
                     subj
                 };
 
+                let new_list_type = self.extract_list_elem_type_from_subject(subject);
+                let prev_list_type = match new_list_type {
+                    Some(et) => self.current_list_elem_type.replace(et),
+                    None => None,
+                };
+
                 for (i, arm) in arms.iter().enumerate() {
                     let condition = self.gen_pattern_condition_typed(
                         &arm.pattern.node,
@@ -1550,6 +1595,9 @@ impl JassCodegen {
                     self.indent -= 1;
                 }
                 self.emit("endif");
+                if let Some(prev) = prev_list_type {
+                    self.current_list_elem_type = Some(prev);
+                }
                 result_var
             }
 
@@ -1584,11 +1632,26 @@ impl JassCodegen {
                     // nil = -1
                     "-1".to_string()
                 } else {
-                    // Look up element type from first element
-                    let elem_type = self.lookup_type(elems[0].span).to_string();
+                    let raw_type = self.lookup_full_type(elems[0].span);
+                    let elem_type = raw_type
+                        .as_ref()
+                        .filter(|ty| matches!(ty, Type::Con(_)))
+                        .map(|ty| ty.to_jass().to_string())
+                        .filter(|jt| self.types.list_types.contains(jt.as_str()))
+                        .or_else(|| self.current_list_elem_type.clone())
+                        .or_else(|| {
+                            if let Expr::Var(name) = &elems[0].node {
+                                self.var_list_elem_types
+                                    .get(name)
+                                    .cloned()
+                                    .or_else(|| self.var_to_list_elem_type(name))
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_else(|| self.lookup_type(elems[0].span).to_string());
                     let lt = crate::types::TypeRegistry::list_type_name(&elem_type);
 
-                    // Build list right-to-left: [1, 2, 3] → cons(1, cons(2, cons(3, -1)))
                     let mut result = "-1".to_string();
                     for elem in elems.iter().rev() {
                         let val = self.gen_expr(&elem.node);
@@ -1601,13 +1664,26 @@ impl JassCodegen {
             Expr::ListCons { head, tail } => {
                 let h = self.gen_expr(&head.node);
                 let t = self.gen_expr(&tail.node);
-                let elem_type = self.lookup_type(head.span).to_string();
+                let head_type = self.lookup_full_type(head.span);
+                let elem_type = head_type
+                    .as_ref()
+                    .filter(|ty| matches!(ty, Type::Con(_)))
+                    .map(|ty| ty.to_jass().to_string())
+                    .filter(|jt| self.types.list_types.contains(jt.as_str()))
+                    .or_else(|| self.current_list_elem_type.clone())
+                    .or_else(|| {
+                        if let Expr::Var(name) = &head.node {
+                            self.var_list_elem_types
+                                .get(name)
+                                .cloned()
+                                .or_else(|| self.var_to_list_elem_type(name))
+                        } else {
+                            None
+                        }
+                    })
+                    .or_else(|| self.infer_list_elem_from_tail(tail))
+                    .unwrap_or_else(|| "integer".to_string());
                 let lt = crate::types::TypeRegistry::list_type_name(&elem_type);
-                let lt = if self.types.list_types.contains(&elem_type) {
-                    lt
-                } else {
-                    crate::types::TypeRegistry::list_type_name("integer")
-                };
                 format!("glass_{}_cons({}, {})", lt, h, t)
             }
 
@@ -1730,7 +1806,11 @@ impl JassCodegen {
                     return value.clone();
                 }
 
-                let bare_name = name.rsplit("::").next().unwrap_or(name);
+                let after_colons = name.rsplit("::").next().unwrap_or(name);
+                let bare_name = after_colons
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(after_colons);
                 let variant_info = self
                     .types
                     .get_variant(bare_name)
@@ -1765,9 +1845,10 @@ impl JassCodegen {
                 base,
                 updates,
             } => {
+                let bare_record_name = name.rsplit('.').next().unwrap_or(name);
                 // Clone type info to release borrow on self
                 let record_info: Option<(String, Vec<(String, String)>)> =
-                    self.types.types.get(name.as_str()).and_then(|info| {
+                    self.types.types.get(bare_record_name).and_then(|info| {
                         if info.is_enum {
                             return None;
                         }
@@ -1870,13 +1951,19 @@ impl JassCodegen {
 
     /// Generate pattern condition with type info for correct SoA tag access.
     /// Strip qualified prefix: "BashResult::Bashed" → "Bashed"
-    fn expr_has_float(expr: &Expr) -> bool {
+    fn expr_has_float(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Float(_) => true,
             Expr::BinOp { left, right, .. } => {
-                Self::expr_has_float(&left.node) || Self::expr_has_float(&right.node)
+                self.expr_has_float(&left.node) || self.expr_has_float(&right.node)
             }
-            Expr::UnaryOp { operand, .. } => Self::expr_has_float(&operand.node),
+            Expr::UnaryOp { operand, .. } => self.expr_has_float(&operand.node),
+            Expr::Let { body, .. } => self.expr_has_float(&body.node),
+            Expr::Block(exprs) => exprs.last().is_some_and(|e| self.expr_has_float(&e.node)),
+            Expr::Case { arms, .. } => arms.iter().any(|a| self.expr_has_float(&a.body.node)),
+            Expr::Var(name) => {
+                self.local_var_jass_types.get(name).is_some_and(|jt| jt == "real")
+            }
             _ => false,
         }
     }
@@ -1904,9 +1991,11 @@ impl JassCodegen {
                     if let Some(value) = self.const_values.get(const_key) {
                         format!("({} == {})", subject, value)
                     } else {
-                        let qualified = self
-                            .types
-                            .get_variant(bare)
+                        let variant_info = match type_name {
+                            Some(tn) => self.types.get_variant_of_type(bare, tn),
+                            None => self.types.get_variant(bare),
+                        };
+                        let qualified = variant_info
                             .map(|(ti, _)| format!("{}_{}", ti.name, bare))
                             .unwrap_or_else(|| bare.to_string());
                         format!("({} == glass_TAG_{})", subject, qualified)
@@ -2094,10 +2183,11 @@ impl JassCodegen {
                 }
             }
             Pattern::ListCons { head, tail } => {
-                // Extract head and tail from linked list SoA
-                // TODO: determine list element type for correct SoA name
-                // For now, use List_integer (most common case)
-                let list_type = "List_integer";
+                let list_type = self
+                    .current_list_elem_type
+                    .as_ref()
+                    .map(|et| TypeRegistry::list_type_name(et))
+                    .unwrap_or_else(|| "List_integer".to_string());
                 let head_expr = format!("glass_{}_head[{}]", list_type, subject);
                 let tail_expr = format!("glass_{}_tail[{}]", list_type, subject);
                 self.gen_pattern_bindings(&head.node, &head_expr);
@@ -2141,7 +2231,7 @@ impl JassCodegen {
 
     // === Locals collection ===
 
-    fn collect_locals(&self, expr: &Expr, locals: &mut Vec<(String, String)>) {
+    fn collect_locals(&mut self, expr: &Expr, locals: &mut Vec<(String, String)>) {
         match expr {
             Expr::Let {
                 pattern,
@@ -2154,7 +2244,14 @@ impl JassCodegen {
                     Pattern::Var(name) => {
                         let jass_type = match type_annotation {
                             Some(t) => self.type_to_jass(t),
-                            None => self.lookup_type(value.span).to_string(),
+                            None => {
+                                let lt = self.lookup_type(value.span);
+                                if lt == "integer" && self.expr_has_float(&value.node) {
+                                    "real".to_string()
+                                } else {
+                                    lt.to_string()
+                                }
+                            }
                         };
                         locals.push((name.clone(), jass_type));
                     }
@@ -2174,10 +2271,17 @@ impl JassCodegen {
             }
             Expr::Case { subject, arms } => {
                 self.collect_locals(&subject.node, locals);
+                let new_list_type = self.extract_list_elem_type_from_subject(subject);
+                let prev = match new_list_type {
+                    Some(et) => self.current_list_elem_type.replace(et),
+                    None => None,
+                };
                 for arm in arms {
-                    // Collect bindings from patterns
                     self.collect_pattern_locals(&arm.pattern.node, locals);
                     self.collect_locals(&arm.body.node, locals);
+                }
+                if let Some(prev_val) = prev {
+                    self.current_list_elem_type = Some(prev_val);
                 }
             }
             Expr::Block(exprs) => {
@@ -2311,7 +2415,17 @@ impl JassCodegen {
                 }
             }
             Pattern::ListCons { head, tail } => {
-                self.collect_pattern_locals(&head.node, locals);
+                if let Some(ref elem_type) = self.current_list_elem_type {
+                    if let Pattern::Var(name) = &head.node {
+                        if name != "_" {
+                            locals.push((name.clone(), elem_type.clone()));
+                        }
+                    } else {
+                        self.collect_pattern_locals(&head.node, locals);
+                    }
+                } else {
+                    self.collect_pattern_locals(&head.node, locals);
+                }
                 self.collect_pattern_locals(&tail.node, locals);
             }
             _ => {}
@@ -2752,6 +2866,72 @@ impl JassCodegen {
         self.type_map
             .get(&(span.start, span.end))
             .map(|ty| ty.apply(&self.mono_subst))
+    }
+
+    fn var_to_list_elem_type(&self, name: &str) -> Option<String> {
+        let jt = self.local_var_jass_types.get(name)?;
+        if jt != "integer" && self.types.list_types.contains(jt.as_str()) {
+            Some(jt.clone())
+        } else {
+            None
+        }
+    }
+
+    fn extract_list_elem_jass_type(ty: &TypeExpr) -> Option<String> {
+        if let TypeExpr::Named { name, args } = ty {
+            if name == "List" {
+                if let Some(arg) = args.first() {
+                    let jass = TypeRegistry::type_expr_to_jass_public(arg);
+                    if jass != "integer" {
+                        return Some(jass);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn extract_list_elem_type_from_subject(&self, subject: &Spanned<Expr>) -> Option<String> {
+        if let Expr::Var(name) = &subject.node {
+            if let Some(elem) = self.var_list_elem_types.get(name) {
+                return Some(elem.clone());
+            }
+        }
+        if let Some(ty) = self.lookup_full_type(subject.span) {
+            if let Type::App(con, args) = ty {
+                if let Type::Con(name) = *con {
+                    if name == "List" {
+                        if let Some(elem) = args.first() {
+                            let jass = elem.to_jass();
+                            if jass != "integer" && self.types.list_types.contains(jass) {
+                                return Some(jass.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn infer_list_elem_from_tail(&self, tail: &Spanned<Expr>) -> Option<String> {
+        let ty = self.lookup_full_type(tail.span)?;
+        match ty {
+            Type::App(con, args) => {
+                if let Type::Con(name) = *con {
+                    if name == "List" {
+                        if let Some(elem) = args.first() {
+                            let jass = elem.to_jass();
+                            if self.types.list_types.contains(jass) {
+                                return Some(jass.to_string());
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 }
 

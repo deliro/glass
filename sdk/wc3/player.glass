@@ -74,7 +74,7 @@ pub fn set_lumber(p: Player, amount: Int) -> Int {
 }
 
 pub fn adjust_gold(p: Player, delta: Int) -> Int {
-    set_state(p, STATE_GOLD, get_state(p, STATE_GOLD) + delta)
+    set_state(clone(p), STATE_GOLD, get_state(p, STATE_GOLD) + delta)
 }
 
 @external("jass", "IsPlayerAlly")

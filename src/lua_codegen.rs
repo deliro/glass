@@ -666,7 +666,11 @@ impl LuaCodegen {
                 {
                     return value.clone();
                 }
-                let bare_name = name.rsplit("::").next().unwrap_or(name);
+                let after_colons = name.rsplit("::").next().unwrap_or(name);
+                let bare_name = after_colons
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(after_colons);
                 let variant_info = self.types.get_variant(bare_name).map(|(ti, vi)| {
                     (
                         ti.name.clone(),
@@ -720,8 +724,9 @@ impl LuaCodegen {
                 base,
                 updates,
             } => {
+                let bare_record_name = name.rsplit('.').next().unwrap_or(name);
                 let record_info: Option<Vec<String>> =
-                    self.types.types.get(name.as_str()).and_then(|info| {
+                    self.types.types.get(bare_record_name).and_then(|info| {
                         if info.is_enum {
                             return None;
                         }

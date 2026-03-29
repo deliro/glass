@@ -111,6 +111,7 @@ impl TypeRegistry {
         let mut list_elem_types: HashSet<String> = HashSet::new();
         for def in &module.definitions {
             Self::discover_lists(def, &mut list_elem_types);
+            Self::discover_lists_from_annotations(def, &mut list_elem_types);
         }
 
         TypeRegistry {
@@ -285,6 +286,47 @@ impl TypeRegistry {
             Expr::Bool(_) => "boolean".to_string(),
             Expr::String(_) => "string".to_string(),
             _ => "integer".to_string(),
+        }
+    }
+
+    fn discover_lists_from_annotations(def: &Definition, elem_types: &mut HashSet<String>) {
+        match def {
+            Definition::Type(td) => {
+                for ctor in &td.constructors {
+                    for field in &ctor.fields {
+                        Self::discover_list_in_type_expr(&field.type_expr, elem_types);
+                    }
+                }
+            }
+            Definition::Function(f) => {
+                for p in &f.params {
+                    Self::discover_list_in_type_expr(&p.type_expr, elem_types);
+                }
+                if let Some(rt) = &f.return_type {
+                    Self::discover_list_in_type_expr(rt, elem_types);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn discover_list_in_type_expr(ty: &TypeExpr, elem_types: &mut HashSet<String>) {
+        if let TypeExpr::Named { name, args } = ty {
+            if name == "List" {
+                if let Some(arg) = args.first() {
+                    let jass_type = Self::type_expr_to_jass(arg);
+                    if jass_type != "integer" {
+                        elem_types.insert(jass_type);
+                    }
+                }
+            }
+            for arg in args {
+                Self::discover_list_in_type_expr(arg, elem_types);
+            }
+        } else if let TypeExpr::Tuple(elems) = ty {
+            for elem in elems {
+                Self::discover_list_in_type_expr(elem, elem_types);
+            }
         }
     }
 
@@ -509,6 +551,10 @@ impl TypeRegistry {
         }
     }
 
+    pub fn type_expr_to_jass_public(ty: &crate::ast::TypeExpr) -> String {
+        Self::type_expr_to_jass(ty)
+    }
+
     fn type_expr_to_jass(ty: &crate::ast::TypeExpr) -> String {
         let crate::ast::TypeExpr::Named { name, .. } = ty else {
             return "integer".to_string();
@@ -537,5 +583,20 @@ impl TypeRegistry {
             }
         }
         None
+    }
+
+    pub fn get_variant_of_type(
+        &self,
+        constructor_name: &str,
+        type_name: &str,
+    ) -> Option<(&TypeInfo, &VariantInfo)> {
+        if let Some(info) = self.types.get(type_name) {
+            for variant in &info.variants {
+                if variant.name == constructor_name {
+                    return Some((info, variant));
+                }
+            }
+        }
+        self.get_variant(constructor_name)
     }
 }

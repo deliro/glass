@@ -37,6 +37,11 @@ pub struct HookData {
     damage: Float,
     radius: Float,
     owner_index: Int,
+    caster: Unit,
+    tip_unit: Option(Unit),
+    chain_links: List(Unit),
+    link_accum: Float,
+    bounce_count: Int,
 }
 
 pub struct PlayerData {

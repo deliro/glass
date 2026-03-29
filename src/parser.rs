@@ -1059,13 +1059,37 @@ impl Parser {
                 );
             } else if self.at(&Token::Dot) {
                 self.advance();
-                // Accept both lower (field/method) and upper (qualified constructor: module.Type)
+                let is_upper = matches!(self.peek(), Some(Token::UpperIdent(_)));
                 let (field, field_span) = match self.peek() {
                     Some(Token::UpperIdent(_)) => self.expect_upper_ident()?,
                     _ => self.expect_lower_ident()?,
                 };
-                if self.at(&Token::LParen) {
-                    // Method call
+                if is_upper && (self.at(&Token::LBrace) || self.at(&Token::ColonColon)) {
+                    let qualified = match &expr.node {
+                        Expr::Var(module) => format!("{}.{}", module, field),
+                        _ => field.clone(),
+                    };
+                    let name = if self.at(&Token::ColonColon) {
+                        self.advance();
+                        let (variant, _) = self.expect_upper_ident()?;
+                        format!("{}::{}", qualified, variant)
+                    } else {
+                        qualified
+                    };
+                    if self.at(&Token::LBrace) {
+                        expr = self.parse_brace_constructor_or_update(name, expr.span)?;
+                    } else if self.at(&Token::LParen) {
+                        expr = self.parse_constructor_or_update(name, expr.span)?;
+                    } else {
+                        expr = Spanned::new(
+                            Expr::Constructor {
+                                name,
+                                args: Vec::new(),
+                            },
+                            expr.span.merge(field_span),
+                        );
+                    }
+                } else if self.at(&Token::LParen) {
                     self.advance();
                     let args = self.parse_args()?;
                     let end = self.expect(&Token::RParen)?;
@@ -1079,7 +1103,6 @@ impl Parser {
                         span,
                     );
                 } else {
-                    // Field access
                     let span = expr.span.merge(field_span);
                     expr = Spanned::new(
                         Expr::FieldAccess {

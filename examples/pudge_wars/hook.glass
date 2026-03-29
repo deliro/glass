@@ -1,0 +1,276 @@
+import wc3/math
+import wc3/unit
+import option { Option }
+import types
+import arena
+
+const tip_unit_id: Int = 'h001'
+const chain_link_id: Int = 'h002'
+const max_bounces: Int = 3
+
+pub struct LaunchResult {
+    hook: types.HookData,
+    spawn_tip: Bool,
+}
+
+pub struct TickLaunchResult {
+    hook: types.HookData,
+    spawn_link: Bool,
+    link_x: Float,
+    link_y: Float,
+}
+
+pub struct TickRetractResult {
+    hook: types.HookData,
+    links_to_remove: List(Unit),
+    done: Bool,
+}
+
+pub fn tip_type_id() -> Int { tip_unit_id }
+pub fn chain_type_id() -> Int { chain_link_id }
+
+pub fn launch(caster: Unit, owner_index: Int, target_x: Float, target_y: Float, speed: Float, max_range: Float, damage: Float, radius: Float) -> LaunchResult {
+    let cx = unit.get_x(clone(caster))
+    let cy = unit.get_y(clone(caster))
+    let angle = math.atan2(target_y - cy, target_x - cx)
+    let hook = types.HookData {
+        state: HookState::Launching,
+        tip_x: cx,
+        tip_y: cy,
+        angle: angle,
+        cos_a: math.cos(angle),
+        sin_a: math.sin(angle),
+        velocity: speed * arena.hook_tick_interval(),
+        max_range: max_range,
+        distance: 0.0,
+        damage: damage,
+        radius: radius,
+        owner_index: owner_index,
+        caster: caster,
+        tip_unit: Option::None,
+        chain_links: [],
+        link_accum: 0.0,
+        bounce_count: 0,
+    }
+    LaunchResult { hook: hook, spawn_tip: True }
+}
+
+fn move_tip(tip: Unit, new_x: Float, new_y: Float, facing_deg: Float) -> Unit {
+    let _ = unit.set_x(clone(tip), new_x)
+    let _ = unit.set_y(clone(tip), new_y)
+    let _ = unit.set_facing(clone(tip), facing_deg)
+    tip
+}
+
+fn move_links_launching(links: List(Unit), tip_x: Float, tip_y: Float, step: Float) -> List(Unit) {
+    case links {
+        [] -> []
+        [link | rest] -> {
+            let lx = unit.get_x(clone(link))
+            let ly = unit.get_y(clone(link))
+            let dx = tip_x - lx
+            let dy = tip_y - ly
+            let dist = math.sqrt(dx * dx + dy * dy)
+            case dist > 1.0 {
+                True -> {
+                    let ratio = step / dist
+                    let nx = lx + dx * ratio
+                    let ny = ly + dy * ratio
+                    let _ = unit.set_x(clone(link), nx)
+                    let _ = unit.set_y(clone(link), ny)
+                    [link | move_links_launching(rest, lx, ly, step)]
+                }
+                False -> [link | move_links_launching(rest, lx, ly, step)]
+            }
+        }
+    }
+}
+
+pub fn tick_launching(hook: types.HookData) -> TickLaunchResult {
+    let step = hook.velocity
+    let new_x = hook.tip_x + hook.cos_a * step
+    let new_y = hook.tip_y + hook.sin_a * step
+    let new_dist = hook.distance + step
+    let new_accum = hook.link_accum + step
+
+    let bounce = arena.check_bounce(new_x, new_y, hook.angle, hook.cos_a, hook.sin_a)
+
+    let bx = bounce.new_x
+    let by = bounce.new_y
+    let ba = bounce.new_angle
+    let bc = bounce.new_cos
+    let bs = bounce.new_sin
+    let new_bounce_count = case bounce.bounced {
+        True -> hook.bounce_count + 1
+        False -> hook.bounce_count
+    }
+
+    let facing = math.rad2deg(ba)
+
+    let new_tip = case hook.tip_unit {
+        Option::Some(tip) -> Option::Some(move_tip(tip, bx, by, facing))
+        Option::None -> Option::None
+    }
+
+    let new_links = move_links_launching(hook.chain_links, bx, by, step)
+
+    let caster_x = unit.get_x(clone(hook.caster))
+    let caster_y = unit.get_y(clone(hook.caster))
+
+    let spawn_link = new_accum >= arena.chain_link_spacing()
+    let final_accum = case spawn_link {
+        True -> new_accum - arena.chain_link_spacing()
+        False -> new_accum
+    }
+
+    let new_state = case new_dist >= hook.max_range {
+        True -> HookState::Retracting
+        False -> HookState::Launching
+    }
+
+    let updated = types.HookData {
+        state: new_state,
+        tip_x: bx,
+        tip_y: by,
+        angle: ba,
+        cos_a: bc,
+        sin_a: bs,
+        velocity: hook.velocity,
+        max_range: hook.max_range,
+        distance: new_dist,
+        damage: hook.damage,
+        radius: hook.radius,
+        owner_index: hook.owner_index,
+        caster: hook.caster,
+        tip_unit: new_tip,
+        chain_links: new_links,
+        link_accum: final_accum,
+        bounce_count: new_bounce_count,
+    }
+
+    TickLaunchResult {
+        hook: updated,
+        spawn_link: spawn_link,
+        link_x: caster_x,
+        link_y: caster_y,
+    }
+}
+
+fn partition_links(links: List(Unit), cx: Float, cy: Float, threshold_sq: Float) -> (List(Unit), List(Unit)) {
+    case links {
+        [] -> ([], [])
+        [link | rest] -> {
+            let lx = unit.get_x(clone(link))
+            let ly = unit.get_y(clone(link))
+            let dx = cx - lx
+            let dy = cy - ly
+            let dist_sq = dx * dx + dy * dy
+            let (remaining, removing) = partition_links(rest, cx, cy, threshold_sq)
+            case dist_sq <= threshold_sq {
+                True -> (remaining, [link | removing])
+                False -> ([link | remaining], removing)
+            }
+        }
+    }
+}
+
+fn move_links_retracting(links: List(Unit), cx: Float, cy: Float, step: Float) -> List(Unit) {
+    case links {
+        [] -> []
+        [link | rest] -> {
+            let lx = unit.get_x(clone(link))
+            let ly = unit.get_y(clone(link))
+            let dx = cx - lx
+            let dy = cy - ly
+            let dist = math.sqrt(dx * dx + dy * dy)
+            case dist > 1.0 {
+                True -> {
+                    let ratio = step / dist
+                    let nx = lx + dx * ratio
+                    let ny = ly + dy * ratio
+                    let _ = unit.set_x(clone(link), nx)
+                    let _ = unit.set_y(clone(link), ny)
+                    [link | move_links_retracting(rest, cx, cy, step)]
+                }
+                False -> [link | move_links_retracting(rest, cx, cy, step)]
+            }
+        }
+    }
+}
+
+pub fn tick_retracting(hook: types.HookData) -> TickRetractResult {
+    let cx = unit.get_x(clone(hook.caster))
+    let cy = unit.get_y(clone(hook.caster))
+    let step = hook.velocity
+
+    let angle_to_caster = math.atan2(cy - hook.tip_y, cx - hook.tip_x)
+    let new_tx = hook.tip_x + math.cos(angle_to_caster) * step
+    let new_ty = hook.tip_y + math.sin(angle_to_caster) * step
+
+    let dx = cx - new_tx
+    let dy = cy - new_ty
+    let dist_sq = dx * dx + dy * dy
+    let threshold_sq = step * step
+
+    let tip_reached = dist_sq <= threshold_sq
+
+    let facing = math.rad2deg(angle_to_caster)
+    let new_tip = case hook.tip_unit {
+        Option::Some(tip) -> case tip_reached {
+            True -> Option::None
+            False -> Option::Some(move_tip(tip, new_tx, new_ty, facing))
+        }
+        Option::None -> Option::None
+    }
+
+    let tip_to_remove = case hook.tip_unit {
+        Option::Some(tip) -> case tip_reached {
+            True -> [tip]
+            False -> []
+        }
+        Option::None -> []
+    }
+
+    let moved_links = move_links_retracting(hook.chain_links, cx, cy, step)
+    let (remaining, to_remove) = partition_links(moved_links, cx, cy, threshold_sq)
+
+    let all_remove = append_units(tip_to_remove, to_remove)
+
+    let new_state = case tip_reached {
+        True -> HookState::Idle
+        False -> HookState::Retracting
+    }
+
+    let updated = types.HookData {
+        state: new_state,
+        tip_x: new_tx,
+        tip_y: new_ty,
+        angle: angle_to_caster,
+        cos_a: math.cos(angle_to_caster),
+        sin_a: math.sin(angle_to_caster),
+        velocity: hook.velocity,
+        max_range: hook.max_range,
+        distance: hook.distance,
+        damage: hook.damage,
+        radius: hook.radius,
+        owner_index: hook.owner_index,
+        caster: hook.caster,
+        tip_unit: new_tip,
+        chain_links: remaining,
+        link_accum: hook.link_accum,
+        bounce_count: hook.bounce_count,
+    }
+
+    TickRetractResult {
+        hook: updated,
+        links_to_remove: all_remove,
+        done: tip_reached,
+    }
+}
+
+fn append_units(xs: List(Unit), ys: List(Unit)) -> List(Unit) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append_units(t, ys)]
+    }
+}

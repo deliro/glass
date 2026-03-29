@@ -3,11 +3,19 @@ import subscription
 import option { Option }
 import types
 import arena
+import hook
+import wc3/unit
+import wc3/math
+import wc3/player
+
+const hook_ability: Int = 'A000'
 
 pub enum Msg {
     SpellCast { caster: Unit, spell_id: Int, target: Unit }
     SpellGround { caster: Unit, spell_id: Int, x: Float, y: Float }
     HookTick
+    HookTipCreated { hook_index: Int, tip: Unit }
+    ChainLinkCreated { hook_index: Int, link: Unit }
     UnitDied { victim: Unit, killer: Unit }
     ChatCommand { player_id: Int, text: String }
     PlayerLeft { player_id: Int }
@@ -37,15 +45,214 @@ fn make_east_players(i: Int) -> List(types.PlayerData) {
     }
 }
 
-fn append(xs: List(types.PlayerData), ys: List(types.PlayerData)) -> List(types.PlayerData) {
+fn append_players(xs: List(types.PlayerData), ys: List(types.PlayerData)) -> List(types.PlayerData) {
     case xs {
         [] -> ys
-        [h | t] -> [h | append(t, ys)]
+        [h | t] -> [h | append_players(t, ys)]
     }
 }
 
+fn append_effects(xs: List(effect.Effect(Msg)), ys: List(effect.Effect(Msg))) -> List(effect.Effect(Msg)) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append_effects(t, ys)]
+    }
+}
+
+fn handle_spell_ground(model: Model, caster: Unit, spell_id: Int, tx: Float, ty: Float) -> (Model, List(effect.Effect(Msg))) {
+    case spell_id == hook_ability {
+        True -> {
+            let owner_id = player.get_id(player.get_owner(clone(caster)))
+            let hook_idx = list_length_hooks(model.hooks)
+            let result = hook.launch(caster, owner_id, tx, ty, 1600.0, 1300.0, 360.0, 150.0)
+            let new_hooks = append_hooks(model.hooks, [result.hook])
+            let new_model = Model {
+                phase: model.phase,
+                mode: model.mode,
+                players: model.players,
+                hooks: new_hooks,
+                tick_count: model.tick_count,
+            }
+            let tip_effect = effect.create_unit_callback(
+                owner_id,
+                hook.tip_type_id(),
+                tx,
+                ty,
+                0.0,
+                fn(u: Unit) -> Msg { Msg::HookTipCreated { hook_index: hook_idx, tip: u } }
+            )
+            (new_model, [tip_effect])
+        }
+        False -> (model, [])
+    }
+}
+
+fn append_hooks(xs: List(types.HookData), ys: List(types.HookData)) -> List(types.HookData) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append_hooks(t, ys)]
+    }
+}
+
+fn list_length_hooks(xs: List(types.HookData)) -> Int {
+    case xs {
+        [] -> 0
+        [_ | t] -> 1 + list_length_hooks(t)
+    }
+}
+
+fn tick_all_hooks(hooks: List(types.HookData), idx: Int) -> (List(types.HookData), List(effect.Effect(Msg))) {
+    case hooks {
+        [] -> ([], [])
+        [h | rest] -> {
+            let (updated_hook, effects) = tick_one_hook(h, idx)
+            let (rest_hooks, rest_effects) = tick_all_hooks(rest, idx + 1)
+            let all_hooks = case updated_hook.state {
+                Idle -> rest_hooks
+                _ -> [updated_hook | rest_hooks]
+            }
+            (all_hooks, append_effects(effects, rest_effects))
+        }
+    }
+}
+
+fn make_remove_effects(units: List(Unit)) -> List(effect.Effect(Msg)) {
+    case units {
+        [] -> []
+        [u | rest] -> [effect.remove_unit(u) | make_remove_effects(rest)]
+    }
+}
+
+fn tick_one_hook(h: types.HookData, idx: Int) -> (types.HookData, List(effect.Effect(Msg))) {
+    case h.state {
+        Launching -> {
+            let result = hook.tick_launching(h)
+            let link_effects = case result.spawn_link {
+                True -> [
+                    effect.create_unit_callback(
+                        result.hook.owner_index,
+                        hook.chain_type_id(),
+                        result.link_x,
+                        result.link_y,
+                        0.0,
+                        fn(u: Unit) -> Msg { Msg::ChainLinkCreated { hook_index: idx, link: u } }
+                    )
+                ]
+                False -> []
+            }
+            (result.hook, link_effects)
+        }
+        Retracting -> {
+            let result = hook.tick_retracting(h)
+            let remove_effects = make_remove_effects(result.links_to_remove)
+            (result.hook, remove_effects)
+        }
+        _ -> (h, [])
+    }
+}
+
+fn handle_hook_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    let (new_hooks, effects) = tick_all_hooks(model.hooks, 0)
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        players: model.players,
+        hooks: new_hooks,
+        tick_count: model.tick_count + 1,
+    }
+    (new_model, effects)
+}
+
+fn set_hook_tip(hooks: List(types.HookData), idx: Int, tip: Unit) -> List(types.HookData) {
+    case hooks {
+        [] -> []
+        [h | rest] -> case idx == 0 {
+            True -> {
+                let updated = types.HookData {
+                    state: h.state,
+                    tip_x: h.tip_x,
+                    tip_y: h.tip_y,
+                    angle: h.angle,
+                    cos_a: h.cos_a,
+                    sin_a: h.sin_a,
+                    velocity: h.velocity,
+                    max_range: h.max_range,
+                    distance: h.distance,
+                    damage: h.damage,
+                    radius: h.radius,
+                    owner_index: h.owner_index,
+                    caster: h.caster,
+                    tip_unit: Option::Some(tip),
+                    chain_links: h.chain_links,
+                    link_accum: h.link_accum,
+                    bounce_count: h.bounce_count,
+                }
+                [updated | rest]
+            }
+            False -> [h | set_hook_tip(rest, idx - 1, tip)]
+        }
+    }
+}
+
+fn add_chain_link(hooks: List(types.HookData), idx: Int, link: Unit) -> List(types.HookData) {
+    case hooks {
+        [] -> []
+        [h | rest] -> case idx == 0 {
+            True -> {
+                let updated = types.HookData {
+                    state: h.state,
+                    tip_x: h.tip_x,
+                    tip_y: h.tip_y,
+                    angle: h.angle,
+                    cos_a: h.cos_a,
+                    sin_a: h.sin_a,
+                    velocity: h.velocity,
+                    max_range: h.max_range,
+                    distance: h.distance,
+                    damage: h.damage,
+                    radius: h.radius,
+                    owner_index: h.owner_index,
+                    caster: h.caster,
+                    tip_unit: h.tip_unit,
+                    chain_links: [link | h.chain_links],
+                    link_accum: h.link_accum,
+                    bounce_count: h.bounce_count,
+                }
+                [updated | rest]
+            }
+            False -> [h | add_chain_link(rest, idx - 1, link)]
+        }
+    }
+}
+
+fn handle_tip_created(model: Model, hook_index: Int, tip: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let _ = unit.set_scale(clone(tip), 0.6, 0.6, 0.6)
+    let new_hooks = set_hook_tip(model.hooks, hook_index, tip)
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        players: model.players,
+        hooks: new_hooks,
+        tick_count: model.tick_count,
+    }
+    (new_model, [])
+}
+
+fn handle_link_created(model: Model, hook_index: Int, link: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let _ = unit.set_scale(clone(link), 0.4, 0.4, 0.4)
+    let new_hooks = add_chain_link(model.hooks, hook_index, link)
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        players: model.players,
+        hooks: new_hooks,
+        tick_count: model.tick_count,
+    }
+    (new_model, [])
+}
+
 pub fn init() -> (Model, List(effect.Effect(Msg))) {
-    let players = append(make_west_players(0), make_east_players(6))
+    let players = append_players(make_west_players(0), make_east_players(6))
     let model = Model {
         phase: Phase::WaitingForMode,
         mode: Option::None,
@@ -59,8 +266,10 @@ pub fn init() -> (Model, List(effect.Effect(Msg))) {
 pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
         SpellCast(caster, spell_id, target) -> (model, [])
-        SpellGround(caster, spell_id, x, y) -> (model, [])
-        HookTick -> (model, [])
+        SpellGround(caster, spell_id, x, y) -> handle_spell_ground(model, caster, spell_id, x, y)
+        HookTick -> handle_hook_tick(model)
+        HookTipCreated(hook_index, tip) -> handle_tip_created(model, hook_index, tip)
+        ChainLinkCreated(hook_index, link) -> handle_link_created(model, hook_index, link)
         UnitDied(victim, killer) -> (model, [])
         ChatCommand(player_id, text) -> (model, [])
         PlayerLeft(player_id) -> (model, [])

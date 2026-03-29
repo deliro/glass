@@ -1,3 +1,5 @@
+import wc3/math
+
 pub fn min_x() -> Float { 736.0 }
 pub fn max_x() -> Float { 3360.0 }
 pub fn min_y() -> Float { 352.0 }
@@ -18,6 +20,8 @@ pub fn west_spawn_y() -> Float { 2048.0 }
 pub fn east_spawn_x() -> Float { 3072.0 }
 pub fn east_spawn_y() -> Float { 2048.0 }
 
+pub fn pi() -> Float { 3.14159265 }
+
 pub fn is_in_bounds(x: Float, y: Float) -> Bool {
     x >= min_x() && x <= max_x() && y >= min_y() && y <= max_y()
 }
@@ -28,4 +32,85 @@ pub fn is_west_side(x: Float) -> Bool {
 
 pub fn is_east_side(x: Float) -> Bool {
     x > river_max_x()
+}
+
+pub fn bounce_horizontal(angle: Float) -> Float {
+    case angle < 0.0 {
+        True -> 0.0 - (pi() + angle)
+        False -> pi() - angle
+    }
+}
+
+pub fn bounce_vertical(angle: Float) -> Float {
+    0.0 - angle
+}
+
+pub fn clamp_x(x: Float) -> Float {
+    case x < min_x() {
+        True -> min_x()
+        False -> case x > max_x() {
+            True -> max_x()
+            False -> x
+        }
+    }
+}
+
+pub fn clamp_y(y: Float) -> Float {
+    case y < min_y() {
+        True -> min_y()
+        False -> case y > max_y() {
+            True -> max_y()
+            False -> y
+        }
+    }
+}
+
+pub struct BounceResult {
+    bounced: Bool,
+    new_x: Float,
+    new_y: Float,
+    new_angle: Float,
+    new_cos: Float,
+    new_sin: Float,
+}
+
+pub fn check_bounce(x: Float, y: Float, angle: Float, cos_a: Float, sin_a: Float) -> BounceResult {
+    case x <= min_x() || x >= max_x() {
+        True -> {
+            let ha = bounce_horizontal(angle)
+            let cx = clamp_x(x)
+            let cy = clamp_y(y)
+            BounceResult {
+                bounced: True,
+                new_x: cx,
+                new_y: cy,
+                new_angle: ha,
+                new_cos: math.cos(ha),
+                new_sin: math.sin(ha),
+            }
+        }
+        False -> case y <= min_y() || y >= max_y() {
+            True -> {
+                let va = bounce_vertical(angle)
+                let cx = clamp_x(x)
+                let cy = clamp_y(y)
+                BounceResult {
+                    bounced: True,
+                    new_x: cx,
+                    new_y: cy,
+                    new_angle: va,
+                    new_cos: math.cos(va),
+                    new_sin: math.sin(va),
+                }
+            }
+            False -> BounceResult {
+                bounced: False,
+                new_x: x,
+                new_y: y,
+                new_angle: angle,
+                new_cos: cos_a,
+                new_sin: sin_a,
+            }
+        }
+    }
 }
