@@ -276,3 +276,51 @@ pub fn is_enemy(u: Unit, p: Player) -> Bool
 pub fn is_alive(u: Unit) -> Bool {
     is_type(u, unit_type_to_int(Dead)) == False
 }
+
+@external("jass", "UnitApplyTimedLife")
+pub fn apply_timed_life(u: Unit, buff_id: Int, duration: Float) -> Int
+
+@external("jass", "SetUnitScale")
+pub fn set_scale(u: Unit, x: Float, y: Float, z: Float) -> Int
+
+@external("jass", "IsUnitInRangeXY")
+pub fn in_range_xy(u: Unit, x: Float, y: Float, range: Float) -> Bool
+
+@external("jass", "SetUnitMoveSpeed")
+pub fn set_move_speed(u: Unit, speed: Float) -> Int
+
+@external("jass", "GetUnitMoveSpeed")
+pub fn get_move_speed(u: Unit) -> Float
+
+@external("jass", "IssueImmediateOrder")
+pub fn order_immediate(u: Unit, order: String) -> Bool
+
+@external("jass", "IssuePointOrder")
+pub fn order_point(u: Unit, order: String, x: Float, y: Float) -> Bool
+
+@external("jass", "UnitAddAbility")
+pub fn add_ability(u: Unit, ability_id: Int) -> Bool
+
+@external("jass", "UnitRemoveAbility")
+pub fn remove_ability(u: Unit, ability_id: Int) -> Bool
+
+@external("jass", "GetUnitAbilityLevel")
+pub fn get_ability_level(u: Unit, ability_id: Int) -> Int
+
+@external("jass", "SetUnitAbilityLevel")
+pub fn set_ability_level(u: Unit, ability_id: Int, level: Int) -> Int
+
+@external("jass", "UnitAddItemById")
+pub fn add_item_by_id(u: Unit, item_id: Int) -> Item
+
+@external("jass", "GetSpellAbilityId")
+pub fn get_spell_ability_id() -> Int
+
+@external("jass", "GetSpellTargetUnit")
+pub fn get_spell_target_unit() -> Unit
+
+@external("jass", "GetSpellTargetX")
+pub fn get_spell_target_x() -> Float
+
+@external("jass", "GetSpellTargetY")
+pub fn get_spell_target_y() -> Float
