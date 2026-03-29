@@ -498,6 +498,16 @@ fn collect_reserved_names(module: &Module) -> HashSet<String> {
         "name",
         "tag",
         "cid",
+        "tm",
+        "t2",
+        "snd",
+        "mbi",
+        "ri",
+        "cb_type",
+        "cb_unit",
+        "row_count",
+        "row_cur",
+        "row_data",
     ] {
         reserved.insert(name.to_string());
     }
