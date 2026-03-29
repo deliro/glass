@@ -3074,6 +3074,7 @@ fn topo_sort_definitions(defs: &[Definition]) -> Vec<&Definition> {
         if let Definition::Function(f) = def {
             let mut called = HashSet::new();
             collect_calls_in_expr(&f.body, &fn_indices, &mut called);
+            called.remove(&i);
             deps.insert(i, called);
         }
     }
