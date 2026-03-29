@@ -231,7 +231,7 @@ fn elm_runtime_jass_snapshot() {
         msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
     };
     let mut output = String::new();
-    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut output);
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut output);
     insta::assert_snapshot!(output);
 }
 

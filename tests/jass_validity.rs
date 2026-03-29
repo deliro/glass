@@ -894,3 +894,183 @@ pub fn test() -> Int { describe(Action::Wait) }
 "#,
     );
 }
+
+// ============================================================
+// Subscription runtime (JASS)
+// ============================================================
+
+#[test]
+fn subscription_on_death_and_timer() {
+    compile_and_validate_with_natives(
+        r#"
+import effect
+import subscription
+
+pub enum Msg { Tick UnitDied { unit: Unit, killer: Unit } }
+pub struct Model { count: Int }
+
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { count: 0 }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case msg {
+        Msg::Tick -> (Model { count: model.count + 1 }, [])
+        Msg::UnitDied { .. } -> (model, [])
+    }
+}
+
+pub fn subscriptions(m: Model) -> List(subscription.Subscription(Msg)) {
+    [
+        subscription.on_death(fn(u: Unit, k: Unit) -> Msg { Msg::UnitDied { unit: u, killer: k } }),
+        subscription.on_timer(1.0, fn() -> Msg { Msg::Tick })
+    ]
+}
+"#,
+    );
+}
+
+#[test]
+fn subscription_on_attack() {
+    compile_and_validate_with_natives(
+        r#"
+import effect
+import subscription
+
+pub enum Msg { Attacked { attacker: Unit, target: Unit } Noop }
+pub struct Model { hits: Int }
+
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { hits: 0 }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case msg {
+        Msg::Attacked { .. } -> (Model { hits: model.hits + 1 }, [])
+        Msg::Noop -> (model, [])
+    }
+}
+
+pub fn subscriptions(m: Model) -> List(subscription.Subscription(Msg)) {
+    [
+        subscription.on_attack(fn(a: Unit, t: Unit) -> Msg { Msg::Attacked { attacker: a, target: t } })
+    ]
+}
+"#,
+    );
+}
+
+#[test]
+fn subscription_on_spell_effect() {
+    compile_and_validate_with_natives(
+        r#"
+import effect
+import subscription
+
+pub enum Msg { SpellCast { caster: Unit, spell: Int, target: Unit } Noop }
+pub struct Model { casts: Int }
+
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { casts: 0 }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case msg {
+        Msg::SpellCast { .. } -> (Model { casts: model.casts + 1 }, [])
+        Msg::Noop -> (model, [])
+    }
+}
+
+pub fn subscriptions(m: Model) -> List(subscription.Subscription(Msg)) {
+    [
+        subscription.on_spell_effect(fn(c: Unit, s: Int, t: Unit) -> Msg {
+            Msg::SpellCast { caster: c, spell: s, target: t }
+        })
+    ]
+}
+"#,
+    );
+}
+
+#[test]
+fn subscription_mixed_types() {
+    compile_and_validate_with_natives(
+        r#"
+import effect
+import subscription
+
+pub enum Msg {
+    Tick
+    Died { unit: Unit, killer: Unit }
+    LevelUp { hero: Unit }
+    Built { building: Unit }
+}
+pub struct Model { t: Int }
+
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { t: 0 }, [])
+}
+
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case msg {
+        Msg::Tick -> (Model { t: model.t + 1 }, [])
+        Msg::Died { .. } -> (model, [])
+        Msg::LevelUp { .. } -> (model, [])
+        Msg::Built { .. } -> (model, [])
+    }
+}
+
+pub fn subscriptions(m: Model) -> List(subscription.Subscription(Msg)) {
+    [
+        subscription.on_timer(0.5, fn() -> Msg { Msg::Tick }),
+        subscription.on_death(fn(u: Unit, k: Unit) -> Msg { Msg::Died { unit: u, killer: k } }),
+        subscription.on_hero_level_up(fn(h: Unit) -> Msg { Msg::LevelUp { hero: h } }),
+        subscription.on_construction_finish(fn(b: Unit) -> Msg { Msg::Built { building: b } })
+    ]
+}
+"#,
+    );
+}
+
+#[test]
+fn subscription_callbacks_contain_correct_structure() {
+    let jass = compile_glass(
+        r#"
+import effect
+import subscription
+
+pub enum Msg { Died { unit: Unit, killer: Unit } Noop }
+pub struct Model { x: Int }
+
+pub fn init() -> (Model, List(effect.Effect(Msg))) { (Model { x: 0 }, []) }
+
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case msg {
+        Msg::Died { .. } -> (model, [])
+        Msg::Noop -> (model, [])
+    }
+}
+
+pub fn subscriptions(m: Model) -> List(subscription.Subscription(Msg)) {
+    [ subscription.on_death(fn(u: Unit, k: Unit) -> Msg { Msg::Died { unit: u, killer: k } }) ]
+}
+"#,
+    );
+    assert!(
+        jass.contains("glass_sub_cb_on_death"),
+        "should contain named callback for OnDeath"
+    );
+    assert!(
+        jass.contains("glass_register_subscriptions"),
+        "should contain register function"
+    );
+    assert!(
+        jass.contains("glass_sub_on_death"),
+        "should contain global for OnDeath handler"
+    );
+    assert!(
+        jass.contains("GetKillingUnit()"),
+        "OnDeath callback should read GetKillingUnit()"
+    );
+    validate_jass_with_natives(&jass, true);
+}

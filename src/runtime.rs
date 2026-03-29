@@ -6,6 +6,8 @@
 // - Effect processing queue
 // - Map initialization trigger
 
+use std::collections::HashSet;
+
 use crate::ast::{Definition, Module};
 use crate::types::TypeRegistry;
 
@@ -59,8 +61,200 @@ impl ElmEntryPoints {
     }
 }
 
+struct SubDef {
+    name: &'static str,
+    dispatch: &'static str,
+    event_args: &'static str,
+    registration: SubRegistration,
+}
+
+enum SubRegistration {
+    PlayerUnit(&'static str),
+    Player(&'static str),
+    Chat,
+    Timer,
+}
+
+const SUB_DEFS: &[SubDef] = &[
+    SubDef {
+        name: "OnAttack",
+        dispatch: "glass_dispatch_2_unit_unit",
+        event_args: "GetAttacker(), GetTriggerUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_ATTACKED"),
+    },
+    SubDef {
+        name: "OnDeath",
+        dispatch: "glass_dispatch_2_unit_unit",
+        event_args: "GetTriggerUnit(), GetKillingUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_DEATH"),
+    },
+    SubDef {
+        name: "OnTimer",
+        dispatch: "glass_dispatch_void",
+        event_args: "",
+
+        registration: SubRegistration::Timer,
+    },
+    SubDef {
+        name: "OnSpellEffect",
+        dispatch: "glass_dispatch_3_unit_integer_unit",
+        event_args: "GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_SPELL_EFFECT"),
+    },
+    SubDef {
+        name: "OnSpellCast",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetSpellAbilityId()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_SPELL_CAST"),
+    },
+    SubDef {
+        name: "OnSpellChannel",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetSpellAbilityId()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_SPELL_CHANNEL"),
+    },
+    SubDef {
+        name: "OnDamage",
+        dispatch: "glass_dispatch_3_unit_unit_real",
+        event_args: "GetEventDamageSource(), GetTriggerUnit(), GetEventDamage()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_DAMAGED"),
+    },
+    SubDef {
+        name: "OnItemPickup",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_PICKUP_ITEM"),
+    },
+    SubDef {
+        name: "OnItemUse",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_USE_ITEM"),
+    },
+    SubDef {
+        name: "OnItemDrop",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_DROP_ITEM"),
+    },
+    SubDef {
+        name: "OnChat",
+        dispatch: "glass_dispatch_2_integer_string",
+        event_args: "GetPlayerId(GetTriggerPlayer()), GetEventPlayerChatString()",
+
+        registration: SubRegistration::Chat,
+    },
+    SubDef {
+        name: "OnPlayerLeave",
+        dispatch: "glass_dispatch_1_integer",
+        event_args: "GetPlayerId(GetTriggerPlayer())",
+
+        registration: SubRegistration::Player("EVENT_PLAYER_LEAVE"),
+    },
+    SubDef {
+        name: "OnHeroLevelUp",
+        dispatch: "glass_dispatch_1_unit",
+        event_args: "GetTriggerUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_HERO_LEVEL"),
+    },
+    SubDef {
+        name: "OnConstructionFinish",
+        dispatch: "glass_dispatch_1_unit",
+        event_args: "GetTriggerUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_CONSTRUCT_FINISH"),
+    },
+    SubDef {
+        name: "OnSpellGround",
+        dispatch: "glass_dispatch_4_unit_integer_real_real",
+        event_args: "GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetX(), GetSpellTargetY()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_SPELL_EFFECT"),
+    },
+    SubDef {
+        name: "OnSummon",
+        dispatch: "glass_dispatch_2_unit_unit",
+        event_args: "GetTriggerUnit(), GetSummonedUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_SUMMON"),
+    },
+    SubDef {
+        name: "OnUnitSold",
+        dispatch: "glass_dispatch_2_unit_unit",
+        event_args: "GetTriggerUnit(), GetSoldUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_SELL"),
+    },
+    SubDef {
+        name: "OnItemSold",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetItemTypeId(GetSoldItem())",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_SELL_ITEM"),
+    },
+    SubDef {
+        name: "OnUnitTrained",
+        dispatch: "glass_dispatch_2_unit_unit",
+        event_args: "GetTriggerUnit(), GetTrainedUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_TRAIN_FINISH"),
+    },
+    SubDef {
+        name: "OnResearchFinish",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetResearched()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_RESEARCH_FINISH"),
+    },
+    SubDef {
+        name: "OnConstructionStart",
+        dispatch: "glass_dispatch_1_unit",
+        event_args: "GetTriggerUnit()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_CONSTRUCT_START"),
+    },
+    SubDef {
+        name: "OnSpellFinish",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetSpellAbilityId()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_SPELL_FINISH"),
+    },
+    SubDef {
+        name: "OnOrderIssued",
+        dispatch: "glass_dispatch_2_unit_integer",
+        event_args: "GetTriggerUnit(), GetIssuedOrderId()",
+
+        registration: SubRegistration::PlayerUnit("EVENT_PLAYER_UNIT_ISSUED_ORDER"),
+    },
+];
+
+fn sub_global_name(name: &str) -> String {
+    let lower = name
+        .chars()
+        .enumerate()
+        .fold(String::new(), |mut acc, (i, c)| {
+            if c.is_uppercase() && i > 0 {
+                acc.push('_');
+            }
+            acc.push(c.to_ascii_lowercase());
+            acc
+        });
+    format!("glass_sub_{}", lower)
+}
+
 /// Collect runtime globals (merged into the single globals block).
-pub fn collect_runtime_globals(globals: &mut Vec<String>) {
+pub fn collect_runtime_globals(entry: &ElmEntryPoints, globals: &mut Vec<String>) {
     globals.push("    // ========== Glass Elm Runtime ==========".into());
     globals.push("    integer glass_model = 0".into());
     globals.push("    integer glass_msg_tag = 0".into());
@@ -70,12 +264,18 @@ pub fn collect_runtime_globals(globals: &mut Vec<String>) {
     globals.push("    multiboard glass_multiboard = null".into());
     globals.push("    string array glass_BoardRow_label".into());
     globals.push("    string array glass_BoardRow_value".into());
+    if entry.has_subscriptions {
+        for sub in SUB_DEFS {
+            globals.push(format!("    integer {} = -1", sub_global_name(sub.name)));
+        }
+    }
 }
 
 /// Generate the Elm runtime JASS functions (after user code).
 pub fn gen_elm_runtime_functions(
     entry: &ElmEntryPoints,
     _lambdas: &[crate::closures::LambdaInfo],
+    dispatch_sigs: &HashSet<String>,
     output: &mut String,
 ) {
     output.push_str("// ========== Glass Elm Runtime Functions ==========\n\n");
@@ -91,22 +291,188 @@ pub fn gen_elm_runtime_functions(
     gen_process_effects(output);
     gen_send_msg(output);
 
-    // === glass_runtime_init (needs glass_init, rt_tuple, process_effects) ===
+    if entry.has_subscriptions {
+        gen_subscription_callbacks(dispatch_sigs, output);
+        gen_register_subscriptions(dispatch_sigs, output);
+    }
+
+    gen_runtime_init(entry, output);
+
+    output.push_str("function InitTrig_GlassInit takes nothing returns nothing\n");
+    output.push_str("    local trigger t = CreateTrigger()\n");
+    output.push_str("    call TriggerRegisterTimerEvent(t, 0.00, false)\n");
+    output.push_str("    call TriggerAddAction(t, function glass_runtime_init)\n");
+    output.push_str("endfunction\n\n");
+}
+
+fn gen_runtime_init(entry: &ElmEntryPoints, output: &mut String) {
     output.push_str("function glass_runtime_init takes nothing returns nothing\n");
     output.push_str("    local integer glass_result\n");
     output.push_str("    local integer glass_effects\n");
+    if entry.has_subscriptions {
+        output.push_str("    local integer glass_subs\n");
+    }
     output.push_str("    set glass_timer_ht = InitHashtable()\n");
     output.push_str("    set glass_result = glass_init()\n");
     output.push_str("    set glass_model = glass_rt_tuple_0(glass_result)\n");
     output.push_str("    set glass_effects = glass_rt_tuple_1(glass_result)\n");
     output.push_str("    call glass_process_effects(glass_effects)\n");
+    if entry.has_subscriptions {
+        output.push_str("    set glass_subs = glass_subscriptions(glass_model)\n");
+        output.push_str("    call glass_register_subscriptions(glass_subs)\n");
+    }
     output.push_str("endfunction\n\n");
+}
 
-    // === Map init trigger ===
-    output.push_str("function InitTrig_GlassInit takes nothing returns nothing\n");
-    output.push_str("    local trigger t = CreateTrigger()\n");
-    output.push_str("    call TriggerRegisterTimerEvent(t, 0.00, false)\n");
-    output.push_str("    call TriggerAddAction(t, function glass_runtime_init)\n");
+fn gen_subscription_callbacks(dispatch_sigs: &HashSet<String>, output: &mut String) {
+    for sub in SUB_DEFS {
+        if !dispatch_sigs.contains(sub.dispatch) {
+            continue;
+        }
+        let cb_name = format!(
+            "glass_sub_cb_{}",
+            sub.name
+                .chars()
+                .enumerate()
+                .fold(String::new(), |mut acc, (i, c)| {
+                    if c.is_uppercase() && i > 0 {
+                        acc.push('_');
+                    }
+                    acc.push(c.to_ascii_lowercase());
+                    acc
+                })
+        );
+        let global = sub_global_name(sub.name);
+
+        output.push_str(&format!(
+            "function {} takes nothing returns nothing\n",
+            cb_name
+        ));
+
+        if sub.event_args.is_empty() {
+            output.push_str(&format!(
+                "    call glass_send_msg({}({}), 0, 0)\n",
+                sub.dispatch, global
+            ));
+        } else {
+            output.push_str(&format!(
+                "    call glass_send_msg({}({}, {}), 0, 0)\n",
+                sub.dispatch, global, sub.event_args
+            ));
+        }
+
+        output.push_str("endfunction\n\n");
+    }
+}
+
+fn gen_register_subscriptions(dispatch_sigs: &HashSet<String>, output: &mut String) {
+    output.push_str(
+        "function glass_register_subscriptions takes integer subs returns nothing\n",
+    );
+    output.push_str("    local integer current = subs\n");
+    output.push_str("    local integer sub\n");
+    output.push_str("    local trigger t\n");
+    output.push_str("    local timer tm\n");
+    output.push_str("    local integer i\n");
+    output.push_str("    loop\n");
+    output.push_str("        exitwhen current == -1\n");
+    output.push_str("        set sub = glass_List_integer_head[current]\n");
+
+    let mut first = true;
+    for sub_def in SUB_DEFS {
+        if !dispatch_sigs.contains(sub_def.dispatch) {
+            continue;
+        }
+        let tag = format!("glass_TAG_Subscription_{}", sub_def.name);
+        let global = sub_global_name(sub_def.name);
+        let cb_name = format!(
+            "glass_sub_cb_{}",
+            sub_def
+                .name
+                .chars()
+                .enumerate()
+                .fold(String::new(), |mut acc, (i, c)| {
+                    if c.is_uppercase() && i > 0 {
+                        acc.push('_');
+                    }
+                    acc.push(c.to_ascii_lowercase());
+                    acc
+                })
+        );
+
+        let keyword = if first { "if" } else { "elseif" };
+        first = false;
+
+        output.push_str(&format!(
+            "        {} glass_Subscription_tag[sub] == {} then\n",
+            keyword, tag
+        ));
+        output.push_str(&format!(
+            "            set {} = glass_Subscription_{}_handler[sub]\n",
+            global, sub_def.name
+        ));
+
+        match sub_def.registration {
+            SubRegistration::PlayerUnit(event) => {
+                output.push_str("            set t = CreateTrigger()\n");
+                output.push_str("            set i = 0\n");
+                output.push_str("            loop\n");
+                output.push_str("                exitwhen i >= bj_MAX_PLAYER_SLOTS\n");
+                output.push_str(&format!(
+                    "                call TriggerRegisterPlayerUnitEvent(t, Player(i), {}, null)\n",
+                    event
+                ));
+                output.push_str("                set i = i + 1\n");
+                output.push_str("            endloop\n");
+                output.push_str(&format!(
+                    "            call TriggerAddAction(t, function {})\n",
+                    cb_name
+                ));
+            }
+            SubRegistration::Player(event) => {
+                output.push_str("            set t = CreateTrigger()\n");
+                output.push_str("            set i = 0\n");
+                output.push_str("            loop\n");
+                output.push_str("                exitwhen i >= bj_MAX_PLAYER_SLOTS\n");
+                output.push_str(&format!(
+                    "                call TriggerRegisterPlayerEvent(t, Player(i), {})\n",
+                    event
+                ));
+                output.push_str("                set i = i + 1\n");
+                output.push_str("            endloop\n");
+                output.push_str(&format!(
+                    "            call TriggerAddAction(t, function {})\n",
+                    cb_name
+                ));
+            }
+            SubRegistration::Chat => {
+                output.push_str("            set t = CreateTrigger()\n");
+                output.push_str("            set i = 0\n");
+                output.push_str("            loop\n");
+                output.push_str("                exitwhen i >= bj_MAX_PLAYER_SLOTS\n");
+                output.push_str(
+                    "                call TriggerRegisterPlayerChatEvent(t, Player(i), \"\", false)\n",
+                );
+                output.push_str("                set i = i + 1\n");
+                output.push_str("            endloop\n");
+                output.push_str(&format!(
+                    "            call TriggerAddAction(t, function {})\n",
+                    cb_name
+                ));
+            }
+            SubRegistration::Timer => {
+                output.push_str("            set tm = CreateTimer()\n");
+                output.push_str(&format!(
+                    "            call TimerStart(tm, glass_Subscription_{}_interval[sub], true, function {})\n",
+                    sub_def.name, cb_name
+                ));
+            }
+        }
+    }
+
+    output.push_str("        endif\n");
+    output.push_str("        set current = glass_List_integer_tail[current]\n");
+    output.push_str("    endloop\n");
     output.push_str("endfunction\n\n");
 }
 

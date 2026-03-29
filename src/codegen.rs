@@ -100,6 +100,7 @@ pub struct JassCodegen {
     /// Known constants: name → inlined JASS value (e.g. "ROT_SPELL" → "'AUau'").
     /// Constants are fully inlined — no globals emitted.
     const_values: HashMap<String, String>,
+    dispatch_sigs: HashSet<String>,
 }
 
 struct ClosureEmitInfo {
@@ -143,6 +144,7 @@ impl JassCodegen {
             fn_defs: HashMap::new(),
             current_fn_param_type_names: Vec::new(),
             const_values: HashMap::new(),
+            dispatch_sigs: HashSet::new(),
         }
     }
 
@@ -245,8 +247,8 @@ impl JassCodegen {
 
         // Phase 1d: Elm runtime globals
         let elm_entry = ElmEntryPoints::detect(module, &self.types);
-        if elm_entry.is_some() {
-            crate::runtime::collect_runtime_globals(&mut self.globals);
+        if let Some(ref entry) = elm_entry {
+            crate::runtime::collect_runtime_globals(entry, &mut self.globals);
         }
 
         // Emit the single globals block
@@ -271,7 +273,12 @@ impl JassCodegen {
 
         // Phase 3: Emit Elm runtime functions (after user functions)
         if let Some(entry) = elm_entry {
-            crate::runtime::gen_elm_runtime_functions(&entry, &self.lambdas, &mut self.output);
+            crate::runtime::gen_elm_runtime_functions(
+                &entry,
+                &self.lambdas,
+                &self.dispatch_sigs,
+                &mut self.output,
+            );
         }
 
         self.output
@@ -540,6 +547,7 @@ impl JassCodegen {
     /// Emit dispatch functions with inlined lambda bodies (after user code).
     fn gen_closure_dispatch(&mut self, has_elm_entry: bool) {
         if self.lambdas.is_empty() {
+            self.dispatch_sigs.insert("glass_dispatch_void".into());
             self.emit("function glass_dispatch_void takes integer glass_closure returns integer");
             self.indent += 1;
             self.emit("return 0");
@@ -547,6 +555,7 @@ impl JassCodegen {
             self.emit("endfunction");
             self.output.push('\n');
             if has_elm_entry {
+                self.dispatch_sigs.insert("glass_dispatch_1_unit".into());
                 self.emit(
                     "function glass_dispatch_1_unit takes integer glass_closure, unit glass_p0 returns integer",
                 );
@@ -670,6 +679,15 @@ impl JassCodegen {
 
         for sig in &sorted_sigs {
             let dispatch_name = Self::dispatch_fn_name(sig);
+            if sig.is_empty() {
+                self.dispatch_sigs.insert("glass_dispatch_void".into());
+            }
+            let public_name = if sig.is_empty() {
+                "glass_dispatch_void".to_string()
+            } else {
+                format!("glass_dispatch_{}_{}", sig.len(), sig.join("_"))
+            };
+            self.dispatch_sigs.insert(public_name);
 
             let mut takes_parts = vec!["integer glass_closure".to_string()];
             for (i, jass_type) in sig.iter().enumerate() {
@@ -738,6 +756,7 @@ impl JassCodegen {
         self.output.push('\n');
 
         if has_elm_entry && !sorted_sigs.iter().any(|s| s == &["unit".to_string()]) {
+            self.dispatch_sigs.insert("glass_dispatch_1_unit".into());
             self.emit(
                 "function glass_dispatch_1_unit takes integer glass_closure, unit glass_p0 returns integer",
             );

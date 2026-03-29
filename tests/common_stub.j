@@ -290,6 +290,7 @@ native MultiboardReleaseItem takes multiboarditem mbi returns nothing
 // Event types for unit events
 type playerunitevent extends handle
 type unitevent extends handle
+type playerevent extends handle
 
 // Event response natives
 native GetTriggerUnit takes nothing returns unit
@@ -297,10 +298,22 @@ native GetAttacker takes nothing returns unit
 native GetKillingUnit takes nothing returns unit
 native GetSpellAbilityId takes nothing returns integer
 native GetSpellTargetUnit takes nothing returns unit
+native GetSpellTargetX takes nothing returns real
+native GetSpellTargetY takes nothing returns real
 native GetManipulatedItem takes nothing returns item
 native GetItemTypeId takes item whichItem returns integer
+native GetEventDamageSource takes nothing returns unit
+native GetEventDamage takes nothing returns real
+native GetEventPlayerChatString takes nothing returns string
+native GetSummonedUnit takes nothing returns unit
+native GetSoldUnit takes nothing returns unit
+native GetSoldItem takes nothing returns item
+native GetTrainedUnit takes nothing returns unit
+native GetResearched takes nothing returns integer
 native TriggerRegisterPlayerUnitEvent takes trigger whichTrigger, player whichPlayer, playerunitevent whichPlayerUnitEvent, boolexpr filter returns event
 native TriggerRegisterUnitEvent takes trigger whichTrigger, unit whichUnit, unitevent whichEvent returns event
+native TriggerRegisterPlayerEvent takes trigger whichTrigger, player whichPlayer, playerevent whichPlayerEvent returns event
+native TriggerRegisterPlayerChatEvent takes trigger whichTrigger, player whichPlayer, string chatMessageToDetect, boolean exactMatchOnly returns event
 
 // bj_DEGTORAD = 0.01745329 — use 3.14159/180.0 in Glass code instead
 
@@ -312,4 +325,24 @@ globals
     constant integer bj_MAX_PLAYER_SLOTS = 24
     constant integer PLAYER_STATE_RESOURCE_GOLD = 1
     constant integer PLAYER_STATE_RESOURCE_LUMBER = 2
+    constant playerunitevent EVENT_PLAYER_UNIT_ATTACKED = null
+    constant playerunitevent EVENT_PLAYER_UNIT_DEATH = null
+    constant playerunitevent EVENT_PLAYER_UNIT_SPELL_EFFECT = null
+    constant playerunitevent EVENT_PLAYER_UNIT_SPELL_CAST = null
+    constant playerunitevent EVENT_PLAYER_UNIT_SPELL_CHANNEL = null
+    constant playerunitevent EVENT_PLAYER_UNIT_SPELL_FINISH = null
+    constant playerunitevent EVENT_PLAYER_UNIT_DAMAGED = null
+    constant playerunitevent EVENT_PLAYER_UNIT_PICKUP_ITEM = null
+    constant playerunitevent EVENT_PLAYER_UNIT_USE_ITEM = null
+    constant playerunitevent EVENT_PLAYER_UNIT_DROP_ITEM = null
+    constant playerunitevent EVENT_PLAYER_UNIT_SELL = null
+    constant playerunitevent EVENT_PLAYER_UNIT_SELL_ITEM = null
+    constant playerunitevent EVENT_PLAYER_UNIT_TRAIN_FINISH = null
+    constant playerunitevent EVENT_PLAYER_UNIT_RESEARCH_FINISH = null
+    constant playerunitevent EVENT_PLAYER_UNIT_CONSTRUCT_START = null
+    constant playerunitevent EVENT_PLAYER_UNIT_CONSTRUCT_FINISH = null
+    constant playerunitevent EVENT_PLAYER_HERO_LEVEL = null
+    constant playerunitevent EVENT_PLAYER_UNIT_SUMMON = null
+    constant playerunitevent EVENT_PLAYER_UNIT_ISSUED_ORDER = null
+    constant playerevent EVENT_PLAYER_LEAVE = null
 endglobals
