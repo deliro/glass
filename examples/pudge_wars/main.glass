@@ -14,9 +14,14 @@ import items
 import mines
 import barricade
 import blade_barrier
+import messages
+import sounds
+import hints
+import fog_transition
 import wc3/unit
 import wc3/math
 import wc3/player
+import wc3/fog
 
 const HOOK_ABILITY: Int = 'A000'
 const GRAPPLE_ABILITY: Int = 'A00C'
@@ -71,6 +76,8 @@ pub enum Msg {
     MineCreated { owner_index: Int, x: Float, y: Float, close_dmg: Float, far_dmg: Float, created_unit: Unit }
     BarricadeCreated { owner_index: Int, hp: Float, created_unit: Unit }
     BladeCreated { barrier_index: Int, blade_index: Int, created_blade: Unit }
+    HintTick
+    FogStep { step: Int }
 }
 
 pub struct Model {
@@ -87,6 +94,8 @@ pub struct Model {
     barricades: List(types.Barricade),
     blade_barriers: List(types.BladeBarrierState),
     dynamites: List(types.DynamiteState),
+    hint_index: Int,
+    hints_enabled: Bool,
 }
 
 fn make_west_players(i: Int) -> List(types.PlayerData) {
@@ -322,6 +331,7 @@ fn launch_hook(model: Model, caster: Unit, tx: Float, ty: Float, variant: types.
         spawn_count: model.spawn_count,
         active_mines: model.active_mines, barricades: model.barricades,
         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
     let tip_effect = effect.create_unit_callback(
         owner_id,
@@ -369,6 +379,7 @@ fn rebuild_model(model: Model, players: List(types.PlayerData)) -> Model {
         spawn_count: model.spawn_count,
         active_mines: model.active_mines, barricades: model.barricades,
         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
 }
 
@@ -380,6 +391,7 @@ fn rebuild_model_hooks(model: Model, hooks: List(types.HookData)) -> Model {
         spawn_count: model.spawn_count,
         active_mines: model.active_mines, barricades: model.barricades,
         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
 }
 
@@ -790,6 +802,7 @@ fn handle_hook_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
         spawn_count: model.spawn_count,
         active_mines: model.active_mines, barricades: model.barricades,
         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
     (new_model, effects)
 }
@@ -959,6 +972,7 @@ fn make_victory_effects(winner: types.Team) -> List(effect.Effect(Msg)) {
         effect.display_text(8, msg, 30.0),
         effect.display_text(9, msg, 30.0),
         effect.display_text(10, msg, 30.0),
+        effect.after(0.0, fn() -> Msg { Msg::FogStep { step: 0 } }),
     ]
 }
 
@@ -972,12 +986,30 @@ fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(ef
             let victim_id = unit.handle_id(clone(victim))
             let new_hooks = release_caught_target_hooks(model.hooks, victim_id)
             let killer_spree = get_player_spree(model.players, killer_owner)
+            let victim_spree = get_player_spree(model.players, victim_owner)
             let reward = calc_kill_reward(victim_level, killer_spree)
             let players_after_kill = update_player_kill(model.players, killer_owner, reward)
             let players_after_death = update_player_death(players_after_kill, victim_owner, victim_level)
             let gold_effect = effect.give_gold(killer_owner, reward)
             let text_effect = effect.show_floating_text("+" <> int.to_string(reward) <> " gold", unit.get_x(clone(killer)), unit.get_y(clone(killer)), 10.0)
             let board_effect = make_board_effect(players_after_death, model.mode)
+            let killer_name = player.get_name(player.get(killer_owner))
+            let victim_name = player.get_name(player.get(victim_owner))
+            let kill_msg = messages.kill_message(DamageKind::Hook, killer_name, victim_name)
+            let kill_msg_effect = effect.display_text(0, kill_msg, 5.0)
+            let new_spree = killer_spree + 1
+            let spree_effects = case new_spree >= 3 {
+                True -> [
+                    effect.display_text(0, messages.spree_message(killer_name, new_spree), 5.0),
+                    effect.play_sound(sounds.spree_sound(new_spree)),
+                ]
+                False -> []
+            }
+            let ended_effects = case victim_spree >= 3 {
+                True -> [effect.display_text(0, messages.spree_ended_message(killer_name, victim_name, victim_spree), 5.0)]
+                False -> []
+            }
+            let kill_effects = append_effects([kill_msg_effect], append_effects(spree_effects, ended_effects))
             let win_check = scoring.check_win_condition(model.mode, players_after_death)
             case win_check {
                 Winner(winner) -> {
@@ -993,9 +1025,10 @@ fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(ef
                         spawn_count: model.spawn_count,
                         active_mines: model.active_mines, barricades: model.barricades,
                         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
                     }
                     let victory_effects = make_victory_effects(winner)
-                    (new_model, append_effects([gold_effect, text_effect, board_effect], victory_effects))
+                    (new_model, append_effects([gold_effect, text_effect, board_effect], append_effects(kill_effects, victory_effects)))
                 }
                 NoWinner -> {
                     let new_model = Model {
@@ -1010,8 +1043,9 @@ fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(ef
                         spawn_count: model.spawn_count,
                         active_mines: model.active_mines, barricades: model.barricades,
                         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
                     }
-                    (new_model, [gold_effect, text_effect, board_effect])
+                    (new_model, append_effects([gold_effect, text_effect, board_effect], kill_effects))
                 }
             }
         }
@@ -1154,6 +1188,7 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                         spawn_count: model.spawn_count,
                         active_mines: model.active_mines, barricades: model.barricades,
                         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
                     }
                     let board = make_board_effect(new_model.players, new_model.mode)
                     let announce = effect.display_text(0, "Mode set: " <> mode_name(new_model.mode), 10.0)
@@ -1178,6 +1213,7 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                     spawn_count: model.spawn_count,
                     active_mines: model.active_mines, barricades: model.barricades,
                     blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                    hint_index: model.hint_index, hints_enabled: model.hints_enabled,
                 }
                 let msg_text = case new_mods.no_timer {
                     True -> "No Timer: ON"
@@ -1202,6 +1238,7 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                     spawn_count: model.spawn_count,
                     active_mines: model.active_mines, barricades: model.barricades,
                     blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                    hint_index: model.hint_index, hints_enabled: model.hints_enabled,
                 }
                 let msg_text = case new_mods.boosted {
                     True -> "Boosted Mode: ON"
@@ -1226,6 +1263,7 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                     spawn_count: model.spawn_count,
                     active_mines: model.active_mines, barricades: model.barricades,
                     blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                    hint_index: model.hint_index, hints_enabled: model.hints_enabled,
                 }
                 let msg_text = case new_mods.no_powerup {
                     True -> "No Powerup: ON"
@@ -1250,6 +1288,7 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                     spawn_count: model.spawn_count,
                     active_mines: model.active_mines, barricades: model.barricades,
                     blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                    hint_index: model.hint_index, hints_enabled: model.hints_enabled,
                 }
                 let msg_text = case new_mods.hook_only {
                     True -> "Hook Only: ON"
@@ -1275,6 +1314,22 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
         ClearText -> (model, [effect.display_text(player_id, "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n", 1.0)])
         ToggleBoard -> (model, [effect.display_text(player_id, "Board toggled.", 3.0)])
         SetCamera(distance) -> (model, [])
+        ToggleHints -> {
+            let new_model = Model {
+                phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+                players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+                spawn_count: model.spawn_count,
+                active_mines: model.active_mines, barricades: model.barricades,
+                blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                hint_index: model.hint_index, hints_enabled: model.hints_enabled == False,
+            }
+            let msg_text = case new_model.hints_enabled {
+                True -> "Hints: ON"
+                False -> "Hints: OFF"
+            }
+            (new_model, [effect.display_text(player_id, msg_text, 5.0)])
+        }
         Unknown -> (model, [])
     }
 }
@@ -1351,6 +1406,7 @@ fn handle_timed_mode_expired(model: Model) -> (Model, List(effect.Effect(Msg))) 
                 spawn_count: model.spawn_count,
                 active_mines: model.active_mines, barricades: model.barricades,
                 blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                hint_index: model.hint_index, hints_enabled: model.hints_enabled,
             }
             let victory_effects = make_victory_effects(winner)
             (new_model, victory_effects)
@@ -1394,6 +1450,7 @@ fn handle_powerup_spawn_tick(model: Model) -> (Model, List(effect.Effect(Msg))) 
                     spawn_count: model.spawn_count + 1,
                     active_mines: model.active_mines, barricades: model.barricades,
                     blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                    hint_index: model.hint_index, hints_enabled: model.hints_enabled,
                 }
                 (new_model, [spawn_eff])
             }
@@ -1424,6 +1481,7 @@ fn handle_powerup_created(model: Model, kind: types.PowerupKind, direction: Floa
         spawn_count: model.spawn_count,
         active_mines: model.active_mines, barricades: model.barricades,
         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
     (new_model, [])
 }
@@ -1475,6 +1533,7 @@ fn handle_powerup_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
         spawn_count: model.spawn_count,
         active_mines: alive_mines, barricades: model.barricades,
         blade_barriers: new_barriers, dynamites: new_dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
     (new_model, append_effects(pup_effects, append_effects(mine_tick_effects, append_effects(mine_prox_effects, append_effects(barrier_effects, dyn_effects)))))
 }
@@ -1630,6 +1689,7 @@ fn handle_mine_created(model: Model, owner_index: Int, x: Float, y: Float, close
         spawn_count: model.spawn_count,
         active_mines: [mine | model.active_mines], barricades: model.barricades,
         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
     (new_model, [invuln_eff])
 }
@@ -1667,6 +1727,7 @@ fn handle_barricade_created(model: Model, owner_index: Int, hp: Float, u: Unit) 
         spawn_count: model.spawn_count,
         active_mines: model.active_mines, barricades: [b | model.barricades],
         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
     (new_model, [])
 }
@@ -1744,6 +1805,7 @@ fn rebuild_model_mines(model: Model, new_mines: List(types.ActiveMine)) -> Model
         spawn_count: model.spawn_count,
         active_mines: new_mines, barricades: model.barricades,
         blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
 }
 
@@ -1755,6 +1817,7 @@ fn rebuild_model_barriers(model: Model, new_barriers: List(types.BladeBarrierSta
         spawn_count: model.spawn_count,
         active_mines: model.active_mines, barricades: model.barricades,
         blade_barriers: new_barriers, dynamites: model.dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
 }
 
@@ -1766,6 +1829,7 @@ fn rebuild_model_dynamites(model: Model, new_dynamites: List(types.DynamiteState
         spawn_count: model.spawn_count,
         active_mines: model.active_mines, barricades: model.barricades,
         blade_barriers: model.blade_barriers, dynamites: new_dynamites,
+        hint_index: model.hint_index, hints_enabled: model.hints_enabled,
     }
 }
 
@@ -2019,6 +2083,35 @@ fn setup_alliances() -> Int {
     0
 }
 
+fn handle_hint_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    case model.hints_enabled {
+        True -> {
+            let text = hints.get_hint(model.hint_index)
+            let new_model = Model {
+                phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+                players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+                spawn_count: model.spawn_count,
+                active_mines: model.active_mines, barricades: model.barricades,
+                blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+                hint_index: model.hint_index + 1, hints_enabled: model.hints_enabled,
+            }
+            (new_model, [effect.display_text(0, text, 10.0)])
+        }
+        False -> (model, [])
+    }
+}
+
+fn handle_fog_step(model: Model, step: Int) -> (Model, List(effect.Effect(Msg))) {
+    let f = fog_transition.lerp_fog(fog_transition.normal_fog(), fog_transition.victory_fog(), step, fog_transition.TRANSITION_STEPS)
+    let _ = fog.set_terrain_fog_ex(0, f.z_start, f.z_end, f.density, f.red, f.green, f.blue)
+    let effects = case step < fog_transition.TRANSITION_STEPS {
+        True -> [effect.after(fog_transition.STEP_DURATION, fn() -> Msg { Msg::FogStep { step: step + 1 } })]
+        False -> []
+    }
+    (model, effects)
+}
+
 pub fn init() -> (Model, List(effect.Effect(Msg))) {
     let _ = setup_alliances()
     let players = append_players(make_west_players(0), make_east_players(6))
@@ -2038,14 +2131,19 @@ pub fn init() -> (Model, List(effect.Effect(Msg))) {
         barricades: [],
         blade_barriers: [],
         dynamites: [],
+        hint_index: 0,
+        hints_enabled: True,
     }
     (model, [deflector_effect | hero_effects])
 }
 
 pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
-    case model.phase {
-        Victory(_) -> (model, [])
-        _ -> dispatch(model, msg)
+    case msg {
+        FogStep(step) -> handle_fog_step(model, step)
+        _ -> case model.phase {
+            Victory(_) -> (model, [])
+            _ -> dispatch(model, msg)
+        }
     }
 }
 
@@ -2079,6 +2177,8 @@ fn dispatch(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
         MineCreated(owner_index, x, y, close_dmg, far_dmg, u) -> handle_mine_created(model, owner_index, x, y, close_dmg, far_dmg, u)
         BarricadeCreated(owner_index, hp, u) -> handle_barricade_created(model, owner_index, hp, u)
         BladeCreated(barrier_index, blade_index, blade_unit) -> handle_blade_created(model, barrier_index, blade_index, blade_unit)
+        HintTick -> handle_hint_tick(model)
+        FogStep(step) -> handle_fog_step(model, step)
     }
 }
 
@@ -2113,5 +2213,6 @@ pub fn subscriptions(model: Model) -> List(subscription.Subscription(Msg)) {
         subscription.on_item_pickup(fn(u: Unit, item_type: Int) -> Msg {
             Msg::ItemPickedUp { buyer: u, item_type: item_type }
         }),
+        subscription.on_timer(hints.HINT_INTERVAL, fn() -> Msg { Msg::HintTick }),
     ]
 }

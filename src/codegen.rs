@@ -1236,9 +1236,6 @@ impl JassCodegen {
             }
         }
         for (i, jass_type) in temp_types.iter().enumerate() {
-            if jass_type == "real" {
-                eprintln!("DEBUG fn {} has real temp glass_tmp_{}", f.name, i);
-            }
             self.emit(&format!("local {} glass_tmp_{}", jass_type, i));
         }
         // TCO temp locals for safe parameter reassignment
@@ -1788,13 +1785,6 @@ impl JassCodegen {
 
             Expr::Case { subject, arms } => {
                 let subj = self.gen_expr(&subject.node);
-                if let Some(first_arm) = arms.first() {
-                    if let Expr::Var(ref vn) = first_arm.body.node {
-                        let looked = self.local_var_jass_types.get(vn);
-                        let has_fl = arms.iter().any(|a| self.expr_has_float(&a.body.node));
-                        eprintln!("DEBUG case first_arm var={vn} jass_type={looked:?} has_float={has_fl}");
-                    }
-                }
                 let has_compound_arm = arms.iter().any(|a| {
                     matches!(
                         &a.body.node,
@@ -1813,11 +1803,15 @@ impl JassCodegen {
                         false
                     }
                 });
+                let has_str_arm = arms.iter().any(|a| self.expr_is_string(&a.body.node));
                 let case_jass_type = arms
                     .first()
                     .and_then(|arm| self.lookup_full_type(arm.body.span))
                     .map(|ty| {
                         let jt = self.type_to_jass_from_type(&ty);
+                        if has_str_arm {
+                            return "string".to_string();
+                        }
                         if has_compound_arm || has_integer_var_arm {
                             return "integer".to_string();
                         }
@@ -1843,14 +1837,7 @@ impl JassCodegen {
                         }
                         jt
                     })
-                    .unwrap_or_else(|| "integer".to_string());
-                if case_jass_type == "real" {
-                    eprintln!("DEBUG case_jass_type=real has_compound={has_compound_arm} has_int_var={has_integer_var_arm}");
-                    if let Some(first_arm) = arms.first() {
-                        let ft = self.lookup_full_type(first_arm.body.span);
-                        eprintln!("  first_arm_type={ft:?}");
-                    }
-                }
+                    .unwrap_or_else(|| self.infer_case_jass_type(arms));
                 let result_var = self.fresh_temp_typed(&case_jass_type);
 
                 let subject_type_name =
@@ -2302,6 +2289,44 @@ impl JassCodegen {
             }
             _ => false,
         }
+    }
+
+    fn expr_is_string(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::String(_) => true,
+            Expr::BinOp { op, .. } if *op == BinOp::StringConcat => true,
+            Expr::Let { body, .. } => self.expr_is_string(&body.node),
+            Expr::Block(exprs) => exprs.last().is_some_and(|e| self.expr_is_string(&e.node)),
+            Expr::Case { arms, .. } => arms.iter().any(|a| self.expr_is_string(&a.body.node)),
+            Expr::Var(name) => {
+                self.const_values
+                    .get(name.as_str())
+                    .is_some_and(|v| v.starts_with('"'))
+                    || self
+                        .local_var_jass_types
+                        .get(name)
+                        .is_some_and(|jt| jt == "string")
+            }
+            _ => false,
+        }
+    }
+
+    fn infer_case_jass_type(&self, arms: &[CaseArm]) -> String {
+        if arms.iter().any(|a| self.expr_is_string(&a.body.node)) {
+            return "string".to_string();
+        }
+        if arms.iter().any(|a| self.expr_has_float(&a.body.node)) {
+            return "real".to_string();
+        }
+        for arm in arms {
+            if let Some(ty) = self.lookup_full_type(arm.body.span) {
+                let jt = self.type_to_jass_from_type(&ty);
+                if jt != "integer" {
+                    return jt;
+                }
+            }
+        }
+        "integer".to_string()
     }
 
     fn bare_ctor_name(name: &str) -> &str {

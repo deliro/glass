@@ -117,6 +117,8 @@ pub enum DamageKind {
     Toss
     Dynamite
     Rupture
+    Suicide
+    Deny
 }
 
 pub struct HookData {
@@ -183,6 +185,8 @@ pub fn damage_kind_tag(k: DamageKind) -> Int {
         Toss -> 8
         Dynamite -> 9
         Rupture -> 10
+        Suicide -> 11
+        Deny -> 12
     }
 }
 

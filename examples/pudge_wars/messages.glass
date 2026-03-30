@@ -1,0 +1,113 @@
+import wc3/math
+import color
+import int
+import types { DamageKind }
+
+fn hook_message(victim: String, roll: Int) -> String {
+    case roll {
+        0 -> "stuck it in"
+        1 -> "hooked " <> victim <> " in half"
+        _ -> "got a piece of " <> victim
+    }
+}
+
+fn headshot_message(victim: String, roll: Int) -> String {
+    case roll {
+        0 -> "took " <> victim <> "'s head off"
+        1 -> "chunked " <> victim
+        _ -> "decapitated " <> victim
+    }
+}
+
+fn fire_message(victim: String, roll: Int) -> String {
+    case roll {
+        0 -> "lit a fire under " <> victim
+        1 -> "burninated " <> victim
+        _ -> "roasted " <> victim
+    }
+}
+
+fn mine_message(victim: String, roll: Int) -> String {
+    case roll {
+        0 -> "fragged " <> victim
+        1 -> "rained hot death on " <> victim
+        _ -> "blew up " <> victim
+    }
+}
+
+fn lightning_message(victim: String, roll: Int) -> String {
+    case roll {
+        0 -> "gave " <> victim <> " the SHOCK of a lifetime"
+        _ -> "electrocuted " <> victim
+    }
+}
+
+fn blades_message(victim: String, roll: Int) -> String {
+    case roll {
+        0 -> "shredded " <> victim
+        1 -> "sliced AND diced " <> victim
+        _ -> "minced " <> victim
+    }
+}
+
+fn format_kill(killer_name: String, message: String) -> String {
+    color.gold(killer_name) <> " " <> message
+}
+
+pub fn kill_message(kind: DamageKind, killer_name: String, victim_name: String) -> String {
+    case kind {
+        Hook -> format_kill(killer_name, hook_message(victim_name, math.random_int(0, 2)))
+        Headshot -> format_kill(killer_name, headshot_message(victim_name, math.random_int(0, 2)))
+        Attack -> format_kill(killer_name, "attacked " <> victim_name)
+        Fire -> format_kill(killer_name, fire_message(victim_name, math.random_int(0, 2)))
+        Mine -> format_kill(killer_name, mine_message(victim_name, math.random_int(0, 2)))
+        Grenade -> format_kill(killer_name, "grenaded " <> victim_name)
+        Lightning -> format_kill(killer_name, lightning_message(victim_name, math.random_int(0, 1)))
+        Blades -> format_kill(killer_name, blades_message(victim_name, math.random_int(0, 2)))
+        Toss -> format_kill(killer_name, "dropped something on " <> victim_name <> "'s head")
+        Dynamite -> format_kill(killer_name, "detonated on " <> victim_name)
+        Rupture -> format_kill(killer_name, "exsanguinated " <> victim_name)
+        Suicide -> color.red(killer_name <> " committed suicide!")
+        Deny -> color.red(killer_name <> " denied " <> victim_name <> "!")
+    }
+}
+
+pub fn damage_color_prefix(kind: DamageKind) -> String {
+    case kind {
+        Hook -> "|cffFFFFFF"
+        Headshot -> "|cffFF0000"
+        Attack -> "|cffFFFFFF"
+        Fire -> "|cffFF8000"
+        Mine -> "|cffFFFF00"
+        Grenade -> "|cffFFFF00"
+        Lightning -> "|cff8080FF"
+        Blades -> "|cffCC00CC"
+        Toss -> "|cffFFFFFF"
+        Dynamite -> "|cffFF8000"
+        Rupture -> "|cff880000"
+        Suicide -> "|cffFFFFFF"
+        Deny -> "|cffFFFFFF"
+    }
+}
+
+pub fn colored_damage_text(kind: DamageKind, text: String) -> String {
+    damage_color_prefix(kind) <> text <> "|r"
+}
+
+pub fn spree_message(player_name: String, spree: Int) -> String {
+    let label = case spree {
+        3 -> "Killing Spree"
+        4 -> "Dominating"
+        5 -> "Mega-kill"
+        6 -> "Unstoppable"
+        7 -> "Wicked Sick"
+        8 -> "Monster Kill"
+        9 -> "GODLIKE"
+        _ -> "BEYOND GODLIKE"
+    }
+    color.red(player_name) <> " is on a " <> color.gold(label) <> "!"
+}
+
+pub fn spree_ended_message(killer_name: String, victim_name: String, victim_spree: Int) -> String {
+    color.gold(killer_name) <> " ended " <> color.red(victim_name) <> "'s " <> color.gold(int.to_string(victim_spree) <> " kill") <> " spree!"
+}

@@ -29,17 +29,12 @@ pub fn apply_inlining(module: &mut Module) {
 
     for _ in 0..3 {
         let info = analyze(module);
-        let fn_map: HashMap<String, FnDef> = module
-            .definitions
-            .iter()
-            .filter_map(|d| {
-                if let Definition::Function(f) = d {
-                    Some((f.name.clone(), f.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut fn_map: HashMap<String, FnDef> = HashMap::new();
+        for d in &module.definitions {
+            if let Definition::Function(f) = d {
+                fn_map.entry(f.name.clone()).or_insert_with(|| f.clone());
+            }
+        }
 
         let mut defs = std::mem::take(&mut module.definitions);
         for def in &mut defs {

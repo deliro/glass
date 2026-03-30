@@ -1,0 +1,48 @@
+import float
+import int
+
+pub struct FogParams {
+    z_start: Float,
+    z_end: Float,
+    density: Float,
+    red: Float,
+    green: Float,
+    blue: Float,
+}
+
+pub fn normal_fog() -> FogParams {
+    FogParams {
+        z_start: 3000.0,
+        z_end: 5000.0,
+        density: 0.5,
+        red: 0.0,
+        green: 0.0,
+        blue: 0.0,
+    }
+}
+
+pub fn victory_fog() -> FogParams {
+    FogParams {
+        z_start: 1000.0,
+        z_end: 8000.0,
+        density: 1.8,
+        red: 0.235,
+        green: 0.392,
+        blue: 0.235,
+    }
+}
+
+pub const TRANSITION_STEPS: Int = 20
+pub const STEP_DURATION: Float = 0.1
+
+pub fn lerp_fog(from: FogParams, to: FogParams, step: Int, total: Int) -> FogParams {
+    let t = int.to_float(step) / int.to_float(total)
+    FogParams {
+        z_start: float.lerp(from.z_start, to.z_start, t),
+        z_end: float.lerp(from.z_end, to.z_end, t),
+        density: float.lerp(from.density, to.density, t),
+        red: float.lerp(from.red, to.red, t),
+        green: float.lerp(from.green, to.green, t),
+        blue: float.lerp(from.blue, to.blue, t),
+    }
+}

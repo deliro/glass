@@ -1,0 +1,29 @@
+pub const HOOK_LAUNCH: String = "Abilities\\Spells\\Undead\\DeathCoil\\DeathCoilMissile.wav"
+pub const HOOK_CATCH: String = "Units\\Undead\\Abomination\\AbominationYesAttack1.wav"
+pub const HEADSHOT: String = "Abilities\\Spells\\Other\\Stampede\\StampedeMissileDeath1.wav"
+pub const FRESH_MEAT: String = "Sound\\Units\\Combat\\Undead\\BUTCHER.WAV"
+pub const FIRST_BLOOD: String = "Sounds\\firstblood.wav"
+pub const KILLING_SPREE: String = "Sounds\\killingspree.wav"
+pub const DOMINATING: String = "Sounds\\dominating.wav"
+pub const MEGA_KILL: String = "Sounds\\megakill.wav"
+pub const UNSTOPPABLE: String = "Sounds\\unstoppable.wav"
+pub const WICKED_SICK: String = "Sounds\\wickedsick.wav"
+pub const MONSTER_KILL: String = "Sounds\\monsterkill.wav"
+pub const GODLIKE: String = "Sounds\\godlike.wav"
+pub const BEYOND_GODLIKE: String = "Sounds\\beyondgodlike.wav"
+pub const MINE_EXPLODE: String = "Abilities\\Spells\\Human\\FragmentationShards\\FragBoomDeath.wav"
+pub const LIGHTNING_ZAP: String = "Abilities\\Spells\\Orc\\Purge\\PurgeTarget1.wav"
+pub const FIRE_BURN: String = "Abilities\\Spells\\Other\\Incinerate\\FireLordDeathExplode.wav"
+
+pub fn spree_sound(spree: Int) -> String {
+    case spree {
+        3 -> KILLING_SPREE
+        4 -> DOMINATING
+        5 -> MEGA_KILL
+        6 -> UNSTOPPABLE
+        7 -> WICKED_SICK
+        8 -> MONSTER_KILL
+        9 -> GODLIKE
+        _ -> BEYOND_GODLIKE
+    }
+}

@@ -1,0 +1,27 @@
+import int
+
+fn hint_text(index: Int) -> String {
+    case index {
+        0 -> "Hooks bounce off walls! Use geometry to hit around corners."
+        1 -> "Headshots deal 2x damage. Aim for stationary targets."
+        2 -> "Gold is earned by killing enemies. Spend it at the shop."
+        3 -> "Meat Shield absorbs one hook hit. Buy it from the shop."
+        4 -> "Fire Trail leaves flames behind you. Enemies walking over them take damage."
+        5 -> "Mines are invisible to enemies. Place them at chokepoints."
+        6 -> "Lightning Rod chains to nearby enemies. Great for groups."
+        7 -> "Blade Fury reflects hooks back at the caster."
+        8 -> "Toss throws a target back toward their base."
+        9 -> "Dynamite has a delay before exploding. Lead your target."
+        10 -> "Rupture deals damage when the target moves. Hook them first!"
+        11 -> "Killing sprees earn bonus gold. End enemy sprees for extra gold."
+        12 -> "Type -togglehints to show or hide these tips."
+        _ -> "Hooks travel faster with upgrades. Prioritize hook speed early."
+    }
+}
+
+pub const HINT_COUNT: Int = 14
+pub const HINT_INTERVAL: Float = 45.0
+
+pub fn get_hint(index: Int) -> String {
+    "|cff00CCFF[Hint]|r " <> hint_text(index % HINT_COUNT)
+}
