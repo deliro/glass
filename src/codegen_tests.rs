@@ -315,7 +315,7 @@ fn elm_runtime_jass_with_subs_snapshot() {
         msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
     };
     let mut output = String::new();
-    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut output);
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut output);
     insta::assert_snapshot!(output);
 }
 
@@ -357,7 +357,7 @@ fn jass_send_msg_reconciles_subs() {
         msg_variants: vec![],
     };
     let mut output = String::new();
-    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut output);
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut output);
     assert!(
         output.contains("call glass_reconcile_subs()"),
         "send_msg must reconcile subscriptions"
@@ -388,7 +388,7 @@ fn jass_reconcile_destroys_old_subs() {
         msg_variants: vec![],
     };
     let mut output = String::new();
-    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut output);
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut output);
     assert!(output.contains("call glass_unregister_one_sub(idx)"));
     assert!(output.contains("call DestroyTrigger(glass_sub_triggers[idx])"));
     assert!(output.contains("call DestroyTimer(glass_sub_timers[idx])"));
@@ -403,7 +403,7 @@ fn no_reconciliation_without_subs() {
         msg_variants: vec![],
     };
     let mut jass_output = String::new();
-    crate::runtime::gen_elm_runtime_functions(&entry, &[], &mut jass_output);
+    crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut jass_output);
     assert!(!jass_output.contains("glass_reconcile_subs"));
 
     let mut lua_output = String::new();

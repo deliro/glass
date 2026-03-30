@@ -38,9 +38,14 @@ type leaderboard extends agent
 
 native CreateTrigger takes nothing returns trigger
 native DestroyTrigger takes trigger t returns nothing
+native DisableTrigger takes trigger whichTrigger returns nothing
+native EnableTrigger takes trigger whichTrigger returns nothing
+constant native GetTriggeringTrigger takes nothing returns trigger
 native TriggerRegisterTimerEvent takes trigger t, real timeout, boolean periodic returns event
 native TriggerAddAction takes trigger t, code actionFunc returns triggeraction
 native TriggerAddCondition takes trigger t, boolexpr condition returns triggercondition
+
+native ExecuteFunc takes string funcName returns nothing
 
 native CreateTimer takes nothing returns timer
 native DestroyTimer takes timer t returns nothing

@@ -2154,7 +2154,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_after_bad_definition() {
-        let tokens = Lexer::tokenize("fn foo( fn bar(x: Int) -> Int { x }");
+        let tokens = Lexer::tokenize("fn foo( fn bar(x: Int) -> Int { x }").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 1);
@@ -2163,7 +2163,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_multiple_errors() {
-        let tokens = Lexer::tokenize("fn a( fn b( fn c(x: Int) -> Int { x }");
+        let tokens = Lexer::tokenize("fn a( fn b( fn c(x: Int) -> Int { x }").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 2);
@@ -2172,7 +2172,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_at_enum_sync_point() {
-        let tokens = Lexer::tokenize("fn bad( enum Color { Red Green Blue }");
+        let tokens = Lexer::tokenize("fn bad( enum Color { Red Green Blue }").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 1);
@@ -2181,7 +2181,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_at_struct_sync_point() {
-        let tokens = Lexer::tokenize("fn bad( struct Point { x: Int, y: Int }");
+        let tokens = Lexer::tokenize("fn bad( struct Point { x: Int, y: Int }").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 1);
@@ -2190,7 +2190,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_at_import_sync_point() {
-        let tokens = Lexer::tokenize("fn bad( import option");
+        let tokens = Lexer::tokenize("fn bad( import option").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 1);
@@ -2199,7 +2199,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_at_const_sync_point() {
-        let tokens = Lexer::tokenize("fn bad( const x: Int = 5");
+        let tokens = Lexer::tokenize("fn bad( const x: Int = 5").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 1);
@@ -2208,7 +2208,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_at_pub_sync_point() {
-        let tokens = Lexer::tokenize("fn bad( pub fn good(x: Int) -> Int { x }");
+        let tokens = Lexer::tokenize("fn bad( pub fn good(x: Int) -> Int { x }").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 1);
@@ -2217,7 +2217,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn no_errors_on_valid_input() {
-        let tokens = Lexer::tokenize("fn foo(x: Int) -> Int { x }");
+        let tokens = Lexer::tokenize("fn foo(x: Int) -> Int { x }").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert!(output.errors.is_empty());

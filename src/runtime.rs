@@ -266,10 +266,11 @@ pub fn gen_elm_runtime_functions(
     gen_process_effects(output);
     gen_send_msg(entry, output);
     if entry.has_subscriptions {
+        gen_sub_timer_callback(output);
         gen_subscription_callbacks(dispatch_sigs, output);
-        gen_sub_callbacks(output);
-        gen_register_one_sub(output);
+        gen_sub_callbacks(dispatch_sigs, output);
         gen_unregister_one_sub(output);
+        gen_register_one_sub(dispatch_sigs, output);
         gen_reconcile_subs(output);
     }
 
@@ -312,12 +313,12 @@ fn gen_subscription_callbacks(dispatch_sigs: &HashSet<String>, output: &mut Stri
 
         if sub.event_args.is_empty() {
             output.push_str(&format!(
-                "    call glass_send_msg({}({}), 0, 0)\n",
+                "    call glass_send_msg({}({}))\n",
                 sub.dispatch, global
             ));
         } else {
             output.push_str(&format!(
-                "    call glass_send_msg({}({}, {}), 0, 0)\n",
+                "    call glass_send_msg({}({}, {}))\n",
                 sub.dispatch, global, sub.event_args
             ));
         }
@@ -834,7 +835,7 @@ fn gen_send_msg(entry: &ElmEntryPoints, output: &mut String) {
     output.push_str("    set glass_model = glass_new_model\n");
     output.push_str("    call glass_process_effects(glass_effects)\n");
     if entry.has_subscriptions {
-        output.push_str("    call glass_reconcile_subs()\n");
+        output.push_str("    call ExecuteFunc(\"glass_reconcile_subs\")\n");
     }
     output.push_str("endfunction\n\n");
 }
@@ -984,15 +985,19 @@ const SUB_TYPES: &[SubType] = &[
     },
 ];
 
-fn gen_sub_callbacks(output: &mut String) {
+fn gen_sub_callbacks(dispatch_sigs: &HashSet<String>, output: &mut String) {
     for sub in SUB_TYPES {
+        let dispatch_name = sub.dispatch_call.split('(').next().unwrap_or("");
+        if !dispatch_sigs.contains(dispatch_name) {
+            continue;
+        }
         output.push_str(&format!(
             "function glass_sub_cb_{} takes nothing returns nothing\n",
             sub.tag
         ));
         output.push_str("    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)\n");
         output.push_str(&format!(
-            "    call glass_send_msg({}, 0, 0)\n",
+            "    call glass_send_msg({})\n",
             sub.dispatch_call
         ));
         output.push_str("endfunction\n\n");
@@ -1005,14 +1010,12 @@ fn gen_sub_timer_callback(output: &mut String) {
     output.push_str(
         "    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(t), 0)\n",
     );
-    output.push_str("    call glass_send_msg(glass_dispatch_void(closure_id), 0, 0)\n");
+    output.push_str("    call glass_send_msg(glass_dispatch_void(closure_id))\n");
     output.push_str("    set t = null\n");
     output.push_str("endfunction\n\n");
 }
 
-fn gen_register_one_sub(output: &mut String) {
-    gen_sub_timer_callback(output);
-
+fn gen_register_one_sub(dispatch_sigs: &HashSet<String>, output: &mut String) {
     output.push_str(
         "function glass_register_one_sub takes integer sub_id, integer idx returns nothing\n",
     );
@@ -1023,6 +1026,10 @@ fn gen_register_one_sub(output: &mut String) {
 
     let mut first = true;
     for sub in SUB_TYPES {
+        let dispatch_name = sub.dispatch_call.split('(').next().unwrap_or("");
+        if !dispatch_sigs.contains(dispatch_name) {
+            continue;
+        }
         let keyword = if first { "if" } else { "elseif" };
         first = false;
         output.push_str(&format!(

@@ -48,8 +48,6 @@ function glass_timer_callback takes nothing returns nothing
     set t = null
     set cb_unit = null
     set glass_msg_tag = msg_result
-    set glass_msg_p0 = 0
-    set glass_msg_p1 = 0
     set glass_result = glass_dispatch_update()
     set glass_model = glass_rt_tuple_0(glass_result)
     set glass_effects = glass_rt_tuple_1(glass_result)
@@ -371,420 +369,24 @@ function glass_process_effects takes integer effect_list returns nothing
     endloop
 endfunction
 
-function glass_send_msg takes integer tag, integer p0, integer p1 returns nothing
+function glass_send_msg takes integer msg returns nothing
     local integer glass_result
     local integer glass_new_model
     local integer glass_effects
-    set glass_msg_tag = tag
-    set glass_msg_p0 = p0
-    set glass_msg_p1 = p1
+    set glass_msg_tag = msg
     set glass_result = glass_dispatch_update()
     set glass_new_model = glass_rt_tuple_0(glass_result)
     set glass_effects = glass_rt_tuple_1(glass_result)
     set glass_model = glass_new_model
     call glass_process_effects(glass_effects)
-    call glass_reconcile_subs()
-endfunction
-
-function glass_sub_cb_OnAttack takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetAttacker(), GetTriggerUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnDeath takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetTriggerUnit(), GetKillingUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnTimer takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_void(closure_id), 0, 0)
-endfunction
-
-function glass_sub_cb_OnSpellEffect takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_3_unit_integer_unit(closure_id, GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnItemPickup takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())), 0, 0)
-endfunction
-
-function glass_sub_cb_OnSpellCast takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetSpellAbilityId()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnSpellChannel takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetSpellAbilityId()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnDamage takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_3_unit_unit_real(closure_id, GetEventDamageSource(), GetTriggerUnit(), GetEventDamage()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnItemUse takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())), 0, 0)
-endfunction
-
-function glass_sub_cb_OnItemDrop takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())), 0, 0)
-endfunction
-
-function glass_sub_cb_OnChat takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_integer_string(closure_id, GetPlayerId(GetTriggerPlayer()), GetEventPlayerChatString()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnPlayerLeave takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_1_integer(closure_id, GetPlayerId(GetTriggerPlayer())), 0, 0)
-endfunction
-
-function glass_sub_cb_OnHeroLevelUp takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_1_unit(closure_id, GetTriggerUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnConstructionFinish takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_1_unit(closure_id, GetTriggerUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnSpellGround takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_4_unit_integer_real_real(closure_id, GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetX(), GetSpellTargetY()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnSummon takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetTriggerUnit(), GetSummonedUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnUnitSold takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetTriggerUnit(), GetSoldUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnItemSold takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetItemTypeId(GetSoldItem())), 0, 0)
-endfunction
-
-function glass_sub_cb_OnUnitTrained takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetTriggerUnit(), GetTrainedUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnResearchFinish takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetResearched()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnConstructionStart takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_1_unit(closure_id, GetTriggerUnit()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnSpellFinish takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetSpellAbilityId()), 0, 0)
-endfunction
-
-function glass_sub_cb_OnOrderIssued takes nothing returns nothing
-    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
-    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetIssuedOrderId()), 0, 0)
+    call ExecuteFunc("glass_reconcile_subs")
 endfunction
 
 function glass_sub_timer_cb takes nothing returns nothing
     local timer t = GetExpiredTimer()
     local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(t), 0)
-    call glass_send_msg(glass_dispatch_void(closure_id), 0, 0)
+    call glass_send_msg(glass_dispatch_void(closure_id))
     set t = null
-endfunction
-
-function glass_register_one_sub takes integer sub_id, integer idx returns nothing
-    local integer sub_tag = glass_Subscription_tag[sub_id]
-    local trigger t = null
-    local timer tm = null
-    local integer i = 0
-    if sub_tag == glass_TAG_Subscription_OnAttack then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_ATTACKED, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnAttack_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnAttack)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnDeath then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DEATH, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnDeath_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnDeath)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnTimer then
-        set tm = CreateTimer()
-        call SaveInteger(glass_timer_ht, GetHandleId(tm), 0, glass_Subscription_OnTimer_handler[sub_id])
-        call TimerStart(tm, glass_Subscription_OnTimer_interval[sub_id], true, function glass_sub_timer_cb)
-        set glass_sub_timers[idx] = tm
-        set tm = null
-    elseif sub_tag == glass_TAG_Subscription_OnSpellEffect then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_EFFECT, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellEffect_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnSpellEffect)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnItemPickup then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_PICKUP_ITEM, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnItemPickup_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnItemPickup)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnSpellCast then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_CAST, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellCast_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnSpellCast)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnSpellChannel then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_CHANNEL, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellChannel_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnSpellChannel)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnDamage then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DAMAGED, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnDamage_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnDamage)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnItemUse then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_USE_ITEM, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnItemUse_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnItemUse)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnItemDrop then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DROP_ITEM, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnItemDrop_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnItemDrop)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnChat then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerChatEvent(t, Player(i), "", false)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnChat_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnChat)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnPlayerLeave then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerEvent(t, Player(i), EVENT_PLAYER_LEAVE)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnPlayerLeave_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnPlayerLeave)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnHeroLevelUp then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_HERO_LEVEL, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnHeroLevelUp_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnHeroLevelUp)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnConstructionFinish then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_CONSTRUCT_FINISH, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnConstructionFinish_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnConstructionFinish)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnSpellGround then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_EFFECT, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellGround_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnSpellGround)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnSummon then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SUMMON, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSummon_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnSummon)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnUnitSold then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SELL, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnUnitSold_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnUnitSold)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnItemSold then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SELL_ITEM, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnItemSold_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnItemSold)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnUnitTrained then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_TRAIN_FINISH, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnUnitTrained_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnUnitTrained)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnResearchFinish then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_RESEARCH_FINISH, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnResearchFinish_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnResearchFinish)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnConstructionStart then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_CONSTRUCT_START, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnConstructionStart_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnConstructionStart)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnSpellFinish then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_FINISH, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellFinish_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnSpellFinish)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    elseif sub_tag == glass_TAG_Subscription_OnOrderIssued then
-        set t = CreateTrigger()
-        set i = 0
-        loop
-            exitwhen i >= bj_MAX_PLAYER_SLOTS
-            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_ISSUED_ORDER, null)
-            set i = i + 1
-        endloop
-        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnOrderIssued_handler[sub_id])
-        call TriggerAddAction(t, function glass_sub_cb_OnOrderIssued)
-        set glass_sub_triggers[idx] = t
-        set t = null
-    endif
-    set glass_sub_tags[idx] = sub_tag
 endfunction
 
 function glass_unregister_one_sub takes integer idx returns nothing
@@ -801,6 +403,15 @@ function glass_unregister_one_sub takes integer idx returns nothing
         set glass_sub_triggers[idx] = null
     endif
     set glass_sub_tags[idx] = 0
+endfunction
+
+function glass_register_one_sub takes integer sub_id, integer idx returns nothing
+    local integer sub_tag = glass_Subscription_tag[sub_id]
+    local trigger t = null
+    local timer tm = null
+    local integer i = 0
+    endif
+    set glass_sub_tags[idx] = sub_tag
 endfunction
 
 function glass_reconcile_subs takes nothing returns nothing

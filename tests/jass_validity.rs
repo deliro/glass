@@ -1062,8 +1062,12 @@ pub fn subscriptions(m: Model) -> List(subscription.Subscription(Msg)) {
         "should contain named callback for OnDeath"
     );
     assert!(
-        jass.contains("glass_register_subscriptions"),
+        jass.contains("glass_register_one_sub"),
         "should contain register function"
+    );
+    assert!(
+        jass.contains("glass_reconcile_subs"),
+        "should contain reconcile function"
     );
     assert!(
         jass.contains("glass_sub_on_death"),
