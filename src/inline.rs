@@ -963,7 +963,7 @@ mod tests {
     use crate::token::Lexer;
 
     fn parse_and_inline(source: &str) -> Module {
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let mut module = parser.parse_module().expect("parse failed");
         apply_inlining(&mut module);

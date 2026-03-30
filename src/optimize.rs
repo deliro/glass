@@ -852,7 +852,7 @@ pub fn h(p: Pair) -> Int {
     p.a + p.b
 }
 "#;
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let module = Parser::new(tokens).parse_module().unwrap();
         let type_registry = TypeRegistry::from_module(&module);
         let mut lc = LambdaCollector::new();
@@ -907,7 +907,7 @@ pub fn h(p: Pair) -> Int {
         use crate::token::Lexer;
 
         let source = "fn test(x: Int) -> Int { x }";
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let module = Parser::new(tokens).parse_module().unwrap();
         let reserved = collect_reserved_names(&module);
 

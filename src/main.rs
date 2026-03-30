@@ -404,7 +404,16 @@ fn read_file(path: &str) -> String {
 }
 
 fn parse_source(filename: &str, source: &str) -> ast::Module {
-    let tokens = Lexer::tokenize(source);
+    let tokens = match Lexer::tokenize(source) {
+        Ok(t) => t,
+        Err(e) => {
+            let named_src = miette::NamedSource::new(filename, source.to_string());
+            let diag = MietteDiagnostic::new(format!("unexpected character: {:?}", e.text))
+                .with_label(LabeledSpan::at(e.span.start..e.span.end, "here"));
+            eprintln!("{:?}", Report::new(diag).with_source_code(named_src));
+            std::process::exit(1);
+        }
+    };
     let mut parser = Parser::new(tokens);
     match parser.parse_module() {
         Ok(m) => m,

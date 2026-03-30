@@ -224,7 +224,7 @@ mod tests {
     use crate::token::Lexer;
 
     fn check(source: &str) -> Vec<String> {
-        let tokens = Lexer::tokenize(source);
+        let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().expect("parse failed");
 

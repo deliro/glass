@@ -149,10 +149,26 @@ impl Span {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LexError {
+    pub span: Span,
+    pub text: String,
+}
+
+impl std::fmt::Display for LexError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "unexpected character at {}..{}: {:?}",
+            self.span.start, self.span.end, self.text
+        )
+    }
+}
+
 pub struct Lexer;
 
 impl Lexer {
-    pub fn tokenize(source: &str) -> Vec<(Token, Span)> {
+    pub fn tokenize(source: &str) -> Result<Vec<(Token, Span)>, LexError> {
         let mut lexer = Token::lexer(source);
         let mut tokens = Vec::new();
         while let Some(result) = lexer.next() {
@@ -163,16 +179,14 @@ impl Lexer {
                 }
                 Err(()) => {
                     let span = lexer.span();
-                    eprintln!(
-                        "Unexpected character at {}..{}: {:?}",
-                        span.start,
-                        span.end,
-                        &source[span.start..span.end]
-                    );
+                    return Err(LexError {
+                        span: Span::new(span.start, span.end),
+                        text: source[span.start..span.end].to_string(),
+                    });
                 }
             }
         }
-        tokens
+        Ok(tokens)
     }
 }
 
@@ -183,6 +197,7 @@ mod tests {
 
     fn token_kinds(source: &str) -> Vec<Token> {
         Lexer::tokenize(source)
+            .expect("lex failed")
             .into_iter()
             .map(|(t, _)| t)
             .collect()
@@ -305,7 +320,7 @@ mod tests {
 
     #[test]
     fn spans() {
-        let tokens = Lexer::tokenize("fn add");
+        let tokens = Lexer::tokenize("fn add").expect("lex failed");
         assert_eq!(tokens[0].1, Span::new(0, 2));
         assert_eq!(tokens[1].1, Span::new(3, 6));
     }
@@ -313,5 +328,26 @@ mod tests {
     #[test]
     fn full_function() {
         insta::assert_debug_snapshot!(token_kinds("pub fn add(a: Int, b: Int) -> Int { a + b }"));
+    }
+
+    #[rstest]
+    #[case("fn $ let", 3, 4, "$")]
+    #[case("$", 0, 1, "$")]
+    #[case("fn ~ let", 3, 4, "~")]
+    #[case("let ` x", 4, 5, "`")]
+    fn lex_error_stops_at_invalid_char(
+        #[case] input: &str,
+        #[case] start: usize,
+        #[case] end: usize,
+        #[case] text: &str,
+    ) {
+        let err = Lexer::tokenize(input).unwrap_err();
+        assert_eq!(err.span, Span::new(start, end));
+        assert_eq!(err.text, text);
+    }
+
+    #[test]
+    fn valid_input_returns_ok() {
+        assert!(Lexer::tokenize("fn add(x: Int) -> Int { x }").is_ok());
     }
 }
