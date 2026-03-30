@@ -28,6 +28,19 @@ const UPGRADE_RADIUS: Int = 'A00Y'
 const DETONATE_SELF_DAMAGE: Float = 100000.0
 const DETONATE_AOE_DAMAGE: Float = 15000.0
 const DETONATE_RADIUS: Float = 300.0
+const THUNDER_AOE_RADIUS: Float = 250.0
+const THUNDER_AOE_DAMAGE: Float = 150.0
+const FLAME_TRAIL_UNIT_ID: Int = 'hFLM'
+const FLAME_TIMED_LIFE_BUFF: Int = 'BTLF'
+const FLAME_TIMED_LIFE_DURATION: Float = 7.5
+const CENTER_DEFLECTOR_ID: Int = 'n006'
+const NEUTRAL_PLAYER: Int = 15
+const ALLIANCE_PASSIVE: Int = 0
+const ALLIANCE_HELP_REQUEST: Int = 1
+const ALLIANCE_HELP_RESPONSE: Int = 2
+const ALLIANCE_SHARED_XP: Int = 3
+const ALLIANCE_SHARED_SPELLS: Int = 4
+const ALLIANCE_SHARED_VISION: Int = 5
 
 pub enum Msg {
     SpellCast { caster: Unit, spell_id: Int, target: Unit }
@@ -240,10 +253,20 @@ fn launch_hook(model: Model, caster: Unit, tx: Float, ty: Float, variant: types.
     let owner_id = player.get_id(player.get_owner(clone(caster)))
     let speed = get_player_hook_speed(model.players, owner_id)
     let range = get_player_hook_range(model.players, owner_id)
-    let damage = get_player_hook_damage(model.players, owner_id)
+    let base_damage = get_player_hook_damage(model.players, owner_id)
     let radius = get_player_hook_radius(model.players, owner_id)
+    let player_buffs = get_player_buffs(model.players, owner_id)
+    let player_items = get_player_items(model.players, owner_id)
+    let has_thunder = powerup.has_buff(player_buffs, PowerupKind::Thunder)
+    let has_flame = powerup.has_buff(player_buffs, PowerupKind::Flame)
+    let spectral = powerup.has_buff(player_buffs, PowerupKind::SpectralDagger)
+    let barathrum_lvl = items.item_level(player_items, ItemKind::BarathrumLantern)
+    let damage = case barathrum_lvl > 0 {
+        True -> base_damage + items.barathrum_speed_bonus(speed, barathrum_lvl)
+        False -> base_damage
+    }
     let hook_idx = list_length_hooks(model.hooks)
-    let result = hook.launch(caster, owner_id, tx, ty, speed, range, damage, radius, variant)
+    let result = hook.launch(caster, owner_id, tx, ty, speed, range, damage, radius, variant, has_thunder, has_flame, spectral)
     let new_hooks = append_hooks(model.hooks, [result.hook])
     let new_model = Model {
         phase: model.phase,
@@ -442,12 +465,12 @@ fn list_length_hooks(xs: List(types.HookData)) -> Int {
     }
 }
 
-fn tick_all_hooks(hooks: List(types.HookData), all_hooks: List(types.HookData), idx: Int) -> (List(types.HookData), List(effect.Effect(Msg))) {
+fn tick_all_hooks(hooks: List(types.HookData), all_hooks: List(types.HookData), idx: Int, players: List(types.PlayerData)) -> (List(types.HookData), List(effect.Effect(Msg))) {
     case hooks {
         [] -> ([], [])
         [h | rest] -> {
-            let (updated_hook, effects) = tick_one_hook(h, all_hooks, idx)
-            let (rest_hooks, rest_effects) = tick_all_hooks(rest, all_hooks, idx + 1)
+            let (updated_hook, effects) = tick_one_hook(h, all_hooks, idx, players)
+            let (rest_hooks, rest_effects) = tick_all_hooks(rest, all_hooks, idx + 1, players)
             let all = case updated_hook.state {
                 Idle -> rest_hooks
                 _ -> [updated_hook | rest_hooks]
@@ -497,6 +520,9 @@ fn rebuild_hook_state(h: types.HookData, new_state: types.HookState) -> types.Ho
         link_accum: h.link_accum, bounce_count: h.bounce_count,
         caught_target: h.caught_target,
         variant: h.variant,
+        chain_model: h.chain_model, spectral: h.spectral,
+        drag_distance: h.drag_distance,
+        has_thunder: h.has_thunder, has_flame: h.has_flame,
     }
 }
 
@@ -512,18 +538,60 @@ fn rebuild_hook_caught(h: types.HookData, new_state: types.HookState, caught: Op
         link_accum: h.link_accum, bounce_count: h.bounce_count,
         caught_target: caught,
         variant: h.variant,
+        chain_model: h.chain_model, spectral: h.spectral,
+        drag_distance: h.drag_distance,
+        has_thunder: h.has_thunder, has_flame: h.has_flame,
     }
 }
 
-fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -> (types.HookData, List(effect.Effect(Msg))) {
+fn make_thunder_effects(tip_x: Float, tip_y: Float, caster: Unit) -> List(effect.Effect(Msg)) {
+    let aoe = effect.for_units_in_range(tip_x, tip_y, THUNDER_AOE_RADIUS, fn(u: Unit) -> Msg {
+        Msg::DamageTaken { source: clone(caster), target: u, amount: THUNDER_AOE_DAMAGE }
+    })
+    let sfx = effect.add_sfx("Abilities\\Spells\\Human\\Thunderclap\\ThunderClapCaster.mdl", tip_x, tip_y)
+    [aoe, sfx]
+}
+
+fn make_flame_trail_effect(owner_index: Int, x: Float, y: Float) -> effect.Effect(Msg) {
+    effect.create_unit(owner_index, FLAME_TRAIL_UNIT_ID, x, y, 0.0)
+}
+
+fn calc_final_damage(base_damage: Float, bounce_count: Int, drag_distance: Float, player_items: List(types.OwnedItem)) -> Float {
+    let ricochet_lvl = items.item_level(player_items, ItemKind::RicochetTurbine)
+    let after_ricochet = case ricochet_lvl > 0 {
+        True -> base_damage * items.ricochet_multiplier(bounce_count, ricochet_lvl)
+        False -> base_damage
+    }
+    let strygwyr_lvl = items.item_level(player_items, ItemKind::StrygwyrClaws)
+    let drag_bonus = case strygwyr_lvl > 0 {
+        True -> drag_distance * items.strygwyr_drag_pct(strygwyr_lvl)
+        False -> 0.0
+    }
+    after_ricochet + drag_bonus
+}
+
+fn make_lifesteal_effect(caster: Unit, damage: Float, player_items: List(types.OwnedItem)) -> List(effect.Effect(Msg)) {
+    let naix_lvl = items.item_level(player_items, ItemKind::NaixJaws)
+    case naix_lvl > 0 {
+        True -> {
+            let heal = damage * items.naix_lifesteal_pct(naix_lvl)
+            let current_hp = unit.get_hp(clone(caster))
+            [effect.set_unit_hp(caster, current_hp + heal)]
+        }
+        False -> []
+    }
+}
+
+fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int, players: List(types.PlayerData)) -> (types.HookData, List(effect.Effect(Msg))) {
     case h.state {
         Launching -> {
             let result = hook.tick_launching(h)
+            let chain_model = result.hook.chain_model
             let link_effects = case result.spawn_link {
                 True -> [
                     effect.create_unit_callback(
                         result.hook.owner_index,
-                        hook.chain_type_id(),
+                        chain_model,
                         result.link_x,
                         result.link_y,
                         0.0,
@@ -532,7 +600,7 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
                 ]
                 False -> []
             }
-            let collision = hook.check_collision(result.hook.tip_x, result.hook.tip_y, result.hook.radius, clone(result.hook.caster))
+            let collision = hook.check_collision(result.hook.tip_x, result.hook.tip_y, result.hook.radius, clone(result.hook.caster), result.hook.spectral)
             case collision {
                 Option::Some(hit) -> {
                     let target_id = unit.handle_id(clone(hit))
@@ -555,14 +623,28 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
                                 }
                                 False -> {
                                     let catch_effects = make_catch_effects(clone(hit))
+                                    let thunder_effects = case result.hook.has_thunder {
+                                        True -> make_thunder_effects(result.hook.tip_x, result.hook.tip_y, clone(result.hook.caster))
+                                        False -> []
+                                    }
                                     let caught_hook = rebuild_hook_caught(result.hook, HookState::RetractingWithTarget, Option::Some(hit))
-                                    (caught_hook, append_effects(link_effects, catch_effects))
+                                    (caught_hook, append_effects(link_effects, append_effects(catch_effects, thunder_effects)))
                                 }
                             }
                         }
                     }
                 }
-                Option::None -> (result.hook, link_effects)
+                Option::None -> {
+                    let is_now_retracting = case result.hook.state {
+                        Retracting -> True
+                        _ -> False
+                    }
+                    let flame_effects = case is_now_retracting && result.hook.has_flame {
+                        True -> [make_flame_trail_effect(result.hook.owner_index, result.hook.tip_x, result.hook.tip_y)]
+                        False -> []
+                    }
+                    (result.hook, append_effects(link_effects, flame_effects))
+                }
             }
         }
         Retracting -> {
@@ -587,11 +669,17 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
                     let remove_effects = make_remove_effects(result.links_to_remove)
                     case result.done {
                         True -> {
+                            let owner_items = get_player_items(players, result.hook.owner_index)
+                            let final_damage = calc_final_damage(result.hook.damage, result.hook.bounce_count, result.hook.drag_distance, owner_items)
                             let arrival_effects = case target_copy {
-                                Option::Some(t) -> make_arrival_effects(clone(result.hook.caster), t, result.hook.damage)
+                                Option::Some(t) -> make_arrival_effects(clone(result.hook.caster), clone(t), final_damage)
                                 Option::None -> []
                             }
-                            (result.hook, append_effects(remove_effects, arrival_effects))
+                            let lifesteal_effects = case target_copy {
+                                Option::Some(_) -> make_lifesteal_effect(clone(result.hook.caster), final_damage, owner_items)
+                                Option::None -> []
+                            }
+                            (result.hook, append_effects(remove_effects, append_effects(arrival_effects, lifesteal_effects)))
                         }
                         False -> (result.hook, remove_effects)
                     }
@@ -603,7 +691,7 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
 }
 
 fn handle_hook_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
-    let (new_hooks, effects) = tick_all_hooks(model.hooks, model.hooks, 0)
+    let (new_hooks, effects) = tick_all_hooks(model.hooks, model.hooks, 0, model.players)
     let new_model = Model {
         phase: model.phase,
         mode: model.mode,
@@ -636,6 +724,9 @@ fn set_hook_tip(hooks: List(types.HookData), idx: Int, tip: Unit) -> List(types.
                     bounce_count: h.bounce_count,
                     caught_target: h.caught_target,
                     variant: h.variant,
+                    chain_model: h.chain_model, spectral: h.spectral,
+                    drag_distance: h.drag_distance,
+                    has_thunder: h.has_thunder, has_flame: h.has_flame,
                 }
                 [updated | rest]
             }
@@ -662,6 +753,9 @@ fn add_chain_link(hooks: List(types.HookData), idx: Int, link: Unit) -> List(typ
                     bounce_count: h.bounce_count,
                     caught_target: h.caught_target,
                     variant: h.variant,
+                    chain_model: h.chain_model, spectral: h.spectral,
+                    drag_distance: h.drag_distance,
+                    has_thunder: h.has_thunder, has_flame: h.has_flame,
                 }
                 [updated | rest]
             }
@@ -1365,9 +1459,61 @@ fn add_item_to_player(players: List(types.PlayerData), pid: Int, kind: types.Ite
     }
 }
 
+fn set_alliance_pair(a: Int, b: Int, alliance_type: Int) -> Int {
+    let pa = player.get(a)
+    let pb = player.get(b)
+    let _ = player.set_alliance(clone(pa), clone(pb), alliance_type, True)
+    let _ = player.set_alliance(pb, pa, alliance_type, True)
+    0
+}
+
+fn set_full_alliance(a: Int, b: Int) -> Int {
+    let _ = set_alliance_pair(a, b, ALLIANCE_PASSIVE)
+    let _ = set_alliance_pair(a, b, ALLIANCE_HELP_REQUEST)
+    let _ = set_alliance_pair(a, b, ALLIANCE_HELP_RESPONSE)
+    let _ = set_alliance_pair(a, b, ALLIANCE_SHARED_XP)
+    let _ = set_alliance_pair(a, b, ALLIANCE_SHARED_SPELLS)
+    let _ = set_alliance_pair(a, b, ALLIANCE_SHARED_VISION)
+    0
+}
+
+fn setup_team_alliances_west(i: Int, j: Int) -> Int {
+    case i > 4 {
+        True -> 0
+        False -> case j > 4 {
+            True -> setup_team_alliances_west(i + 1, i + 2)
+            False -> {
+                let _ = set_full_alliance(i, j)
+                setup_team_alliances_west(i, j + 1)
+            }
+        }
+    }
+}
+
+fn setup_team_alliances_east(i: Int, j: Int) -> Int {
+    case i > 10 {
+        True -> 0
+        False -> case j > 10 {
+            True -> setup_team_alliances_east(i + 1, i + 2)
+            False -> {
+                let _ = set_full_alliance(i, j)
+                setup_team_alliances_east(i, j + 1)
+            }
+        }
+    }
+}
+
+fn setup_alliances() -> Int {
+    let _ = setup_team_alliances_west(0, 1)
+    let _ = setup_team_alliances_east(6, 7)
+    0
+}
+
 pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    let _ = setup_alliances()
     let players = append_players(make_west_players(0), make_east_players(6))
     let hero_effects = make_hero_effects(players)
+    let deflector_effect = effect.create_unit(NEUTRAL_PLAYER, CENTER_DEFLECTOR_ID, arena.center_x(), arena.center_y(), 0.0)
     let model = Model {
         phase: Phase::WaitingForMode,
         mode: GameMode::NoMode,
@@ -1379,7 +1525,7 @@ pub fn init() -> (Model, List(effect.Effect(Msg))) {
         next_spawn_south: True,
         spawn_count: 0,
     }
-    (model, hero_effects)
+    (model, [deflector_effect | hero_effects])
 }
 
 pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {

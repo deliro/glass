@@ -8,9 +8,12 @@ import types
 import arena
 
 const TIP_UNIT_ID: Int = 'h001'
-const CHAIN_LINK_ID: Int = 'h002'
+const DEFAULT_CHAIN_MODEL: Int = 'hCHN'
 const MAX_BOUNCES: Int = 3
 const HEADSHOT_DAMAGE: Float = 99999.0
+const THUNDER_CHAIN_MODEL: Int = 'h011'
+const FLAME_CHAIN_MODEL: Int = 'h002'
+const THUNDER_FLAME_CHAIN_MODEL: Int = 'h012'
 
 pub struct LaunchResult {
     hook: types.HookData,
@@ -36,12 +39,25 @@ pub struct CollisionResult {
 }
 
 pub fn tip_type_id() -> Int { TIP_UNIT_ID }
-pub fn chain_type_id() -> Int { CHAIN_LINK_ID }
 
-pub fn launch(caster: Unit, owner_index: Int, target_x: Float, target_y: Float, speed: Float, max_range: Float, damage: Float, radius: Float, variant: types.HookVariant) -> LaunchResult {
+pub fn chain_model_for_buffs(has_thunder: Bool, has_flame: Bool) -> Int {
+    case has_thunder {
+        True -> case has_flame {
+            True -> THUNDER_FLAME_CHAIN_MODEL
+            False -> THUNDER_CHAIN_MODEL
+        }
+        False -> case has_flame {
+            True -> FLAME_CHAIN_MODEL
+            False -> DEFAULT_CHAIN_MODEL
+        }
+    }
+}
+
+pub fn launch(caster: Unit, owner_index: Int, target_x: Float, target_y: Float, speed: Float, max_range: Float, damage: Float, radius: Float, variant: types.HookVariant, has_thunder: Bool, has_flame: Bool, spectral: Bool) -> LaunchResult {
     let cx = unit.get_x(clone(caster))
     let cy = unit.get_y(clone(caster))
     let angle: Float = math.atan2(target_y - cy, target_x - cx)
+    let cm = chain_model_for_buffs(has_thunder, has_flame)
     let hook = types.HookData {
         state: HookState::Launching,
         tip_x: cx,
@@ -62,6 +78,11 @@ pub fn launch(caster: Unit, owner_index: Int, target_x: Float, target_y: Float, 
         bounce_count: 0,
         caught_target: Option::None,
         variant: variant,
+        chain_model: cm,
+        spectral: spectral,
+        drag_distance: 0.0,
+        has_thunder: has_thunder,
+        has_flame: has_flame,
     }
     LaunchResult { hook: hook, spawn_tip: True }
 }
@@ -97,7 +118,7 @@ fn move_links_launching(links: List(Unit), tip_x: Float, tip_y: Float, step: Flo
     }
 }
 
-fn find_enemy_in_group(g: Group, caster: Unit) -> Option(Unit) {
+fn find_enemy_in_group(g: Group, caster: Unit, spectral: Bool) -> Option(Unit) {
     let u = group.first(clone(g))
     let uid = unit.handle_id(clone(u))
     case uid == 0 {
@@ -105,18 +126,23 @@ fn find_enemy_in_group(g: Group, caster: Unit) -> Option(Unit) {
         False -> {
             let _ = group.remove_unit(clone(g), clone(u))
             let owner = player.get_owner(clone(caster))
-            case unit.is_enemy(clone(u), owner) && unit.is_alive(clone(u)) && unit.is_type(clone(u), 0) {
-                True -> Option::Some(u)
-                False -> find_enemy_in_group(g, caster)
+            let is_structure = unit.is_type(clone(u), 12)
+            let skip_structure = spectral && is_structure
+            case skip_structure {
+                True -> find_enemy_in_group(g, caster, spectral)
+                False -> case unit.is_enemy(clone(u), owner) && unit.is_alive(clone(u)) && unit.is_type(clone(u), 0) {
+                    True -> Option::Some(u)
+                    False -> find_enemy_in_group(g, caster, spectral)
+                }
             }
         }
     }
 }
 
-pub fn check_collision(tip_x: Float, tip_y: Float, radius: Float, caster: Unit) -> Option(Unit) {
+pub fn check_collision(tip_x: Float, tip_y: Float, radius: Float, caster: Unit, spectral: Bool) -> Option(Unit) {
     let g: Group = group.create()
     let _ = group.enum_in_range(clone(g), tip_x, tip_y, radius, 0)
-    let result = find_enemy_in_group(clone(g), caster)
+    let result = find_enemy_in_group(clone(g), caster, spectral)
     let _ = group.destroy(g)
     result
 }
@@ -249,6 +275,11 @@ pub fn tick_launching(hook: types.HookData) -> TickLaunchResult {
         bounce_count: new_bounce_count,
         caught_target: Option::None,
         variant: hook.variant,
+        chain_model: hook.chain_model,
+        spectral: hook.spectral,
+        drag_distance: hook.drag_distance,
+        has_thunder: hook.has_thunder,
+        has_flame: hook.has_flame,
     }
 
     TickLaunchResult {
@@ -364,6 +395,11 @@ pub fn tick_retracting(hook: types.HookData) -> TickRetractResult {
         bounce_count: hook.bounce_count,
         caught_target: hook.caught_target,
         variant: hook.variant,
+        chain_model: hook.chain_model,
+        spectral: hook.spectral,
+        drag_distance: hook.drag_distance,
+        has_thunder: hook.has_thunder,
+        has_flame: hook.has_flame,
     }
 
     TickRetractResult {
@@ -425,6 +461,8 @@ pub fn tick_retracting_with_target(hook: types.HookData) -> TickRetractResult {
         False -> HookState::RetractingWithTarget
     }
 
+    let new_drag = hook.drag_distance + step
+
     let updated = types.HookData {
         state: new_state,
         tip_x: new_tx,
@@ -445,6 +483,11 @@ pub fn tick_retracting_with_target(hook: types.HookData) -> TickRetractResult {
         bounce_count: hook.bounce_count,
         caught_target: hook.caught_target,
         variant: hook.variant,
+        chain_model: hook.chain_model,
+        spectral: hook.spectral,
+        drag_distance: new_drag,
+        has_thunder: hook.has_thunder,
+        has_flame: hook.has_flame,
     }
 
     TickRetractResult {
@@ -521,6 +564,11 @@ pub fn tick_grapple_retract(hook: types.HookData) -> TickRetractResult {
         bounce_count: hook.bounce_count,
         caught_target: hook.caught_target,
         variant: hook.variant,
+        chain_model: hook.chain_model,
+        spectral: hook.spectral,
+        drag_distance: hook.drag_distance,
+        has_thunder: hook.has_thunder,
+        has_flame: hook.has_flame,
     }
 
     TickRetractResult {

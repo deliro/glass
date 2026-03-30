@@ -104,6 +104,20 @@ pub enum HookVariant {
     Grapple
 }
 
+pub enum DamageKind {
+    Hook
+    Headshot
+    Attack
+    Fire
+    Mine
+    Grenade
+    Lightning
+    Blades
+    Toss
+    Dynamite
+    Rupture
+}
+
 pub struct HookData {
     state: HookState,
     tip_x: Float,
@@ -124,6 +138,11 @@ pub struct HookData {
     bounce_count: Int,
     caught_target: Option(Unit),
     variant: HookVariant,
+    chain_model: Int,
+    spectral: Bool,
+    drag_distance: Float,
+    has_thunder: Bool,
+    has_flame: Bool,
 }
 
 pub struct PlayerData {
@@ -148,6 +167,22 @@ pub struct PlayerData {
     items: List(OwnedItem),
     buffs: List(ActiveBuff),
     move_speed_bonus: Float,
+}
+
+pub fn damage_kind_tag(k: DamageKind) -> Int {
+    case k {
+        Hook -> 0
+        Headshot -> 1
+        Attack -> 2
+        Fire -> 3
+        Mine -> 4
+        Grenade -> 5
+        Lightning -> 6
+        Blades -> 7
+        Toss -> 8
+        Dynamite -> 9
+        Rupture -> 10
+    }
 }
 
 pub fn new_player(idx: Int, team: Team) -> PlayerData {

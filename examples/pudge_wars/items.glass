@@ -85,3 +85,19 @@ pub fn ricochet_multiplier(bounces: Int, level: Int) -> Float {
     let per_bounce: Float = 0.1 * int.to_float(level)
     base + per_bounce * int.to_float(bounces)
 }
+
+pub fn barathrum_speed_bonus(hook_speed: Float, level: Int) -> Float {
+    let excess = hook_speed - 700.0
+    case excess > 0.0 {
+        True -> excess * (0.2 + 0.05 * int.to_float(level))
+        False -> 0.0
+    }
+}
+
+pub fn strygwyr_drag_pct(level: Int) -> Float {
+    0.1 + 0.05 * int.to_float(level)
+}
+
+pub fn naix_lifesteal_pct(level: Int) -> Float {
+    0.15 + 0.05 * int.to_float(level)
+}
