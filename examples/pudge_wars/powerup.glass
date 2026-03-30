@@ -1,0 +1,132 @@
+import types
+import arena
+
+const POWERUP_SPEED: Float = 12.5
+const POWERUP_TICK: Float = 0.03125
+
+pub fn tick_interval() -> Float { POWERUP_TICK }
+pub fn spawn_interval() -> Float { 40.0 }
+
+const THUNDER_ID: Int = 'h013'
+const FLAME_ID: Int = 'h003'
+const HYPERSPEED_ID: Int = 'h009'
+const GOLD_ID: Int = 'h00E'
+const BLADE_BARRIER_ID: Int = 'h00I'
+const DYNAMITE_ID: Int = 'h00J'
+const BERSERKER_ID: Int = 'h008'
+const SPECTRAL_DAGGER_ID: Int = 'h00S'
+
+pub fn unit_type_for_kind(kind: types.PowerupKind) -> Int {
+    case kind {
+        Thunder -> THUNDER_ID
+        Flame -> FLAME_ID
+        Hyperspeed -> HYPERSPEED_ID
+        Gold -> GOLD_ID
+        BladeBarrier -> BLADE_BARRIER_ID
+        Dynamite -> DYNAMITE_ID
+        Berserker -> BERSERKER_ID
+        SpectralDagger -> SPECTRAL_DAGGER_ID
+    }
+}
+
+pub fn pick_kind(index: Int) -> types.PowerupKind {
+    let n = index % 8
+    case n {
+        0 -> PowerupKind::Thunder
+        1 -> PowerupKind::Flame
+        2 -> PowerupKind::Hyperspeed
+        3 -> PowerupKind::Gold
+        4 -> PowerupKind::BladeBarrier
+        5 -> PowerupKind::Dynamite
+        6 -> PowerupKind::Berserker
+        _ -> PowerupKind::SpectralDagger
+    }
+}
+
+pub fn spawn_y_south() -> Float { 280.0 }
+pub fn spawn_y_north() -> Float { 3800.0 }
+pub fn spawn_x() -> Float { 2048.0 }
+
+pub fn direction_for_south() -> Float { 1.0 }
+pub fn direction_for_north() -> Float { 0.0 - 1.0 }
+
+pub fn move_powerup(p: types.Powerup) -> types.Powerup {
+    let new_y = p.y + p.direction * POWERUP_SPEED
+    types.Powerup {
+        kind: p.kind,
+        x: p.x,
+        y: new_y,
+        direction: p.direction,
+        handle: p.handle,
+    }
+}
+
+pub fn powerup_in_bounds(p: types.Powerup) -> Bool {
+    p.y >= arena.min_y() && p.y <= arena.max_y()
+}
+
+pub fn buff_duration(kind: types.PowerupKind) -> Float {
+    case kind {
+        Thunder -> 30.0
+        Flame -> 30.0
+        Hyperspeed -> 15.0
+        Gold -> 0.0
+        BladeBarrier -> 20.0
+        Dynamite -> 10.0
+        Berserker -> 30.0
+        SpectralDagger -> 30.0
+    }
+}
+
+pub fn tick_buff(buff: types.ActiveBuff, dt: Float) -> types.MaybeBuff {
+    let new_remaining = buff.remaining - dt
+    case new_remaining <= 0.0 {
+        True -> MaybeBuff::NoBuff
+        False -> MaybeBuff::SomeBuff { buff: types.ActiveBuff {
+            kind: buff.kind,
+            owner_index: buff.owner_index,
+            remaining: new_remaining,
+        } }
+    }
+}
+
+pub fn tick_buffs(buffs: List(types.ActiveBuff), dt: Float) -> List(types.ActiveBuff) {
+    case buffs {
+        [] -> []
+        [b | rest] -> {
+            let result = tick_buff(b, dt)
+            case result {
+                SomeBuff(updated) -> [updated | tick_buffs(rest, dt)]
+                NoBuff -> tick_buffs(rest, dt)
+            }
+        }
+    }
+}
+
+fn powerup_kind_tag(k: types.PowerupKind) -> Int {
+    case k {
+        Thunder -> 0
+        Flame -> 1
+        Hyperspeed -> 2
+        Gold -> 3
+        BladeBarrier -> 4
+        Dynamite -> 5
+        Berserker -> 6
+        SpectralDagger -> 7
+    }
+}
+
+pub fn has_buff(buffs: List(types.ActiveBuff), kind: types.PowerupKind) -> Bool {
+    case buffs {
+        [] -> False
+        [b | rest] -> case powerup_kind_tag(b.kind) == powerup_kind_tag(kind) {
+            True -> True
+            False -> has_buff(rest, kind)
+        }
+    }
+}
+
+pub fn gold_reward() -> Int { 50 }
+
+pub fn thunder_chain_model() -> Int { 'h011' }
+pub fn flame_chain_model() -> Int { 'h002' }

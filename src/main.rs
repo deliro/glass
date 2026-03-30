@@ -19,6 +19,7 @@ mod modules;
 mod mono;
 mod optimize;
 mod parser;
+mod resolve_const_patterns;
 mod runtime;
 mod suggest;
 mod tco;
@@ -158,7 +159,8 @@ fn cmd_gen_bindings(jass_file: &str) {
 fn cmd_check(input: &str) {
     let source = read_file(input);
     let module = parse_source(input, &source);
-    let (module, imports, _imported_count, _) = resolve_imports(input, module);
+    let (mut module, imports, _imported_count, _) = resolve_imports(input, module);
+    resolve_const_patterns::resolve_const_patterns(&mut module);
     let error_count = run_checks(input, &source, &module, &imports);
     if error_count > 0 {
         eprintln!("{} error(s) found", error_count);
@@ -177,6 +179,8 @@ fn cmd_compile(
     let source = read_file(input);
     let module = parse_source(input, &source);
     let (mut module, imports, imported_count, def_module_map) = resolve_imports(input, module);
+
+    resolve_const_patterns::resolve_const_patterns(&mut module);
 
     // Always run inference (needed for type_map in codegen)
     let mut inferencer = infer::Inferencer::new();

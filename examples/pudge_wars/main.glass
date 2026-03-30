@@ -9,18 +9,25 @@ import arena
 import hook
 import commands
 import scoring
+import powerup
+import items
 import wc3/unit
 import wc3/math
 import wc3/player
 
-const hook_ability: Int = 'A000'
-const respawn_tick_interval: Float = 1.0
-const invuln_duration: Float = 3.0
-const hero_type_id: Int = 'H000'
-const upgrade_speed: Int = 'A00Z'
-const upgrade_damage: Int = 'A00X'
-const upgrade_range: Int = 'A00W'
-const upgrade_radius: Int = 'A00Y'
+const HOOK_ABILITY: Int = 'A000'
+const GRAPPLE_ABILITY: Int = 'A00C'
+const DETONATE_ABILITY: Int = 'A00U'
+const RESPAWN_TICK_INTERVAL: Float = 1.0
+const INVULN_DURATION: Float = 3.0
+const HERO_TYPE_ID: Int = 'H000'
+const UPGRADE_SPEED: Int = 'A00Z'
+const UPGRADE_DAMAGE: Int = 'A00X'
+const UPGRADE_RANGE: Int = 'A00W'
+const UPGRADE_RADIUS: Int = 'A00Y'
+const DETONATE_SELF_DAMAGE: Float = 100000.0
+const DETONATE_AOE_DAMAGE: Float = 15000.0
+const DETONATE_RADIUS: Float = 300.0
 
 pub enum Msg {
     SpellCast { caster: Unit, spell_id: Int, target: Unit }
@@ -37,6 +44,11 @@ pub enum Msg {
     RemoveInvuln { invuln_player: Int }
     HeroCreated { player_index: Int, created_hero: Unit }
     TimedModeExpired
+    PowerupSpawnTick
+    PowerupTick
+    PowerupCreated { kind: types.PowerupKind, direction: Float, created_unit: Unit }
+    BuffTick
+    ItemPickedUp { buyer: Unit, item_type: Int }
 }
 
 pub struct Model {
@@ -46,6 +58,9 @@ pub struct Model {
     players: List(types.PlayerData),
     hooks: List(types.HookData),
     tick_count: Int,
+    powerups: List(types.Powerup),
+    next_spawn_south: Bool,
+    spawn_count: Int,
 }
 
 fn make_west_players(i: Int) -> List(types.PlayerData) {
@@ -91,7 +106,7 @@ fn make_hero_effects(players: List(types.PlayerData)) -> List(effect.Effect(Msg)
             let pid = p.index
             let eff = effect.create_unit_callback(
                 pid,
-                hero_type_id,
+                HERO_TYPE_ID,
                 sx,
                 sy,
                 0.0,
@@ -102,30 +117,26 @@ fn make_hero_effects(players: List(types.PlayerData)) -> List(effect.Effect(Msg)
     }
 }
 
+fn rebuild_player(p: types.PlayerData, new_hero: Option(Unit)) -> types.PlayerData {
+    types.PlayerData {
+        index: p.index, team: p.team, alive: p.alive,
+        kills: p.kills, deaths: p.deaths, spree: p.spree,
+        hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+        hook_range: p.hook_range, hook_radius: p.hook_radius,
+        respawn_timer: p.respawn_timer, gold: p.gold,
+        hero: new_hero, left: p.left,
+        speed_level: p.speed_level, damage_level: p.damage_level,
+        range_level: p.range_level, radius_level: p.radius_level,
+        items: p.items, buffs: p.buffs,
+        move_speed_bonus: p.move_speed_bonus,
+    }
+}
+
 fn set_player_hero(players: List(types.PlayerData), pid: Int, new_hero: Unit) -> List(types.PlayerData) {
     case players {
         [] -> []
         [p | rest] -> case p.index == pid {
-            True -> [types.PlayerData {
-                index: p.index,
-                team: p.team,
-                alive: p.alive,
-                kills: p.kills,
-                deaths: p.deaths,
-                spree: p.spree,
-                hook_speed: p.hook_speed,
-                hook_damage: p.hook_damage,
-                hook_range: p.hook_range,
-                hook_radius: p.hook_radius,
-                respawn_timer: p.respawn_timer,
-                gold: p.gold,
-                hero: Option::Some(new_hero),
-                left: p.left,
-                speed_level: p.speed_level,
-                damage_level: p.damage_level,
-                range_level: p.range_level,
-                radius_level: p.radius_level,
-            } | rest]
+            True -> [rebuild_player(p, Option::Some(new_hero)) | rest]
             False -> [p | set_player_hero(rest, pid, new_hero)]
         }
     }
@@ -191,6 +202,26 @@ fn get_player_hero(players: List(types.PlayerData), pid: Int) -> Option(Unit) {
     }
 }
 
+fn get_player_items(players: List(types.PlayerData), pid: Int) -> List(types.OwnedItem) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> p.items
+            False -> get_player_items(rest, pid)
+        }
+    }
+}
+
+fn get_player_buffs(players: List(types.PlayerData), pid: Int) -> List(types.ActiveBuff) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> p.buffs
+            False -> get_player_buffs(rest, pid)
+        }
+    }
+}
+
 fn get_player_stats_text(players: List(types.PlayerData), pid: Int) -> String {
     case players {
         [] -> "No stats available."
@@ -205,76 +236,102 @@ fn get_player_stats_text(players: List(types.PlayerData), pid: Int) -> String {
     }
 }
 
+fn launch_hook(model: Model, caster: Unit, tx: Float, ty: Float, variant: types.HookVariant) -> (Model, List(effect.Effect(Msg))) {
+    let owner_id = player.get_id(player.get_owner(clone(caster)))
+    let speed = get_player_hook_speed(model.players, owner_id)
+    let range = get_player_hook_range(model.players, owner_id)
+    let damage = get_player_hook_damage(model.players, owner_id)
+    let radius = get_player_hook_radius(model.players, owner_id)
+    let hook_idx = list_length_hooks(model.hooks)
+    let result = hook.launch(caster, owner_id, tx, ty, speed, range, damage, radius, variant)
+    let new_hooks = append_hooks(model.hooks, [result.hook])
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        modifiers: model.modifiers,
+        players: model.players,
+        hooks: new_hooks,
+        tick_count: model.tick_count,
+        powerups: model.powerups,
+        next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+    }
+    let tip_effect = effect.create_unit_callback(
+        owner_id,
+        hook.tip_type_id(),
+        tx,
+        ty,
+        0.0,
+        fn(u: Unit) -> Msg { Msg::HookTipCreated { hook_index: hook_idx, tip: u } }
+    )
+    (new_model, [tip_effect])
+}
+
 fn handle_spell_ground(model: Model, caster: Unit, spell_id: Int, tx: Float, ty: Float) -> (Model, List(effect.Effect(Msg))) {
-    case spell_id == hook_ability {
+    case spell_id == HOOK_ABILITY {
+        True -> launch_hook(model, caster, tx, ty, HookVariant::Normal)
+        False -> case spell_id == GRAPPLE_ABILITY {
+            True -> launch_hook(model, caster, tx, ty, HookVariant::Grapple)
+            False -> handle_upgrade(model, caster, spell_id)
+        }
+    }
+}
+
+fn handle_spell_cast(model: Model, caster: Unit, spell_id: Int) -> (Model, List(effect.Effect(Msg))) {
+    case spell_id == DETONATE_ABILITY {
         True -> {
-            let owner_id = player.get_id(player.get_owner(clone(caster)))
-            let speed = get_player_hook_speed(model.players, owner_id)
-            let range = get_player_hook_range(model.players, owner_id)
-            let damage = get_player_hook_damage(model.players, owner_id)
-            let radius = get_player_hook_radius(model.players, owner_id)
-            let hook_idx = list_length_hooks(model.hooks)
-            let result = hook.launch(caster, owner_id, tx, ty, speed, range, damage, radius)
-            let new_hooks = append_hooks(model.hooks, [result.hook])
-            let new_model = Model {
-                phase: model.phase,
-                mode: model.mode,
-                modifiers: model.modifiers,
-                players: model.players,
-                hooks: new_hooks,
-                tick_count: model.tick_count,
-            }
-            let tip_effect = effect.create_unit_callback(
-                owner_id,
-                hook.tip_type_id(),
-                tx,
-                ty,
-                0.0,
-                fn(u: Unit) -> Msg { Msg::HookTipCreated { hook_index: hook_idx, tip: u } }
-            )
-            (new_model, [tip_effect])
+            let cx = unit.get_x(clone(caster))
+            let cy = unit.get_y(clone(caster))
+            let self_dmg = effect.damage_unit(clone(caster), clone(caster), DETONATE_SELF_DAMAGE, 5, 4)
+            let aoe = effect.for_units_in_range(cx, cy, DETONATE_RADIUS, fn(u: Unit) -> Msg {
+                Msg::DamageTaken { source: clone(caster), target: u, amount: DETONATE_AOE_DAMAGE }
+            })
+            let sfx = effect.add_sfx("Abilities\\Spells\\Human\\MarkOfChaos\\MarkOfChaosTarget.mdl", cx, cy)
+            (model, [self_dmg, aoe, sfx])
         }
         False -> handle_upgrade(model, caster, spell_id)
     }
 }
 
+fn rebuild_model(model: Model, players: List(types.PlayerData)) -> Model {
+    Model {
+        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+        players: players, hooks: model.hooks, tick_count: model.tick_count,
+        powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+    }
+}
+
+fn rebuild_model_hooks(model: Model, hooks: List(types.HookData)) -> Model {
+    Model {
+        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+        players: model.players, hooks: hooks, tick_count: model.tick_count,
+        powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+    }
+}
+
 fn handle_upgrade(model: Model, caster: Unit, spell_id: Int) -> (Model, List(effect.Effect(Msg))) {
     let owner_id = player.get_id(player.get_owner(clone(caster)))
-    case spell_id == upgrade_speed {
+    case spell_id == UPGRADE_SPEED {
         True -> {
             let new_players = upgrade_player_speed(model.players, owner_id)
-            let new_model = Model {
-                phase: model.phase, mode: model.mode, modifiers: model.modifiers,
-                players: new_players, hooks: model.hooks, tick_count: model.tick_count,
-            }
-            (new_model, [])
+            (rebuild_model(model, new_players), [])
         }
-        False -> case spell_id == upgrade_damage {
+        False -> case spell_id == UPGRADE_DAMAGE {
             True -> {
                 let new_players = upgrade_player_damage(model.players, owner_id)
-                let new_model = Model {
-                    phase: model.phase, mode: model.mode, modifiers: model.modifiers,
-                    players: new_players, hooks: model.hooks, tick_count: model.tick_count,
-                }
-                (new_model, [])
+                (rebuild_model(model, new_players), [])
             }
-            False -> case spell_id == upgrade_range {
+            False -> case spell_id == UPGRADE_RANGE {
                 True -> {
                     let new_players = upgrade_player_range(model.players, owner_id)
-                    let new_model = Model {
-                        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
-                        players: new_players, hooks: model.hooks, tick_count: model.tick_count,
-                    }
-                    (new_model, [])
+                    (rebuild_model(model, new_players), [])
                 }
-                False -> case spell_id == upgrade_radius {
+                False -> case spell_id == UPGRADE_RADIUS {
                     True -> {
                         let new_players = upgrade_player_radius(model.players, owner_id)
-                        let new_model = Model {
-                            phase: model.phase, mode: model.mode, modifiers: model.modifiers,
-                            players: new_players, hooks: model.hooks, tick_count: model.tick_count,
-                        }
-                        (new_model, [])
+                        (rebuild_model(model, new_players), [])
                     }
                     False -> (model, [])
                 }
@@ -297,6 +354,8 @@ fn upgrade_player_speed(players: List(types.PlayerData), pid: Int) -> List(types
                     hero: p.hero, left: p.left,
                     speed_level: p.speed_level + 1, damage_level: p.damage_level,
                     range_level: p.range_level, radius_level: p.radius_level,
+                    items: p.items, buffs: p.buffs,
+                    move_speed_bonus: p.move_speed_bonus,
                 } | rest]
                 False -> [p | rest]
             }
@@ -319,6 +378,8 @@ fn upgrade_player_damage(players: List(types.PlayerData), pid: Int) -> List(type
                     hero: p.hero, left: p.left,
                     speed_level: p.speed_level, damage_level: p.damage_level + 1,
                     range_level: p.range_level, radius_level: p.radius_level,
+                    items: p.items, buffs: p.buffs,
+                    move_speed_bonus: p.move_speed_bonus,
                 } | rest]
                 False -> [p | rest]
             }
@@ -341,6 +402,8 @@ fn upgrade_player_range(players: List(types.PlayerData), pid: Int) -> List(types
                     hero: p.hero, left: p.left,
                     speed_level: p.speed_level, damage_level: p.damage_level,
                     range_level: p.range_level + 1, radius_level: p.radius_level,
+                    items: p.items, buffs: p.buffs,
+                    move_speed_bonus: p.move_speed_bonus,
                 } | rest]
                 False -> [p | rest]
             }
@@ -363,6 +426,8 @@ fn upgrade_player_radius(players: List(types.PlayerData), pid: Int) -> List(type
                     hero: p.hero, left: p.left,
                     speed_level: p.speed_level, damage_level: p.damage_level,
                     range_level: p.range_level, radius_level: p.radius_level + 1,
+                    items: p.items, buffs: p.buffs,
+                    move_speed_bonus: p.move_speed_bonus,
                 } | rest]
                 False -> [p | rest]
             }
@@ -428,6 +493,36 @@ fn make_headshot_effects(victim: Unit) -> List(effect.Effect(Msg)) {
     ]
 }
 
+fn rebuild_hook_state(h: types.HookData, new_state: types.HookState) -> types.HookData {
+    types.HookData {
+        state: new_state,
+        tip_x: h.tip_x, tip_y: h.tip_y,
+        angle: h.angle, cos_a: h.cos_a, sin_a: h.sin_a,
+        velocity: h.velocity, max_range: h.max_range,
+        distance: h.distance, damage: h.damage, radius: h.radius,
+        owner_index: h.owner_index, caster: h.caster,
+        tip_unit: h.tip_unit, chain_links: h.chain_links,
+        link_accum: h.link_accum, bounce_count: h.bounce_count,
+        caught_target: h.caught_target,
+        variant: h.variant,
+    }
+}
+
+fn rebuild_hook_caught(h: types.HookData, new_state: types.HookState, caught: Option(Unit)) -> types.HookData {
+    types.HookData {
+        state: new_state,
+        tip_x: h.tip_x, tip_y: h.tip_y,
+        angle: h.angle, cos_a: h.cos_a, sin_a: h.sin_a,
+        velocity: h.velocity, max_range: h.max_range,
+        distance: h.distance, damage: h.damage, radius: h.radius,
+        owner_index: h.owner_index, caster: h.caster,
+        tip_unit: h.tip_unit, chain_links: h.chain_links,
+        link_accum: h.link_accum, bounce_count: h.bounce_count,
+        caught_target: caught,
+        variant: h.variant,
+    }
+}
+
 fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -> (types.HookData, List(effect.Effect(Msg))) {
     case h.state {
         Launching -> {
@@ -453,51 +548,25 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
                     case is_headshot {
                         True -> {
                             let headshot_effects = make_headshot_effects(hit)
-                            let retract_hook = types.HookData {
-                                state: HookState::Retracting,
-                                tip_x: result.hook.tip_x,
-                                tip_y: result.hook.tip_y,
-                                angle: result.hook.angle,
-                                cos_a: result.hook.cos_a,
-                                sin_a: result.hook.sin_a,
-                                velocity: result.hook.velocity,
-                                max_range: result.hook.max_range,
-                                distance: result.hook.distance,
-                                damage: result.hook.damage,
-                                radius: result.hook.radius,
-                                owner_index: result.hook.owner_index,
-                                caster: result.hook.caster,
-                                tip_unit: result.hook.tip_unit,
-                                chain_links: result.hook.chain_links,
-                                link_accum: result.hook.link_accum,
-                                bounce_count: result.hook.bounce_count,
-                                caught_target: Option::None,
-                            }
+                            let retract_hook = rebuild_hook_caught(result.hook, HookState::Retracting, Option::None)
                             (retract_hook, append_effects(link_effects, headshot_effects))
                         }
                         False -> {
-                            let catch_effects = make_catch_effects(clone(hit))
-                            let caught_hook = types.HookData {
-                                state: HookState::RetractingWithTarget,
-                                tip_x: result.hook.tip_x,
-                                tip_y: result.hook.tip_y,
-                                angle: result.hook.angle,
-                                cos_a: result.hook.cos_a,
-                                sin_a: result.hook.sin_a,
-                                velocity: result.hook.velocity,
-                                max_range: result.hook.max_range,
-                                distance: result.hook.distance,
-                                damage: result.hook.damage,
-                                radius: result.hook.radius,
-                                owner_index: result.hook.owner_index,
-                                caster: result.hook.caster,
-                                tip_unit: result.hook.tip_unit,
-                                chain_links: result.hook.chain_links,
-                                link_accum: result.hook.link_accum,
-                                bounce_count: result.hook.bounce_count,
-                                caught_target: Option::Some(hit),
+                            let is_grapple = case result.hook.variant {
+                                Grapple -> True
+                                _ -> False
                             }
-                            (caught_hook, append_effects(link_effects, catch_effects))
+                            case is_grapple {
+                                True -> {
+                                    let grapple_hook = rebuild_hook_caught(result.hook, HookState::RetractingWithTarget, Option::Some(hit))
+                                    (grapple_hook, link_effects)
+                                }
+                                False -> {
+                                    let catch_effects = make_catch_effects(clone(hit))
+                                    let caught_hook = rebuild_hook_caught(result.hook, HookState::RetractingWithTarget, Option::Some(hit))
+                                    (caught_hook, append_effects(link_effects, catch_effects))
+                                }
+                            }
                         }
                     }
                 }
@@ -510,18 +579,31 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
             (result.hook, remove_effects)
         }
         RetractingWithTarget -> {
-            let target_copy = h.caught_target
-            let result = hook.tick_retracting_with_target(h)
-            let remove_effects = make_remove_effects(result.links_to_remove)
-            case result.done {
+            let is_grapple = case h.variant {
+                Grapple -> True
+                _ -> False
+            }
+            case is_grapple {
                 True -> {
-                    let arrival_effects = case target_copy {
-                        Option::Some(t) -> make_arrival_effects(clone(result.hook.caster), t, result.hook.damage)
-                        Option::None -> []
-                    }
-                    (result.hook, append_effects(remove_effects, arrival_effects))
+                    let result = hook.tick_grapple_retract(h)
+                    let remove_effects = make_remove_effects(result.links_to_remove)
+                    (result.hook, remove_effects)
                 }
-                False -> (result.hook, remove_effects)
+                False -> {
+                    let target_copy = h.caught_target
+                    let result = hook.tick_retracting_with_target(h)
+                    let remove_effects = make_remove_effects(result.links_to_remove)
+                    case result.done {
+                        True -> {
+                            let arrival_effects = case target_copy {
+                                Option::Some(t) -> make_arrival_effects(clone(result.hook.caster), t, result.hook.damage)
+                                Option::None -> []
+                            }
+                            (result.hook, append_effects(remove_effects, arrival_effects))
+                        }
+                        False -> (result.hook, remove_effects)
+                    }
+                }
             }
         }
         _ -> (h, [])
@@ -537,6 +619,9 @@ fn handle_hook_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
         players: model.players,
         hooks: new_hooks,
         tick_count: model.tick_count + 1,
+        powerups: model.powerups,
+        next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
     }
     (new_model, effects)
 }
@@ -548,23 +633,17 @@ fn set_hook_tip(hooks: List(types.HookData), idx: Int, tip: Unit) -> List(types.
             True -> {
                 let updated = types.HookData {
                     state: h.state,
-                    tip_x: h.tip_x,
-                    tip_y: h.tip_y,
-                    angle: h.angle,
-                    cos_a: h.cos_a,
-                    sin_a: h.sin_a,
-                    velocity: h.velocity,
-                    max_range: h.max_range,
-                    distance: h.distance,
-                    damage: h.damage,
-                    radius: h.radius,
-                    owner_index: h.owner_index,
-                    caster: h.caster,
+                    tip_x: h.tip_x, tip_y: h.tip_y,
+                    angle: h.angle, cos_a: h.cos_a, sin_a: h.sin_a,
+                    velocity: h.velocity, max_range: h.max_range,
+                    distance: h.distance, damage: h.damage, radius: h.radius,
+                    owner_index: h.owner_index, caster: h.caster,
                     tip_unit: Option::Some(tip),
                     chain_links: h.chain_links,
                     link_accum: h.link_accum,
                     bounce_count: h.bounce_count,
                     caught_target: h.caught_target,
+                    variant: h.variant,
                 }
                 [updated | rest]
             }
@@ -580,23 +659,17 @@ fn add_chain_link(hooks: List(types.HookData), idx: Int, link: Unit) -> List(typ
             True -> {
                 let updated = types.HookData {
                     state: h.state,
-                    tip_x: h.tip_x,
-                    tip_y: h.tip_y,
-                    angle: h.angle,
-                    cos_a: h.cos_a,
-                    sin_a: h.sin_a,
-                    velocity: h.velocity,
-                    max_range: h.max_range,
-                    distance: h.distance,
-                    damage: h.damage,
-                    radius: h.radius,
-                    owner_index: h.owner_index,
-                    caster: h.caster,
+                    tip_x: h.tip_x, tip_y: h.tip_y,
+                    angle: h.angle, cos_a: h.cos_a, sin_a: h.sin_a,
+                    velocity: h.velocity, max_range: h.max_range,
+                    distance: h.distance, damage: h.damage, radius: h.radius,
+                    owner_index: h.owner_index, caster: h.caster,
                     tip_unit: h.tip_unit,
                     chain_links: [link | h.chain_links],
                     link_accum: h.link_accum,
                     bounce_count: h.bounce_count,
                     caught_target: h.caught_target,
+                    variant: h.variant,
                 }
                 [updated | rest]
             }
@@ -608,29 +681,13 @@ fn add_chain_link(hooks: List(types.HookData), idx: Int, link: Unit) -> List(typ
 fn handle_tip_created(model: Model, hook_index: Int, tip: Unit) -> (Model, List(effect.Effect(Msg))) {
     let _ = unit.set_scale(clone(tip), 0.6, 0.6, 0.6)
     let new_hooks = set_hook_tip(model.hooks, hook_index, tip)
-    let new_model = Model {
-        phase: model.phase,
-        mode: model.mode,
-        modifiers: model.modifiers,
-        players: model.players,
-        hooks: new_hooks,
-        tick_count: model.tick_count,
-    }
-    (new_model, [])
+    (rebuild_model_hooks(model, new_hooks), [])
 }
 
 fn handle_link_created(model: Model, hook_index: Int, link: Unit) -> (Model, List(effect.Effect(Msg))) {
     let _ = unit.set_scale(clone(link), 0.4, 0.4, 0.4)
     let new_hooks = add_chain_link(model.hooks, hook_index, link)
-    let new_model = Model {
-        phase: model.phase,
-        mode: model.mode,
-        modifiers: model.modifiers,
-        players: model.players,
-        hooks: new_hooks,
-        tick_count: model.tick_count,
-    }
-    (new_model, [])
+    (rebuild_model_hooks(model, new_hooks), [])
 }
 
 fn get_player_spree(players: List(types.PlayerData), pid: Int) -> Int {
@@ -656,6 +713,8 @@ fn update_player_kill(players: List(types.PlayerData), killer_idx: Int, reward: 
                 hero: p.hero, left: p.left,
                 speed_level: p.speed_level, damage_level: p.damage_level,
                 range_level: p.range_level, radius_level: p.radius_level,
+                items: p.items, buffs: p.buffs,
+                move_speed_bonus: p.move_speed_bonus,
             } | rest]
             False -> [p | update_player_kill(rest, killer_idx, reward)]
         }
@@ -676,6 +735,8 @@ fn update_player_death(players: List(types.PlayerData), victim_idx: Int, hero_le
                 hero: p.hero, left: p.left,
                 speed_level: p.speed_level, damage_level: p.damage_level,
                 range_level: p.range_level, radius_level: p.radius_level,
+                items: p.items, buffs: p.buffs,
+                move_speed_bonus: p.move_speed_bonus,
             } | rest]
             False -> [p | update_player_death(rest, victim_idx, hero_level)]
         }
@@ -698,26 +759,7 @@ fn release_caught_target_hooks(hooks: List(types.HookData), target_id: Int) -> L
             let ct: Option(Unit) = h.caught_target
             let released = case ct {
                 Option::Some(u) -> case unit.handle_id(u) == target_id {
-                    True -> types.HookData {
-                        state: HookState::Retracting,
-                        tip_x: h.tip_x,
-                        tip_y: h.tip_y,
-                        angle: h.angle,
-                        cos_a: h.cos_a,
-                        sin_a: h.sin_a,
-                        velocity: h.velocity,
-                        max_range: h.max_range,
-                        distance: h.distance,
-                        damage: h.damage,
-                        radius: h.radius,
-                        owner_index: h.owner_index,
-                        caster: h.caster,
-                        tip_unit: h.tip_unit,
-                        chain_links: h.chain_links,
-                        link_accum: h.link_accum,
-                        bounce_count: h.bounce_count,
-                        caught_target: Option::None,
-                    }
+                    True -> rebuild_hook_caught(h, HookState::Retracting, Option::None)
                     False -> h
                 }
                 Option::None -> h
@@ -772,6 +814,9 @@ fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(ef
                         players: players_after_death,
                         hooks: new_hooks,
                         tick_count: model.tick_count,
+                        powerups: model.powerups,
+                        next_spawn_south: model.next_spawn_south,
+                        spawn_count: model.spawn_count,
                     }
                     let victory_effects = make_victory_effects(winner)
                     (new_model, append_effects([gold_effect, text_effect, board_effect], victory_effects))
@@ -784,6 +829,9 @@ fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(ef
                         players: players_after_death,
                         hooks: new_hooks,
                         tick_count: model.tick_count,
+                        powerups: model.powerups,
+                        next_spawn_south: model.next_spawn_south,
+                        spawn_count: model.spawn_count,
                     }
                     (new_model, [gold_effect, text_effect, board_effect])
                 }
@@ -803,7 +851,7 @@ fn tick_respawn_players(players: List(types.PlayerData)) -> (List(types.PlayerDa
                 False -> case p.left {
                     True -> ([p | rest_players], rest_effects)
                     False -> {
-                        let new_timer = p.respawn_timer - respawn_tick_interval
+                        let new_timer = p.respawn_timer - RESPAWN_TICK_INTERVAL
                         case new_timer <= 0.0 {
                             True -> {
                                 let (sx, sy) = get_spawn_for_team(p.team)
@@ -816,13 +864,15 @@ fn tick_respawn_players(players: List(types.PlayerData)) -> (List(types.PlayerDa
                                     hero: p.hero, left: p.left,
                                     speed_level: p.speed_level, damage_level: p.damage_level,
                                     range_level: p.range_level, radius_level: p.radius_level,
+                                    items: p.items, buffs: p.buffs,
+                                    move_speed_bonus: p.move_speed_bonus,
                                 }
                                 let pid = p.index
                                 let hero_effects = case p.hero {
                                     Option::Some(h) -> [
                                         effect.revive_hero(clone(h), sx, sy),
                                         effect.set_invulnerable(h, True),
-                                        effect.after(invuln_duration, fn() -> Msg {
+                                        effect.after(INVULN_DURATION, fn() -> Msg {
                                             Msg::RemoveInvuln { invuln_player: pid }
                                         }),
                                     ]
@@ -840,6 +890,8 @@ fn tick_respawn_players(players: List(types.PlayerData)) -> (List(types.PlayerDa
                                     hero: p.hero, left: p.left,
                                     speed_level: p.speed_level, damage_level: p.damage_level,
                                     range_level: p.range_level, radius_level: p.radius_level,
+                                    items: p.items, buffs: p.buffs,
+                                    move_speed_bonus: p.move_speed_bonus,
                                 }
                                 ([waiting | rest_players], rest_effects)
                             }
@@ -853,15 +905,7 @@ fn tick_respawn_players(players: List(types.PlayerData)) -> (List(types.PlayerDa
 
 fn handle_respawn_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
     let (new_players, effects) = tick_respawn_players(model.players)
-    let new_model = Model {
-        phase: model.phase,
-        mode: model.mode,
-        modifiers: model.modifiers,
-        players: new_players,
-        hooks: model.hooks,
-        tick_count: model.tick_count,
-    }
-    (new_model, effects)
+    (rebuild_model(model, new_players), effects)
 }
 
 fn mode_name(mode: types.GameMode) -> String {
@@ -927,6 +971,9 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                         players: model.players,
                         hooks: model.hooks,
                         tick_count: model.tick_count,
+                        powerups: model.powerups,
+                        next_spawn_south: model.next_spawn_south,
+                        spawn_count: model.spawn_count,
                     }
                     let board = make_board_effect(new_model.players, new_model.mode)
                     let announce = effect.display_text(0, "Mode set: " <> mode_name(new_model.mode), 10.0)
@@ -947,8 +994,13 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                 let new_model = Model {
                     phase: model.phase, mode: model.mode, modifiers: new_mods,
                     players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                    powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+                    spawn_count: model.spawn_count,
                 }
-                let msg_text = case new_mods.no_timer { True -> "No Timer: ON" False -> "No Timer: OFF" }
+                let msg_text = case new_mods.no_timer {
+                    True -> "No Timer: ON"
+                    False -> "No Timer: OFF"
+                }
                 (new_model, [effect.display_text(player_id, msg_text, 5.0)])
             }
             False -> (model, [])
@@ -964,8 +1016,13 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                 let new_model = Model {
                     phase: model.phase, mode: model.mode, modifiers: new_mods,
                     players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                    powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+                    spawn_count: model.spawn_count,
                 }
-                let msg_text = case new_mods.boosted { True -> "Boosted Mode: ON" False -> "Boosted Mode: OFF" }
+                let msg_text = case new_mods.boosted {
+                    True -> "Boosted Mode: ON"
+                    False -> "Boosted Mode: OFF"
+                }
                 (new_model, [effect.display_text(player_id, msg_text, 5.0)])
             }
             False -> (model, [])
@@ -981,8 +1038,13 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                 let new_model = Model {
                     phase: model.phase, mode: model.mode, modifiers: new_mods,
                     players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                    powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+                    spawn_count: model.spawn_count,
                 }
-                let msg_text = case new_mods.no_powerup { True -> "No Powerup: ON" False -> "No Powerup: OFF" }
+                let msg_text = case new_mods.no_powerup {
+                    True -> "No Powerup: ON"
+                    False -> "No Powerup: OFF"
+                }
                 (new_model, [effect.display_text(player_id, msg_text, 5.0)])
             }
             False -> (model, [])
@@ -998,8 +1060,13 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                 let new_model = Model {
                     phase: model.phase, mode: model.mode, modifiers: new_mods,
                     players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                    powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+                    spawn_count: model.spawn_count,
                 }
-                let msg_text = case new_mods.hook_only { True -> "Hook Only: ON" False -> "Hook Only: OFF" }
+                let msg_text = case new_mods.hook_only {
+                    True -> "Hook Only: ON"
+                    False -> "Hook Only: OFF"
+                }
                 (new_model, [effect.display_text(player_id, msg_text, 5.0)])
             }
             False -> (model, [])
@@ -1037,14 +1104,7 @@ fn make_boosted_effects(players: List(types.PlayerData)) -> List(effect.Effect(M
 fn handle_player_left(model: Model, player_id: Int) -> (Model, List(effect.Effect(Msg))) {
     let new_players = mark_player_left(model.players, player_id)
     let leave_effects = make_leave_effects(model.players, player_id)
-    let new_model = Model {
-        phase: model.phase,
-        mode: model.mode,
-        modifiers: model.modifiers,
-        players: new_players,
-        hooks: model.hooks,
-        tick_count: model.tick_count,
-    }
+    let new_model = rebuild_model(model, new_players)
     let board = make_board_effect(new_players, model.mode)
     (new_model, [board | leave_effects])
 }
@@ -1062,6 +1122,8 @@ fn mark_player_left(players: List(types.PlayerData), pid: Int) -> List(types.Pla
                 hero: p.hero, left: True,
                 speed_level: p.speed_level, damage_level: p.damage_level,
                 range_level: p.range_level, radius_level: p.radius_level,
+                items: p.items, buffs: p.buffs,
+                move_speed_bonus: p.move_speed_bonus,
             } | rest]
             False -> [p | mark_player_left(rest, pid)]
         }
@@ -1082,15 +1144,7 @@ fn make_leave_effects(players: List(types.PlayerData), pid: Int) -> List(effect.
 
 fn handle_hero_created(model: Model, player_index: Int, new_hero: Unit) -> (Model, List(effect.Effect(Msg))) {
     let new_players = set_player_hero(model.players, player_index, new_hero)
-    let new_model = Model {
-        phase: model.phase,
-        mode: model.mode,
-        modifiers: model.modifiers,
-        players: new_players,
-        hooks: model.hooks,
-        tick_count: model.tick_count,
-    }
-    (new_model, [])
+    (rebuild_model(model, new_players), [])
 }
 
 fn handle_timed_mode_expired(model: Model) -> (Model, List(effect.Effect(Msg))) {
@@ -1104,11 +1158,218 @@ fn handle_timed_mode_expired(model: Model) -> (Model, List(effect.Effect(Msg))) 
                 players: model.players,
                 hooks: model.hooks,
                 tick_count: model.tick_count,
+                powerups: model.powerups,
+                next_spawn_south: model.next_spawn_south,
+                spawn_count: model.spawn_count,
             }
             let victory_effects = make_victory_effects(winner)
             (new_model, victory_effects)
         }
         _ -> (model, [])
+    }
+}
+
+fn handle_powerup_spawn_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    case model.modifiers.no_powerup {
+        True -> (model, [])
+        False -> case model.phase {
+            Playing -> {
+                let kind = powerup.pick_kind(model.spawn_count)
+                let type_id = powerup.unit_type_for_kind(kind)
+                let sy = case model.next_spawn_south {
+                    True -> powerup.spawn_y_south()
+                    False -> powerup.spawn_y_north()
+                }
+                let dir = case model.next_spawn_south {
+                    True -> powerup.direction_for_south()
+                    False -> powerup.direction_for_north()
+                }
+                let spawn_eff = effect.create_unit_callback(
+                    15,
+                    type_id,
+                    powerup.spawn_x(),
+                    sy,
+                    0.0,
+                    fn(u: Unit) -> Msg { Msg::PowerupCreated { kind: kind, direction: dir, created_unit: u } }
+                )
+                let new_model = Model {
+                    phase: model.phase,
+                    mode: model.mode,
+                    modifiers: model.modifiers,
+                    players: model.players,
+                    hooks: model.hooks,
+                    tick_count: model.tick_count,
+                    powerups: model.powerups,
+                    next_spawn_south: model.next_spawn_south == False,
+                    spawn_count: model.spawn_count + 1,
+                }
+                (new_model, [spawn_eff])
+            }
+            _ -> (model, [])
+        }
+    }
+}
+
+fn handle_powerup_created(model: Model, kind: types.PowerupKind, direction: Float, u: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let px = unit.get_x(clone(u))
+    let py = unit.get_y(clone(u))
+    let pw = types.Powerup {
+        kind: kind,
+        x: px,
+        y: py,
+        direction: direction,
+        handle: u,
+    }
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        modifiers: model.modifiers,
+        players: model.players,
+        hooks: model.hooks,
+        tick_count: model.tick_count,
+        powerups: [pw | model.powerups],
+        next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+    }
+    (new_model, [])
+}
+
+fn append_powerups(xs: List(types.Powerup), ys: List(types.Powerup)) -> List(types.Powerup) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append_powerups(t, ys)]
+    }
+}
+
+fn tick_powerups(pups: List(types.Powerup)) -> (List(types.Powerup), List(effect.Effect(Msg))) {
+    case pups {
+        [] -> ([], [])
+        [p | rest] -> {
+            let moved = powerup.move_powerup(p)
+            let (rest_kept, rest_effects) = tick_powerups(rest)
+            case powerup.powerup_in_bounds(moved) {
+                True -> {
+                    let _ = unit.set_x(clone(moved.handle), moved.x)
+                    let _ = unit.set_y(clone(moved.handle), moved.y)
+                    ([moved | rest_kept], rest_effects)
+                }
+                False -> {
+                    let rm = effect.remove_unit(moved.handle)
+                    (rest_kept, [rm | rest_effects])
+                }
+            }
+        }
+    }
+}
+
+fn handle_powerup_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    let (new_pups, effects) = tick_powerups(model.powerups)
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        modifiers: model.modifiers,
+        players: model.players,
+        hooks: model.hooks,
+        tick_count: model.tick_count,
+        powerups: new_pups,
+        next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+    }
+    (new_model, effects)
+}
+
+fn add_buff_to_player(players: List(types.PlayerData), pid: Int, kind: types.PowerupKind) -> List(types.PlayerData) {
+    let dur = powerup.buff_duration(kind)
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> {
+                let new_buff = types.ActiveBuff {
+                    kind: kind,
+                    owner_index: pid,
+                    remaining: dur,
+                }
+                [types.PlayerData {
+                    index: p.index, team: p.team, alive: p.alive,
+                    kills: p.kills, deaths: p.deaths, spree: p.spree,
+                    hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                    hook_range: p.hook_range, hook_radius: p.hook_radius,
+                    respawn_timer: p.respawn_timer, gold: p.gold,
+                    hero: p.hero, left: p.left,
+                    speed_level: p.speed_level, damage_level: p.damage_level,
+                    range_level: p.range_level, radius_level: p.radius_level,
+                    items: p.items, buffs: [new_buff | p.buffs],
+                    move_speed_bonus: p.move_speed_bonus,
+                } | rest]
+            }
+            False -> [p | add_buff_to_player(rest, pid, kind)]
+        }
+    }
+}
+
+fn tick_all_player_buffs(players: List(types.PlayerData), dt: Float) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> {
+            let new_buffs = powerup.tick_buffs(p.buffs, dt)
+            [types.PlayerData {
+                index: p.index, team: p.team, alive: p.alive,
+                kills: p.kills, deaths: p.deaths, spree: p.spree,
+                hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                hook_range: p.hook_range, hook_radius: p.hook_radius,
+                respawn_timer: p.respawn_timer, gold: p.gold,
+                hero: p.hero, left: p.left,
+                speed_level: p.speed_level, damage_level: p.damage_level,
+                range_level: p.range_level, radius_level: p.radius_level,
+                items: p.items, buffs: new_buffs,
+                move_speed_bonus: p.move_speed_bonus,
+            } | tick_all_player_buffs(rest, dt)]
+        }
+    }
+}
+
+fn handle_buff_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    let new_players = tick_all_player_buffs(model.players, 1.0)
+    (rebuild_model(model, new_players), [])
+}
+
+fn handle_item_pickup(model: Model, buyer: Unit, item_type: Int) -> (Model, List(effect.Effect(Msg))) {
+    let maybe_kind = items.kind_from_item_type(item_type)
+    case maybe_kind {
+        NoKind -> (model, [])
+        SomeKind(kind) -> {
+            let pid = player.get_id(player.get_owner(clone(buyer)))
+            let new_players = add_item_to_player(model.players, pid, kind)
+            (rebuild_model(model, new_players), [])
+        }
+    }
+}
+
+fn add_item_to_player(players: List(types.PlayerData), pid: Int, kind: types.ItemKind) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> {
+                let new_items = items.add_or_upgrade(p.items, kind)
+                let speed_bonus = case kind {
+                    LycanPaws -> p.move_speed_bonus + items.lycan_speed_bonus()
+                    _ -> p.move_speed_bonus
+                }
+                [types.PlayerData {
+                    index: p.index, team: p.team, alive: p.alive,
+                    kills: p.kills, deaths: p.deaths, spree: p.spree,
+                    hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                    hook_range: p.hook_range, hook_radius: p.hook_radius,
+                    respawn_timer: p.respawn_timer, gold: p.gold,
+                    hero: p.hero, left: p.left,
+                    speed_level: p.speed_level, damage_level: p.damage_level,
+                    range_level: p.range_level, radius_level: p.radius_level,
+                    items: new_items, buffs: p.buffs,
+                    move_speed_bonus: speed_bonus,
+                } | rest]
+            }
+            False -> [p | add_item_to_player(rest, pid, kind)]
+        }
     }
 }
 
@@ -1122,6 +1383,9 @@ pub fn init() -> (Model, List(effect.Effect(Msg))) {
         players: players,
         hooks: [],
         tick_count: 0,
+        powerups: [],
+        next_spawn_south: True,
+        spawn_count: 0,
     }
     (model, hero_effects)
 }
@@ -1135,7 +1399,7 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
 
 fn dispatch(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        SpellCast(caster, spell_id, _) -> handle_upgrade(model, caster, spell_id)
+        SpellCast(caster, spell_id, _) -> handle_spell_cast(model, caster, spell_id)
         SpellGround(caster, spell_id, x, y) -> handle_spell_ground(model, caster, spell_id, x, y)
         HookTick -> handle_hook_tick(model)
         HookTipCreated(hook_index, tip) -> handle_tip_created(model, hook_index, tip)
@@ -1155,6 +1419,11 @@ fn dispatch(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
         }
         HeroCreated(player_index, new_hero) -> handle_hero_created(model, player_index, new_hero)
         TimedModeExpired -> handle_timed_mode_expired(model)
+        PowerupSpawnTick -> handle_powerup_spawn_tick(model)
+        PowerupTick -> handle_powerup_tick(model)
+        PowerupCreated(kind, direction, u) -> handle_powerup_created(model, kind, direction, u)
+        BuffTick -> handle_buff_tick(model)
+        ItemPickedUp(buyer, item_type) -> handle_item_pickup(model, buyer, item_type)
     }
 }
 
@@ -1182,6 +1451,12 @@ pub fn subscriptions(model: Model) -> List(subscription.Subscription(Msg)) {
         subscription.on_damage(fn(s: Unit, t: Unit, a: Float) -> Msg {
             Msg::DamageTaken { source: s, target: t, amount: a }
         }),
-        subscription.on_timer(respawn_tick_interval, fn() -> Msg { Msg::RespawnTick }),
+        subscription.on_timer(RESPAWN_TICK_INTERVAL, fn() -> Msg { Msg::RespawnTick }),
+        subscription.on_timer(powerup.tick_interval(), fn() -> Msg { Msg::PowerupTick }),
+        subscription.on_timer(powerup.spawn_interval(), fn() -> Msg { Msg::PowerupSpawnTick }),
+        subscription.on_timer(1.0, fn() -> Msg { Msg::BuffTick }),
+        subscription.on_item_pickup(fn(u: Unit, item_type: Int) -> Msg {
+            Msg::ItemPickedUp { buyer: u, item_type: item_type }
+        }),
     ]
 }

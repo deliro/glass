@@ -82,7 +82,7 @@ impl GlassLsp {
 
         let input_path = uri.to_file_path().unwrap_or_default();
         let mut resolver = crate::modules::ModuleResolver::new(&input_path);
-        let (resolved_module, imports, _imported_count, def_module_map) =
+        let (mut resolved_module, imports, _imported_count, def_module_map) =
             match resolver.resolve_module(&module) {
                 Ok(r) => r,
                 Err(_) => {
@@ -92,6 +92,8 @@ impl GlassLsp {
                     return;
                 }
             };
+
+        crate::resolve_const_patterns::resolve_const_patterns(&mut resolved_module);
 
         let mut inferencer = crate::infer::Inferencer::new();
         let infer_result =

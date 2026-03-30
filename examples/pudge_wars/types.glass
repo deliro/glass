@@ -41,6 +41,69 @@ pub fn default_modifiers() -> Modifiers {
     }
 }
 
+pub enum PowerupKind {
+    Thunder
+    Flame
+    Hyperspeed
+    Gold
+    BladeBarrier
+    Dynamite
+    Berserker
+    SpectralDagger
+}
+
+pub struct Powerup {
+    kind: PowerupKind,
+    x: Float,
+    y: Float,
+    direction: Float,
+    handle: Unit,
+}
+
+pub struct ActiveBuff {
+    kind: PowerupKind,
+    owner_index: Int,
+    remaining: Float,
+}
+
+pub enum ItemKind {
+    GrapplingHook
+    TinysArm
+    EarthshakerTotem
+    BarathrumLantern
+    StrygwyrClaws
+    TechiesBarrel
+    LycanPaws
+    NaixJaws
+    RicochetTurbine
+    IncreaseStrength
+}
+
+pub struct OwnedItem {
+    kind: ItemKind,
+    level: Int,
+}
+
+pub enum MaybeItem {
+    NoItem
+    SomeItem { item: OwnedItem }
+}
+
+pub enum MaybeItemKind {
+    NoKind
+    SomeKind { kind: ItemKind }
+}
+
+pub enum MaybeBuff {
+    NoBuff
+    SomeBuff { buff: ActiveBuff }
+}
+
+pub enum HookVariant {
+    Normal
+    Grapple
+}
+
 pub struct HookData {
     state: HookState,
     tip_x: Float,
@@ -60,6 +123,7 @@ pub struct HookData {
     link_accum: Float,
     bounce_count: Int,
     caught_target: Option(Unit),
+    variant: HookVariant,
 }
 
 pub struct PlayerData {
@@ -81,6 +145,9 @@ pub struct PlayerData {
     damage_level: Int,
     range_level: Int,
     radius_level: Int,
+    items: List(OwnedItem),
+    buffs: List(ActiveBuff),
+    move_speed_bonus: Float,
 }
 
 pub fn new_player(idx: Int, team: Team) -> PlayerData {
@@ -103,5 +170,8 @@ pub fn new_player(idx: Int, team: Team) -> PlayerData {
         damage_level: 0,
         range_level: 0,
         radius_level: 0,
+        items: [],
+        buffs: [],
+        move_speed_bonus: 0.0,
     }
 }

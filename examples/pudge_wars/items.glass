@@ -1,0 +1,87 @@
+import int
+import types
+
+const GRAPPLING_HOOK_ID: Int = 'I000'
+const TINYS_ARM_ID: Int = 'I001'
+const EARTHSHAKER_TOTEM_ID: Int = 'I002'
+const BARATHRUM_LANTERN_ID: Int = 'I003'
+const STRYGWYR_CLAWS_ID: Int = 'I004'
+const TECHIES_BARREL_ID: Int = 'I005'
+const LYCAN_PAWS_ID: Int = 'I006'
+const NAIX_JAWS_ID: Int = 'I007'
+const RICOCHET_TURBINE_ID: Int = 'I008'
+const INCREASE_STRENGTH_ID: Int = 'I009'
+
+pub fn kind_from_item_type(item_type: Int) -> types.MaybeItemKind {
+    case item_type {
+        GRAPPLING_HOOK_ID -> MaybeItemKind::SomeKind { kind: ItemKind::GrapplingHook }
+        TINYS_ARM_ID -> MaybeItemKind::SomeKind { kind: ItemKind::TinysArm }
+        EARTHSHAKER_TOTEM_ID -> MaybeItemKind::SomeKind { kind: ItemKind::EarthshakerTotem }
+        BARATHRUM_LANTERN_ID -> MaybeItemKind::SomeKind { kind: ItemKind::BarathrumLantern }
+        STRYGWYR_CLAWS_ID -> MaybeItemKind::SomeKind { kind: ItemKind::StrygwyrClaws }
+        TECHIES_BARREL_ID -> MaybeItemKind::SomeKind { kind: ItemKind::TechiesBarrel }
+        LYCAN_PAWS_ID -> MaybeItemKind::SomeKind { kind: ItemKind::LycanPaws }
+        NAIX_JAWS_ID -> MaybeItemKind::SomeKind { kind: ItemKind::NaixJaws }
+        RICOCHET_TURBINE_ID -> MaybeItemKind::SomeKind { kind: ItemKind::RicochetTurbine }
+        INCREASE_STRENGTH_ID -> MaybeItemKind::SomeKind { kind: ItemKind::IncreaseStrength }
+        _ -> MaybeItemKind::NoKind
+    }
+}
+
+fn item_kind_tag(k: types.ItemKind) -> Int {
+    case k {
+        GrapplingHook -> 0
+        TinysArm -> 1
+        EarthshakerTotem -> 2
+        BarathrumLantern -> 3
+        StrygwyrClaws -> 4
+        TechiesBarrel -> 5
+        LycanPaws -> 6
+        NaixJaws -> 7
+        RicochetTurbine -> 8
+        IncreaseStrength -> 9
+    }
+}
+
+fn items_match(a: types.ItemKind, b: types.ItemKind) -> Bool {
+    item_kind_tag(a) == item_kind_tag(b)
+}
+
+pub fn add_or_upgrade(owned: List(types.OwnedItem), kind: types.ItemKind) -> List(types.OwnedItem) {
+    case owned {
+        [] -> [types.OwnedItem { kind: kind, level: 1 }]
+        [item | rest] -> case items_match(item.kind, kind) {
+            True -> [types.OwnedItem { kind: kind, level: item.level + 1 } | rest]
+            False -> [item | add_or_upgrade(rest, kind)]
+        }
+    }
+}
+
+pub fn has_item(owned: List(types.OwnedItem), kind: types.ItemKind) -> Bool {
+    case owned {
+        [] -> False
+        [item | rest] -> case items_match(item.kind, kind) {
+            True -> True
+            False -> has_item(rest, kind)
+        }
+    }
+}
+
+pub fn item_level(owned: List(types.OwnedItem), kind: types.ItemKind) -> Int {
+    case owned {
+        [] -> 0
+        [item | rest] -> case items_match(item.kind, kind) {
+            True -> item.level
+            False -> item_level(rest, kind)
+        }
+    }
+}
+
+pub fn lycan_speed_bonus() -> Float { 50.0 }
+pub fn max_level() -> Int { 5 }
+
+pub fn ricochet_multiplier(bounces: Int, level: Int) -> Float {
+    let base: Float = 1.0
+    let per_bounce: Float = 0.1 * int.to_float(level)
+    base + per_bounce * int.to_float(bounces)
+}

@@ -126,6 +126,9 @@ pub enum Token {
     #[regex(r"[a-z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string(), priority = 1)]
     LowerIdent(String),
 
+    #[regex(r"[A-Z][A-Z0-9]*_[A-Z0-9_]*", |lex| lex.slice().to_string(), priority = 2)]
+    ConstIdent(String),
+
     #[regex(r"[A-Z][a-zA-Z0-9_]*", |lex| lex.slice().to_string(), priority = 1)]
     UpperIdent(String),
 }
@@ -175,6 +178,10 @@ impl Lexer {
             match result {
                 Ok(token) => {
                     let span = lexer.span();
+                    let token = match token {
+                        Token::ConstIdent(s) => Token::LowerIdent(s),
+                        other => other,
+                    };
                     tokens.push((token, Span::new(span.start, span.end)));
                 }
                 Err(()) => {
@@ -281,6 +288,9 @@ mod tests {
     #[case("hello", Token::LowerIdent("hello".into()))]
     #[case("_private", Token::LowerIdent("_private".into()))]
     #[case("snake_case_42", Token::LowerIdent("snake_case_42".into()))]
+    #[case("HOOK_ABILITY", Token::LowerIdent("HOOK_ABILITY".into()))]
+    #[case("MAX_BOUNCES", Token::LowerIdent("MAX_BOUNCES".into()))]
+    #[case("A_B", Token::LowerIdent("A_B".into()))]
     fn lower_ident(#[case] input: &str, #[case] expected: Token) {
         assert_eq!(token_kinds(input), vec![expected]);
     }

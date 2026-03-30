@@ -483,6 +483,11 @@ impl JassCodegen {
         if ty != "integer" {
             return ty.to_string();
         }
+        if let Some(usage_ty) = self.find_capture_usage_type(&capture.name, &body.node) {
+            if usage_ty != "integer" {
+                return usage_ty;
+            }
+        }
         if let Some(ann) = Self::find_capture_annotation(&capture.name, &body.node) {
             let resolved = self.type_to_jass(&ann);
             if resolved != "integer" {
@@ -495,6 +500,56 @@ impl JassCodegen {
             }
         }
         ty.to_string()
+    }
+
+    fn find_capture_usage_type(&self, name: &str, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Let {
+                value,
+                body,
+                pattern,
+                ..
+            } => {
+                if let Expr::Var(ref v) = value.node {
+                    if v == name {
+                        if let Pattern::Var(ref bound) = pattern.node {
+                            return self.find_capture_usage_type(bound, &body.node);
+                        }
+                    }
+                }
+                self.find_capture_usage_type(name, &body.node)
+            }
+            Expr::Constructor { args, .. } => {
+                for arg in args {
+                    let e = match arg {
+                        ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => e,
+                    };
+                    if let Expr::Var(ref v) = e.node {
+                        if v == name {
+                            let ty = self.lookup_type(e.span);
+                            if ty != "integer" {
+                                return Some(ty.to_string());
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            Expr::Call { args, .. } => {
+                for a in args {
+                    if let Expr::Var(ref v) = a.node {
+                        if v == name {
+                            let ty = self.lookup_type(a.span);
+                            if ty != "integer" {
+                                return Some(ty.to_string());
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     fn find_capture_annotation(name: &str, expr: &Expr) -> Option<TypeExpr> {
@@ -1161,6 +1216,9 @@ impl JassCodegen {
             }
         }
         for (i, jass_type) in temp_types.iter().enumerate() {
+            if jass_type == "real" {
+                eprintln!("DEBUG fn {} has real temp glass_tmp_{}", f.name, i);
+            }
             self.emit(&format!("local {} glass_tmp_{}", jass_type, i));
         }
         // TCO temp locals for safe parameter reassignment
@@ -1700,14 +1758,39 @@ impl JassCodegen {
 
             Expr::Case { subject, arms } => {
                 let subj = self.gen_expr(&subject.node);
-                // Determine JASS type for the case result from first arm body
+                if let Some(first_arm) = arms.first() {
+                    if let Expr::Var(ref vn) = first_arm.body.node {
+                        let looked = self.local_var_jass_types.get(vn);
+                        let has_fl = arms.iter().any(|a| self.expr_has_float(&a.body.node));
+                        eprintln!("DEBUG case first_arm var={vn} jass_type={looked:?} has_float={has_fl}");
+                    }
+                }
+                let has_compound_arm = arms.iter().any(|a| {
+                    matches!(
+                        &a.body.node,
+                        Expr::List(_)
+                            | Expr::ListCons { .. }
+                            | Expr::Constructor { .. }
+                            | Expr::Tuple(_)
+                    )
+                });
+                let has_integer_var_arm = arms.iter().any(|a| {
+                    if let Expr::Var(ref vname) = a.body.node {
+                        self.local_var_jass_types
+                            .get(vname)
+                            .is_some_and(|jt| jt == "integer")
+                    } else {
+                        false
+                    }
+                });
                 let case_jass_type = arms
                     .first()
                     .and_then(|arm| self.lookup_full_type(arm.body.span))
                     .map(|ty| {
                         let jt = self.type_to_jass_from_type(&ty);
-                        // Guard against stale type_map for imported functions.
-                        // Infer the correct type from the arm body expression.
+                        if has_compound_arm || has_integer_var_arm {
+                            return "integer".to_string();
+                        }
                         if jt != "real"
                             && arms
                                 .iter()
@@ -1731,6 +1814,13 @@ impl JassCodegen {
                         jt
                     })
                     .unwrap_or_else(|| "integer".to_string());
+                if case_jass_type == "real" {
+                    eprintln!("DEBUG case_jass_type=real has_compound={has_compound_arm} has_int_var={has_integer_var_arm}");
+                    if let Some(first_arm) = arms.first() {
+                        let ft = self.lookup_full_type(first_arm.body.span);
+                        eprintln!("  first_arm_type={ft:?}");
+                    }
+                }
                 let result_var = self.fresh_temp_typed(&case_jass_type);
 
                 let subject_type_name =
@@ -2476,7 +2566,21 @@ impl JassCodegen {
                 match &pattern.node {
                     Pattern::Var(name) => {
                         let jass_type = match type_annotation {
-                            Some(t) => self.type_to_jass(t),
+                            Some(t) => {
+                                let ann_type = self.type_to_jass(t);
+                                if ann_type == "integer" {
+                                    if let Expr::Var(ref vname) = value.node {
+                                        self.local_var_jass_types.get(vname)
+                                            .filter(|jt| *jt != "integer")
+                                            .cloned()
+                                            .unwrap_or(ann_type)
+                                    } else {
+                                        ann_type
+                                    }
+                                } else {
+                                    ann_type
+                                }
+                            }
                             None => {
                                 let lt = self.lookup_type(value.span);
                                 if lt == "integer" && self.expr_has_float(&value.node) {
@@ -2494,6 +2598,7 @@ impl JassCodegen {
                                 }
                             }
                         };
+                        self.local_var_jass_types.insert(name.clone(), jass_type.clone());
                         locals.push((name.clone(), jass_type));
                     }
                     Pattern::Tuple(elems) => {

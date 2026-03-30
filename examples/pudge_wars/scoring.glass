@@ -10,8 +10,14 @@ fn sum_team_kills_helper(players: List(types.PlayerData), team_tag: Int) -> Int 
         [] -> 0
         [p | rest] -> {
             let is_match = case team_tag {
-                0 -> case p.team { West -> True _ -> False }
-                _ -> case p.team { East -> True _ -> False }
+                0 -> case p.team {
+                    West -> True
+                    _ -> False
+                }
+                _ -> case p.team {
+                    East -> True
+                    _ -> False
+                }
             }
             case is_match {
                 True -> p.kills + sum_team_kills_helper(rest, team_tag)
