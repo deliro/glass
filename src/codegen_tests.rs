@@ -262,6 +262,154 @@ fn topo_sort_both_backends() {
 }
 
 // ============================================================
+// Generic type monomorphization
+// ============================================================
+
+#[test]
+fn option_multi_instantiation_jass() {
+    let source = r#"
+enum Option(T) {
+    Some(T)
+    None
+}
+
+pub fn make_unit_opt(u: Unit) -> Option(Unit) { Option::Some(u) }
+pub fn make_float_opt() -> Option(Float) { Option::Some(3.14) }
+
+pub fn test_unit(o: Option(Unit)) -> Bool {
+    case o {
+        Option::Some(u) -> True
+        Option::None -> False
+    }
+}
+
+pub fn test_float(o: Option(Float)) -> Float {
+    case o {
+        Option::Some(v) -> v
+        Option::None -> 0.0
+    }
+}
+"#;
+    let jass = compile_jass(source);
+
+    assert!(
+        jass.contains("unit array glass_Option_unit_Some_"),
+        "should have unit array for Option(Unit), got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("real array glass_Option_real_Some_"),
+        "should have real array for Option(Float), got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("integer array glass_Option_unit_tag"),
+        "should have separate tag array for Option_unit, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("integer array glass_Option_real_tag"),
+        "should have separate tag array for Option_real, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("glass_Option_unit_alloc"),
+        "should have separate allocator for Option_unit, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("glass_Option_real_alloc"),
+        "should have separate allocator for Option_real, got:\n{}",
+        jass
+    );
+    assert!(
+        !jass.contains("glass_Option_Some_") || jass.contains("glass_Option_unit_Some_"),
+        "should NOT have generic Option_Some arrays when multiple instantiations exist, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("glass_new_Option_unit_Some"),
+        "constructor should use monomorphized name, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("glass_new_Option_real_Some"),
+        "constructor should use monomorphized name, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("glass_Option_unit_Some_") && jass.contains("[o]"),
+        "pattern match field access should use monomorphized arrays, got:\n{}",
+        jass
+    );
+}
+
+#[test]
+fn option_multi_instantiation_lua() {
+    let source = r#"
+enum Option(T) {
+    Some(T)
+    None
+}
+
+pub fn make_unit_opt(u: Unit) -> Option(Unit) { Option::Some(u) }
+pub fn make_float_opt() -> Option(Float) { Option::Some(3.14) }
+
+pub fn test_unit(o: Option(Unit)) -> Bool {
+    case o {
+        Option::Some(u) -> True
+        Option::None -> False
+    }
+}
+
+pub fn test_float(o: Option(Float)) -> Float {
+    case o {
+        Option::Some(v) -> v
+        Option::None -> 0.0
+    }
+}
+"#;
+    let lua = compile_lua(source);
+
+    assert!(
+        lua.contains("glass_TAG_Option_unit_Some") || lua.contains("glass_TAG_Option_Some"),
+        "Lua should have tag constants for Option, got:\n{}",
+        lua
+    );
+}
+
+#[test]
+fn option_single_instantiation_backward_compat() {
+    let source = r#"
+enum Option(T) {
+    Some(T)
+    None
+}
+
+pub fn make_float_opt() -> Option(Float) { Option::Some(3.14) }
+
+pub fn test_float(o: Option(Float)) -> Float {
+    case o {
+        Option::Some(v) -> v
+        Option::None -> 0.0
+    }
+}
+"#;
+    let jass = compile_jass(source);
+
+    assert!(
+        jass.contains("real array glass_Option_Some_"),
+        "single instantiation should use base name, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("glass_Option_alloc"),
+        "single instantiation should use base name allocator, got:\n{}",
+        jass
+    );
+}
+
+// ============================================================
 // Elm runtime parity
 // ============================================================
 

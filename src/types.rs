@@ -31,6 +31,9 @@ pub struct TypeRegistry {
     pub types: HashMap<String, TypeInfo>,
     /// Monomorphized list element JASS types (e.g. "integer", "real")
     pub list_types: HashSet<String>,
+    /// Maps (base_generic_name, jass_arg_suffix) → monomorphized type name.
+    /// e.g. ("Option", "unit") → "Option_unit", ("Option", "real") → "Option_real"
+    pub mono_map: HashMap<(String, String), String>,
 }
 
 impl TypeRegistry {
@@ -54,6 +57,8 @@ impl TypeRegistry {
             Self::discover_generic_instantiations(def, &generic_defs, &mut instantiations);
         }
 
+        let mut mono_map: HashMap<(String, String), String> = HashMap::new();
+
         for (type_name, gdef) in &generic_defs {
             let concrete: Vec<&Vec<String>> = instantiations
                 .iter()
@@ -61,7 +66,11 @@ impl TypeRegistry {
                 .map(|(_, args)| args)
                 .collect();
 
-            if let [jass_args] = concrete.as_slice() {
+            if concrete.is_empty() {
+                let info = Self::collect_type(gdef);
+                types.insert(info.name.clone(), info);
+            } else if concrete.len() == 1 {
+                let jass_args = concrete[0];
                 let subst: HashMap<&str, &str> = gdef
                     .type_params
                     .iter()
@@ -70,9 +79,31 @@ impl TypeRegistry {
                     .collect();
                 let info = Self::collect_type_with_subst(gdef, type_name, &subst);
                 types.insert(type_name.clone(), info);
+                let suffix = jass_args.join("_");
+                mono_map.insert(
+                    (type_name.clone(), suffix),
+                    type_name.clone(),
+                );
             } else {
                 let info = Self::collect_type(gdef);
-                types.insert(info.name.clone(), info);
+                types.insert(type_name.clone(), info);
+
+                for jass_args in &concrete {
+                    let suffix = jass_args.join("_");
+                    let mono_name = format!("{}_{}", type_name, suffix);
+                    let subst: HashMap<&str, &str> = gdef
+                        .type_params
+                        .iter()
+                        .zip(jass_args.iter())
+                        .map(|(p, j)| (p.as_str(), j.as_str()))
+                        .collect();
+                    let info = Self::collect_type_with_subst(gdef, &mono_name, &subst);
+                    types.insert(mono_name.clone(), info);
+                    mono_map.insert(
+                        (type_name.clone(), suffix),
+                        mono_name,
+                    );
+                }
             }
         }
 
@@ -117,6 +148,7 @@ impl TypeRegistry {
         TypeRegistry {
             types,
             list_types: list_elem_types,
+            mono_map,
         }
     }
 
@@ -598,5 +630,12 @@ impl TypeRegistry {
             }
         }
         self.get_variant(constructor_name)
+    }
+
+    pub fn resolve_mono_name(&self, base_name: &str, jass_args: &[String]) -> Option<&str> {
+        let suffix = jass_args.join("_");
+        self.mono_map
+            .get(&(base_name.to_string(), suffix))
+            .map(|s| s.as_str())
     }
 }

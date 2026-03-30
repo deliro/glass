@@ -505,6 +505,7 @@ fn empty_registry() -> crate::types::TypeRegistry {
     crate::types::TypeRegistry {
         types: HashMap::new(),
         list_types: std::collections::HashSet::new(),
+        mono_map: HashMap::new(),
     }
 }
 
