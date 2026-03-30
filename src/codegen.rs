@@ -104,6 +104,7 @@ pub struct JassCodegen {
     current_list_elem_type: Option<String>,
     var_list_elem_types: HashMap<String, String>,
     local_var_jass_types: HashMap<String, String>,
+    extend_methods: HashMap<String, String>,
 }
 
 struct ClosureEmitInfo {
@@ -151,6 +152,7 @@ impl JassCodegen {
             current_list_elem_type: None,
             var_list_elem_types: HashMap::new(),
             local_var_jass_types: HashMap::new(),
+            extend_methods: HashMap::new(),
         }
     }
 
@@ -176,6 +178,14 @@ impl JassCodegen {
                 }
                 Definition::Function(f) => {
                     self.fn_defs.insert(f.name.clone(), f.clone());
+                }
+                Definition::Extend(ext) => {
+                    for method in &ext.methods {
+                        let prefixed = format!("{}_{}", ext.type_name, method.name);
+                        self.extend_methods
+                            .insert(method.name.clone(), prefixed.clone());
+                        self.fn_defs.insert(prefixed, method.clone());
+                    }
                 }
                 _ => {}
             }
@@ -898,7 +908,14 @@ impl JassCodegen {
             Definition::Function(f) => self.gen_fn_def(f),
             Definition::External(e) => self.gen_external_def(e),
             Definition::Const(c) => self.gen_const_def(c),
-            Definition::Type(_) | Definition::Import(_) | Definition::Extend(_) => {}
+            Definition::Extend(ext) => {
+                for method in &ext.methods {
+                    let mut prefixed = method.clone();
+                    prefixed.name = format!("{}_{}", ext.type_name, method.name);
+                    self.gen_fn_def(&prefixed);
+                }
+            }
+            Definition::Type(_) | Definition::Import(_) => {}
         }
     }
 
@@ -1454,6 +1471,15 @@ impl JassCodegen {
                         return format!("{}({})", ext.jass_name, args_str.join(", "));
                     }
 
+                    if let Some(prefixed) = self.extend_methods.get(method.as_str()).cloned() {
+                        let obj = self.gen_expr(&object.node);
+                        let mut all_args = vec![obj];
+                        for a in args {
+                            all_args.push(self.gen_expr(&a.node));
+                        }
+                        return format!("glass_{}({})", prefixed, all_args.join(", "));
+                    }
+
                     if self.fn_defs.contains_key(method.as_str()) {
                         let args_str: Vec<String> =
                             args.iter().map(|a| self.gen_expr(&a.node)).collect();
@@ -1486,12 +1512,14 @@ impl JassCodegen {
                     return format!("glass_{}({})", method, args_str.join(", "));
                 }
 
+                let resolved = self.extend_methods.get(method.as_str()).cloned();
+                let name = resolved.as_deref().unwrap_or(method.as_str());
                 let obj = self.gen_expr(&object.node);
                 let mut all_args = vec![obj];
                 for a in args {
                     all_args.push(self.gen_expr(&a.node));
                 }
-                format!("glass_{}({})", method, all_args.join(", "))
+                format!("glass_{}({})", name, all_args.join(", "))
             }
 
             Expr::Let {

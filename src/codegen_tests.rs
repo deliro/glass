@@ -190,6 +190,41 @@ fn test(x: Int) -> Int {
     "tuple_destructure",
     "fn first(t: Int) -> Int { let (a, _b): Int = t a }"
 )]
+// --- Extend blocks ---
+#[case::extend_single_method(
+    "extend_single_method",
+    "
+extend Int {
+    fn doubled(self: Int) -> Int { self + self }
+}
+"
+)]
+#[case::extend_multiple_methods(
+    "extend_multiple_methods",
+    "
+extend Int {
+    fn doubled(self: Int) -> Int { self + self }
+    fn is_positive(self: Int) -> Bool { self > 0 }
+}
+"
+)]
+#[case::extend_self_usage(
+    "extend_self_usage",
+    "
+extend Int {
+    fn add_to(self: Int, other: Int) -> Int { self + other }
+}
+"
+)]
+#[case::extend_method_call(
+    "extend_method_call",
+    "
+extend Int {
+    fn doubled(self: Int) -> Int { self + self }
+}
+fn test(x: Int) -> Int { x.doubled() }
+"
+)]
 fn parity(#[case] name: &str, #[case] source: &str) {
     insta::assert_snapshot!(name, compile_both(source));
 }

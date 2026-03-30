@@ -260,12 +260,47 @@ impl Inferencer {
             }
         }
 
+        // Phase 2d: Register extend method signatures
+        for def in &module.definitions {
+            if let Definition::Extend(ext) = def {
+                for method in &ext.methods {
+                    let (fn_type, tvars) = self.fn_def_type(method);
+                    let type_var_ids: Vec<u32> = tvars
+                        .values()
+                        .filter_map(|t| {
+                            if let Type::Var(id) = t {
+                                Some(*id)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    let prefixed = format!("{}_{}", ext.type_name, method.name);
+                    let scheme = TypeScheme {
+                        vars: type_var_ids,
+                        ty: fn_type,
+                    };
+                    env.bind(prefixed.clone(), scheme.clone());
+                    env.bind(method.name.clone(), scheme);
+                }
+            }
+        }
+
         // Phase 3: Infer user function bodies only
         for def in &module.definitions {
             if let Definition::Function(f) = def
                 && !imported_fns.contains(&f.name)
             {
                 self.check_function(f, &mut env);
+            }
+        }
+
+        // Phase 3: Infer extend method bodies
+        for def in &module.definitions {
+            if let Definition::Extend(ext) = def {
+                for method in &ext.methods {
+                    self.check_function(method, &mut env);
+                }
             }
         }
 
