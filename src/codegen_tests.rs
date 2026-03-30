@@ -173,6 +173,19 @@ fn test() -> Int { [1, 2, 3] }
     "lambda_with_capture",
     "fn test(y: Int) -> Int { fn(x: Int) { x + y } }"
 )]
+#[case::lambda_capture_unit(
+    "lambda_capture_unit",
+    "fn test(u: Unit) -> Int { fn(x: Int) -> Unit { u } }"
+)]
+#[case::lambda_capture_unit_clone(
+    "lambda_capture_unit_clone",
+    r#"
+enum Msg { Hit { source: Unit, target: Unit, amount: Float } }
+fn make_aoe(caster: Unit, dmg: Float) -> Int {
+    fn(u: Unit) -> Msg { Msg::Hit { source: clone(caster), target: u, amount: dmg } }
+}
+"#
+)]
 #[case::lambda_void("lambda_void", "fn test() -> Int { fn() { 42 } }")]
 // --- Constants ---
 #[case::const_int("const_int", "const MAX_WAVE: Int = 10")]
@@ -409,4 +422,171 @@ fn no_reconciliation_without_subs() {
     let mut lua_output = String::new();
     crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut lua_output);
     assert!(!lua_output.contains("glass_reconcile_subs"));
+}
+
+#[test]
+fn closure_captures_unit_handle_simple() {
+    let source = "fn test(u: Unit) -> Int { fn(x: Int) -> Unit { u } }";
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("unit array glass_clos0_u"),
+        "capture array should be unit type, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("local unit u"),
+        "local in dispatch should be unit type, got:\n{}",
+        jass
+    );
+}
+
+#[test]
+fn closure_captures_unit_via_clone() {
+    let source = r#"
+enum Msg {
+    Hit { source: Unit, target: Unit, amount: Float }
+}
+fn make_aoe(caster: Unit, dmg: Float) -> Int {
+    fn(u: Unit) -> Msg {
+        Msg::Hit { source: clone(caster), target: u, amount: dmg }
+    }
+}
+"#;
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("unit array glass_clos0_caster"),
+        "capture array for caster should be unit type, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("local unit caster"),
+        "local caster in dispatch should be unit type, got:\n{}",
+        jass
+    );
+}
+
+#[test]
+fn closure_captures_unit_elm_context() {
+    let source = r#"
+import effect
+
+pub enum Msg {
+    Created { hero: Unit, spawned: Unit }
+}
+pub struct Model { hero: Unit }
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { hero: todo }, [])
+}
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    let h = clone(model.hero)
+    let fx = effect.create_unit_callback(0, 'hfoo', 0.0, 0.0, 0.0, fn(u: Unit) -> Msg {
+        Msg::Created { hero: h, spawned: u }
+    })
+    (model, [fx])
+}
+"#;
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("unit array glass_clos") && jass.contains("_h"),
+        "capture array for h should be unit type, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("local unit h"),
+        "local h in dispatch should be unit type, got:\n{}",
+        jass
+    );
+}
+
+#[test]
+fn closure_captures_unit_let_chain() {
+    let source = r#"
+enum Msg {
+    Hit { source: Unit, target: Unit }
+}
+fn test(caster: Unit) -> Int {
+    let c = clone(caster)
+    let d = c
+    fn(u: Unit) -> Msg {
+        Msg::Hit { source: d, target: u }
+    }
+}
+"#;
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("unit array glass_clos0_d"),
+        "capture array for d should be unit type, got:\n{}",
+        jass
+    );
+}
+
+#[test]
+fn closure_captures_unit_indirect_use() {
+    let source = r#"
+enum Msg {
+    Hit { source: Unit, target: Unit }
+}
+fn test(caster: Unit) -> Int {
+    fn(u: Unit) -> Msg {
+        let c = caster
+        Msg::Hit { source: c, target: u }
+    }
+}
+"#;
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("unit array glass_clos0_caster"),
+        "capture array for caster should be unit type, got:\n{}",
+        jass
+    );
+}
+
+#[test]
+fn closure_captures_player_handle() {
+    let source = r#"
+fn test(p: Player) -> Int {
+    fn() -> Player { p }
+}
+"#;
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("player array glass_clos0_p"),
+        "capture array for p should be player type, got:\n{}",
+        jass
+    );
+}
+
+#[test]
+fn closure_captures_timer_handle() {
+    let source = r#"
+fn test(t: Timer) -> Int {
+    fn() -> Timer { t }
+}
+"#;
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("timer array glass_clos0_t"),
+        "capture array for t should be timer type, got:\n{}",
+        jass
+    );
+}
+
+#[test]
+fn closure_captures_unit_from_case() {
+    let source = r#"
+enum Wrapper {
+    HasUnit { u: Unit }
+}
+fn test(w: Wrapper) -> Int {
+    case w {
+        Wrapper::HasUnit { u } -> fn() -> Unit { u }
+    }
+}
+"#;
+    let jass = compile_jass(source);
+    assert!(
+        jass.contains("unit array glass_clos0_u"),
+        "capture array for u should be unit type, got:\n{}",
+        jass
+    );
 }
