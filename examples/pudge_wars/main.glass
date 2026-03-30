@@ -268,18 +268,16 @@ fn launch_hook(model: Model, caster: Unit, tx: Float, ty: Float, variant: types.
 }
 
 fn handle_spell_ground(model: Model, caster: Unit, spell_id: Int, tx: Float, ty: Float) -> (Model, List(effect.Effect(Msg))) {
-    case spell_id == HOOK_ABILITY {
-        True -> launch_hook(model, caster, tx, ty, HookVariant::Normal)
-        False -> case spell_id == GRAPPLE_ABILITY {
-            True -> launch_hook(model, caster, tx, ty, HookVariant::Grapple)
-            False -> handle_upgrade(model, caster, spell_id)
-        }
+    case spell_id {
+        HOOK_ABILITY -> launch_hook(model, caster, tx, ty, HookVariant::Normal)
+        GRAPPLE_ABILITY -> launch_hook(model, caster, tx, ty, HookVariant::Grapple)
+        _ -> handle_upgrade(model, caster, spell_id)
     }
 }
 
 fn handle_spell_cast(model: Model, caster: Unit, spell_id: Int) -> (Model, List(effect.Effect(Msg))) {
-    case spell_id == DETONATE_ABILITY {
-        True -> {
+    case spell_id {
+        DETONATE_ABILITY -> {
             let cx = unit.get_x(clone(caster))
             let cy = unit.get_y(clone(caster))
             let self_dmg = effect.damage_unit(clone(caster), clone(caster), DETONATE_SELF_DAMAGE, 5, 4)
@@ -289,7 +287,7 @@ fn handle_spell_cast(model: Model, caster: Unit, spell_id: Int) -> (Model, List(
             let sfx = effect.add_sfx("Abilities\\Spells\\Human\\MarkOfChaos\\MarkOfChaosTarget.mdl", cx, cy)
             (model, [self_dmg, aoe, sfx])
         }
-        False -> handle_upgrade(model, caster, spell_id)
+        _ -> handle_upgrade(model, caster, spell_id)
     }
 }
 
@@ -313,30 +311,24 @@ fn rebuild_model_hooks(model: Model, hooks: List(types.HookData)) -> Model {
 
 fn handle_upgrade(model: Model, caster: Unit, spell_id: Int) -> (Model, List(effect.Effect(Msg))) {
     let owner_id = player.get_id(player.get_owner(clone(caster)))
-    case spell_id == UPGRADE_SPEED {
-        True -> {
+    case spell_id {
+        UPGRADE_SPEED -> {
             let new_players = upgrade_player_speed(model.players, owner_id)
             (rebuild_model(model, new_players), [])
         }
-        False -> case spell_id == UPGRADE_DAMAGE {
-            True -> {
-                let new_players = upgrade_player_damage(model.players, owner_id)
-                (rebuild_model(model, new_players), [])
-            }
-            False -> case spell_id == UPGRADE_RANGE {
-                True -> {
-                    let new_players = upgrade_player_range(model.players, owner_id)
-                    (rebuild_model(model, new_players), [])
-                }
-                False -> case spell_id == UPGRADE_RADIUS {
-                    True -> {
-                        let new_players = upgrade_player_radius(model.players, owner_id)
-                        (rebuild_model(model, new_players), [])
-                    }
-                    False -> (model, [])
-                }
-            }
+        UPGRADE_DAMAGE -> {
+            let new_players = upgrade_player_damage(model.players, owner_id)
+            (rebuild_model(model, new_players), [])
         }
+        UPGRADE_RANGE -> {
+            let new_players = upgrade_player_range(model.players, owner_id)
+            (rebuild_model(model, new_players), [])
+        }
+        UPGRADE_RADIUS -> {
+            let new_players = upgrade_player_radius(model.players, owner_id)
+            (rebuild_model(model, new_players), [])
+        }
+        _ -> (model, [])
     }
 }
 
