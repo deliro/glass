@@ -4,6 +4,11 @@
 //
 // `M` only appears inside After's callback. All other variants are phantom in M,
 // which makes `map` possible: wrap the callback, reconstruct the rest.
+//
+// Effect execution: the runtime dispatches each variant to its exec function.
+// For variants with an `exec_{snake_case_name}` function, the runtime calls it
+// with the variant's fields. New effects can be added by defining the variant
+// here and providing the exec function in effect_exec.glass.
 
 pub enum Effect(M) {
     After { duration: Float, callback: fn() -> M }

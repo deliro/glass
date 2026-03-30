@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ast::{Definition, ImportDef, Module};
 use crate::parser::Parser;
-use crate::token::Lexer;
+use crate::token::{Lexer, Span};
 
 /// A resolved import: the module name, its definitions, and what names to expose.
 #[derive(Debug, Clone)]
@@ -98,7 +98,21 @@ impl ModuleResolver {
         // Track which module each imported def comes from (by index in all_defs)
         let mut def_module_map: HashMap<usize, String> = HashMap::new();
 
-        for imp in &imports {
+        let has_effect_import = imports
+            .iter()
+            .any(|imp| imp.path.last().map_or(false, |s| s == "effect"));
+
+        let mut all_imports = imports.clone();
+        if has_effect_import {
+            all_imports.push(ImportDef {
+                path: vec!["effect_exec".to_string()],
+                items: None,
+                alias: Some("effect_exec".to_string()),
+                span: Span { start: 0, end: 0 },
+            });
+        }
+
+        for imp in &all_imports {
             match self.resolve_single_import(imp) {
                 Ok(resolved) => {
                     let module_name = &resolved.module_name;

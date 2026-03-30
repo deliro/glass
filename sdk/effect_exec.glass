@@ -1,0 +1,150 @@
+import wc3/player
+import wc3/ui
+import wc3/unit
+import wc3/sfx
+import wc3/sound
+import wc3/camera
+import wc3/order
+import wc3/item
+
+pub fn exec_display_text(player_id: Int, text: String, duration: Float) -> Int {
+    ui.display_text(player.get(player_id), 0.0, 0.0, duration, text)
+}
+
+pub fn exec_damage_unit(source: Unit, target: Unit, amount: Float, attack_type: Int, damage_type: Int) -> Bool {
+    unit.damage_target(source, target, amount, True, False, attack_type, damage_type, 0)
+}
+
+pub fn exec_create_unit(owner: Int, type_id: Int, x: Float, y: Float, facing: Float) -> Int {
+    let _ = unit.create(player.get(owner), type_id, x, y, facing)
+    0
+}
+
+pub fn exec_remove_unit(u: Unit) -> Int {
+    unit.remove(u)
+}
+
+pub fn exec_move_unit(u: Unit, x: Float, y: Float) -> Int {
+    unit.set_pos(u, x, y)
+}
+
+pub fn exec_play_animation(u: Unit, anim: String) -> Int {
+    unit.set_animation(u, anim)
+}
+
+pub fn exec_add_ability(u: Unit, ability_id: Int) -> Bool {
+    unit.add_ability(u, ability_id)
+}
+
+pub fn exec_add_sfx(model: String, x: Float, y: Float) -> Int {
+    sfx.destroy(sfx.at_point(model, x, y))
+}
+
+pub fn exec_set_unit_hp(u: Unit, hp: Float) -> Int {
+    unit.set_hp(u, hp)
+}
+
+pub fn exec_set_unit_mana(u: Unit, mana: Float) -> Int {
+    unit.set_mana(u, mana)
+}
+
+pub fn exec_pan_camera(player_id: Int, x: Float, y: Float) -> Int {
+    case player.get_local() == player.get(player_id) {
+        True -> camera.pan_to(x, y)
+        False -> 0
+    }
+}
+
+pub fn exec_show_floating_text(text: String, x: Float, y: Float, size: Float) -> Int {
+    let tt = ui.create_texttag()
+    let _ = ui.set_texttag_text(tt, text, size)
+    let _ = ui.set_texttag_pos(tt, x, y, 0.0)
+    let _ = ui.set_texttag_lifespan(tt, 3.0)
+    let _ = ui.set_texttag_permanent(tt, False)
+    ui.set_texttag_velocity(tt, 0.0, 0.04)
+}
+
+pub fn exec_play_sound(path: String) -> Int {
+    let snd = sound.create(path, False, False, False, 10, 10, "DefaultEAXON")
+    let _ = sound.set_volume(snd, 127)
+    let _ = sound.start(snd)
+    sound.kill_when_done(snd)
+}
+
+pub fn exec_give_gold(player_id: Int, gold_amount: Int) -> Int {
+    let p = player.get(player_id)
+    player.set_state(p, 1, player.get_state(p, 1) + gold_amount)
+}
+
+pub fn exec_give_lumber(player_id: Int, lumber_amount: Int) -> Int {
+    let p = player.get(player_id)
+    player.set_state(p, 2, player.get_state(p, 2) + lumber_amount)
+}
+
+pub fn exec_kill_unit(u: Unit) -> Int {
+    unit.kill(u)
+}
+
+pub fn exec_remove_ability(u: Unit, ability_id: Int) -> Bool {
+    unit.remove_ability(u, ability_id)
+}
+
+pub fn exec_set_unit_owner(u: Unit, player_id: Int) -> Int {
+    unit.set_owner(u, player.get(player_id), True)
+}
+
+pub fn exec_pause_unit(u: Unit, paused: Bool) -> Int {
+    unit.pause(u, paused)
+}
+
+pub fn exec_show_unit(u: Unit, shown: Bool) -> Int {
+    unit.show(u, shown)
+}
+
+pub fn exec_set_invulnerable(u: Unit, invulnerable: Bool) -> Int {
+    unit.set_invulnerable(u, invulnerable)
+}
+
+pub fn exec_issue_order(u: Unit, o: String) -> Bool {
+    order.immediate(u, o)
+}
+
+pub fn exec_issue_point_order(u: Unit, o: String, x: Float, y: Float) -> Bool {
+    order.point(u, o, x, y)
+}
+
+pub fn exec_issue_target_order(u: Unit, o: String, target: Unit) -> Bool {
+    order.target(u, o, target)
+}
+
+pub fn exec_add_sfx_target(model: String, u: Unit, attach_point: String) -> Int {
+    sfx.destroy(sfx.on_unit(model, u, attach_point))
+}
+
+pub fn exec_revive_hero(u: Unit, x: Float, y: Float) -> Bool {
+    unit.revive_hero(u, x, y, True)
+}
+
+pub fn exec_add_hero_xp(u: Unit, xp: Int) -> Int {
+    unit.add_hero_xp(u, xp, True)
+}
+
+pub fn exec_set_unit_facing(u: Unit, facing: Float) -> Int {
+    unit.set_facing(u, facing)
+}
+
+@external("jass", "PingMinimap")
+fn native_ping_minimap(x: Float, y: Float, duration: Float) -> Int
+
+pub fn exec_ping_minimap(x: Float, y: Float, duration: Float) -> Int {
+    native_ping_minimap(x, y, duration)
+}
+
+pub fn exec_create_item(item_type_id: Int, x: Float, y: Float) -> Int {
+    let _ = item.create(item_type_id, x, y)
+    0
+}
+
+pub fn exec_set_unit_move_speed(u: Unit, speed: Float) -> Int {
+    unit.set_move_speed(u, speed)
+}

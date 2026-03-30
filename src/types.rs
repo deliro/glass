@@ -23,6 +23,9 @@ pub struct VariantInfo {
 pub struct FieldInfo {
     pub name: String,
     pub jass_type: String,
+    pub is_callback: bool,
+    #[allow(dead_code)]
+    pub callback_param_jass_types: Vec<String>,
 }
 
 /// Maps type names to their info.
@@ -121,6 +124,8 @@ impl TypeRegistry {
                     .map(|(i, jt)| FieldInfo {
                         name: format!("_{}", i),
                         jass_type: jt.clone(),
+                        is_callback: false,
+                        callback_param_jass_types: Vec::new(),
                     })
                     .collect();
                 types.insert(
@@ -519,9 +524,13 @@ impl TypeRegistry {
                     .iter()
                     .map(|f| {
                         let jass_type = Self::type_expr_to_jass_with_subst(&f.type_expr, subst);
+                        let (is_callback, callback_param_jass_types) =
+                            Self::analyze_callback_type(&f.type_expr);
                         FieldInfo {
                             name: f.name.clone(),
                             jass_type,
+                            is_callback,
+                            callback_param_jass_types,
                         }
                     })
                     .collect();
@@ -570,9 +579,15 @@ impl TypeRegistry {
         let fields: Vec<FieldInfo> = ctor
             .fields
             .iter()
-            .map(|f| FieldInfo {
-                name: f.name.clone(),
-                jass_type: Self::type_expr_to_jass(&f.type_expr),
+            .map(|f| {
+                let (is_callback, callback_param_jass_types) =
+                    Self::analyze_callback_type(&f.type_expr);
+                FieldInfo {
+                    name: f.name.clone(),
+                    jass_type: Self::type_expr_to_jass(&f.type_expr),
+                    is_callback,
+                    callback_param_jass_types,
+                }
             })
             .collect();
 
@@ -585,6 +600,16 @@ impl TypeRegistry {
 
     pub fn type_expr_to_jass_public(ty: &crate::ast::TypeExpr) -> String {
         Self::type_expr_to_jass(ty)
+    }
+
+    fn analyze_callback_type(ty: &crate::ast::TypeExpr) -> (bool, Vec<String>) {
+        match ty {
+            TypeExpr::Fn { params, .. } => {
+                let param_types = params.iter().map(|p| Self::type_expr_to_jass(p)).collect();
+                (true, param_types)
+            }
+            _ => (false, Vec::new()),
+        }
     }
 
     fn type_expr_to_jass(ty: &crate::ast::TypeExpr) -> String {
