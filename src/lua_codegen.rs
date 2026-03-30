@@ -4,7 +4,7 @@ use crate::ast::*;
 use crate::closures::LambdaInfo;
 use crate::modules::ResolvedImport;
 use crate::type_repr::{Substitution, Type, TypeVarId};
-use crate::types::TypeRegistry;
+use crate::types::{TypeRegistry, TypeInfo, VariantInfo};
 
 fn format_float(n: f64) -> String {
     let s = format!("{}", n);
@@ -691,12 +691,7 @@ impl LuaCodegen {
                 {
                     return value.clone();
                 }
-                let after_colons = name.rsplit("::").next().unwrap_or(name);
-                let bare_name = after_colons
-                    .rsplit('.')
-                    .next()
-                    .unwrap_or(after_colons);
-                let variant_info = self.types.get_variant(bare_name).map(|(ti, vi)| {
+                let variant_info = resolve_variant_in(&self.types, name).map(|(ti, vi)| {
                     (
                         ti.name.clone(),
                         ti.is_enum,
@@ -848,17 +843,13 @@ impl LuaCodegen {
                     if let Some(value) = self.const_values.get(const_key) {
                         format!("({} == {})", subject, value)
                     } else {
-                        let qualified = self
-                            .types
-                            .get_variant(bare)
+                        let qualified = resolve_variant_in(&self.types, name)
                             .map(|(ti, _)| format!("{}_{}", ti.name, bare))
                             .unwrap_or_else(|| bare.to_string());
                         format!("({} == glass_TAG_{})", subject, qualified)
                     }
                 } else {
-                    let qualified = self
-                        .types
-                        .get_variant(bare)
+                    let qualified = resolve_variant_in(&self.types, name)
                         .map(|(ti, _)| format!("{}_{}", ti.name, bare))
                         .unwrap_or_else(|| bare.to_string());
                     format!("({}.tag == glass_TAG_{})", subject, qualified)
@@ -866,9 +857,7 @@ impl LuaCodegen {
             }
             Pattern::ConstructorNamed { name, .. } => {
                 let bare = bare_ctor_name(name);
-                let qualified = self
-                    .types
-                    .get_variant(bare)
+                let qualified = resolve_variant_in(&self.types, name)
                     .map(|(ti, _)| format!("{}_{}", ti.name, bare))
                     .unwrap_or_else(|| bare.to_string());
                 format!("({}.tag == glass_TAG_{})", subject, qualified)
@@ -930,10 +919,7 @@ impl LuaCodegen {
                 self.emit(&format!("local {} = {}", name, subject));
             }
             Pattern::Constructor { name, args } => {
-                let bare = bare_ctor_name(name);
-                let field_names: Vec<String> = self
-                    .types
-                    .get_variant(bare)
+                let field_names: Vec<String> = resolve_variant_in(&self.types, name)
                     .map(|(_, v)| v.fields.iter().map(|f| f.name.clone()).collect())
                     .unwrap_or_default();
                 for (i, arg) in args.iter().enumerate() {
@@ -1253,6 +1239,25 @@ impl LuaCodegen {
 
 fn bare_ctor_name(name: &str) -> &str {
     name.rsplit("::").next().unwrap_or(name)
+}
+
+fn type_hint_from_ctor_name(name: &str) -> Option<&str> {
+    if name.contains("::") {
+        let before = name.split("::").next().unwrap_or("");
+        let type_part = before.rsplit('.').next().unwrap_or(before);
+        if type_part.is_empty() { None } else { Some(type_part) }
+    } else {
+        None
+    }
+}
+
+fn resolve_variant_in<'a>(types: &'a TypeRegistry, name: &str) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
+    let bare = bare_ctor_name(name);
+    match type_hint_from_ctor_name(name) {
+        Some(tn) => types.get_variant_of_type(bare, tn)
+            .or_else(|| types.get_variant(bare)),
+        None => types.get_variant(bare),
+    }
 }
 
 /// Constant folding for Lua.

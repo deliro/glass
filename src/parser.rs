@@ -609,6 +609,7 @@ impl Parser {
             params,
             return_type,
             span,
+            source_module: None,
         }))
     }
 

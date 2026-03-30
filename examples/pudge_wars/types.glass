@@ -42,6 +42,7 @@ pub struct HookData {
     chain_links: List(Unit),
     link_accum: Float,
     bounce_count: Int,
+    caught_target: Option(Unit),
 }
 
 pub struct PlayerData {

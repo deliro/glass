@@ -33,6 +33,7 @@ Module {
                     start: 0,
                     end: 65,
                 },
+                source_module: None,
             },
         ),
     ],

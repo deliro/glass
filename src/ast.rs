@@ -109,6 +109,7 @@ pub struct ExternalDef {
     pub params: Vec<Param>,
     pub return_type: Option<TypeExpr>,
     pub span: Span,
+    pub source_module: Option<String>,
 }
 
 #[derive(Debug, Clone)]

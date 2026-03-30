@@ -232,12 +232,9 @@ fn should_inline(
     name: &str,
     fdef: &FnDef,
     info: &InlineInfo,
-    external_names: &HashSet<String>,
+    _external_names: &HashSet<String>,
 ) -> bool {
     if info.recursive.contains(name) {
-        return false;
-    }
-    if external_names.contains(name) {
         return false;
     }
     if matches!(&fdef.body.node, Expr::TcoLoop { .. }) {

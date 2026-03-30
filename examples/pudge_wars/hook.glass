@@ -1,12 +1,16 @@
 import wc3/math
 import wc3/unit
+import wc3/group
+import wc3/player
 import option { Option }
+import float as f
 import types
 import arena
 
 const tip_unit_id: Int = 'h001'
 const chain_link_id: Int = 'h002'
 const max_bounces: Int = 3
+const headshot_damage: Float = 99999.0
 
 pub struct LaunchResult {
     hook: types.HookData,
@@ -26,13 +30,18 @@ pub struct TickRetractResult {
     done: Bool,
 }
 
+pub struct CollisionResult {
+    caught: Option(Unit),
+    is_headshot: Bool,
+}
+
 pub fn tip_type_id() -> Int { tip_unit_id }
 pub fn chain_type_id() -> Int { chain_link_id }
 
 pub fn launch(caster: Unit, owner_index: Int, target_x: Float, target_y: Float, speed: Float, max_range: Float, damage: Float, radius: Float) -> LaunchResult {
     let cx = unit.get_x(clone(caster))
     let cy = unit.get_y(clone(caster))
-    let angle = math.atan2(target_y - cy, target_x - cx)
+    let angle: Float = math.atan2(target_y - cy, target_x - cx)
     let hook = types.HookData {
         state: HookState::Launching,
         tip_x: cx,
@@ -51,6 +60,7 @@ pub fn launch(caster: Unit, owner_index: Int, target_x: Float, target_y: Float, 
         chain_links: [],
         link_accum: 0.0,
         bounce_count: 0,
+        caught_target: Option::None,
     }
     LaunchResult { hook: hook, spawn_tip: True }
 }
@@ -70,7 +80,7 @@ fn move_links_launching(links: List(Unit), tip_x: Float, tip_y: Float, step: Flo
             let ly = unit.get_y(clone(link))
             let dx = tip_x - lx
             let dy = tip_y - ly
-            let dist = math.sqrt(dx * dx + dy * dy)
+            let dist: Float = math.sqrt(dx * dx + dy * dy)
             case dist > 1.0 {
                 True -> {
                     let ratio = step / dist
@@ -86,14 +96,100 @@ fn move_links_launching(links: List(Unit), tip_x: Float, tip_y: Float, step: Flo
     }
 }
 
+fn find_enemy_in_group(g: Group, caster: Unit) -> Option(Unit) {
+    let u = group.first(clone(g))
+    let uid = unit.handle_id(clone(u))
+    case uid == 0 {
+        True -> Option::None
+        False -> {
+            let _ = group.remove_unit(clone(g), clone(u))
+            let owner = player.get_owner(clone(caster))
+            case unit.is_enemy(clone(u), owner) && unit.is_alive(clone(u)) && unit.is_type(clone(u), 0) {
+                True -> Option::Some(u)
+                False -> find_enemy_in_group(g, caster)
+            }
+        }
+    }
+}
+
+pub fn check_collision(tip_x: Float, tip_y: Float, radius: Float, caster: Unit) -> Option(Unit) {
+    let g: Group = group.create()
+    let _ = group.enum_in_range(clone(g), tip_x, tip_y, radius, 0)
+    let result = find_enemy_in_group(clone(g), caster)
+    let _ = group.destroy(g)
+    result
+}
+
+pub fn is_unit_caught_by_hooks(hooks: List(types.HookData), target_id: Int) -> Bool {
+    case hooks {
+        [] -> False
+        [h | rest] -> {
+            let ct: Option(Unit) = h.caught_target
+            case ct {
+                Option::Some(u) -> case unit.handle_id(u) == target_id {
+                    True -> True
+                    False -> is_unit_caught_by_hooks(rest, target_id)
+                }
+                Option::None -> is_unit_caught_by_hooks(rest, target_id)
+            }
+        }
+    }
+}
+
+fn normalize_angle(a: Float) -> Float {
+    let two_pi: Float = arena.pi() * 2.0
+    let shifted: Float = a + arena.pi()
+    let wrapped: Float = shifted - two_pi * f.i2r(f.to_int(shifted / two_pi))
+    let result: Float = case wrapped < 0.0 {
+        True -> wrapped + two_pi
+        False -> wrapped
+    }
+    result - arena.pi()
+}
+
+fn apply_deflection(tip_x: Float, tip_y: Float, angle: Float) -> Float {
+    let cx: Float = arena.center_x()
+    let cy: Float = arena.center_y()
+    let dx: Float = cx - tip_x
+    let dy: Float = cy - tip_y
+    let dist_sq: Float = dx * dx + dy * dy
+    let r: Float = arena.center_deflect_radius()
+    case dist_sq < r * r {
+        True -> {
+            let angle_to_center: Float = math.atan2(dy, dx)
+            let half_pi: Float = arena.pi() / 2.0
+            let tangent: Float = case angle_to_center > angle {
+                True -> angle_to_center + half_pi
+                False -> angle_to_center - half_pi
+            }
+            let offset: Float = angle_to_center - tangent
+            normalize_angle(tangent + offset + arena.pi())
+        }
+        False -> angle
+    }
+}
+
 pub fn tick_launching(hook: types.HookData) -> TickLaunchResult {
     let step = hook.velocity
-    let new_x = hook.tip_x + hook.cos_a * step
-    let new_y = hook.tip_y + hook.sin_a * step
+    let raw_x = hook.tip_x + hook.cos_a * step
+    let raw_y = hook.tip_y + hook.sin_a * step
     let new_dist = hook.distance + step
     let new_accum = hook.link_accum + step
 
-    let bounce = arena.check_bounce(new_x, new_y, hook.angle, hook.cos_a, hook.sin_a)
+    let deflected_angle: Float = apply_deflection(raw_x, raw_y, hook.angle)
+    let use_deflect = deflected_angle != hook.angle
+    let da_cos: Float = math.cos(deflected_angle)
+    let da_sin: Float = math.sin(deflected_angle)
+    let def_x: Float = case use_deflect {
+        True -> hook.tip_x + da_cos * step
+        False -> raw_x
+    }
+    let def_y: Float = case use_deflect {
+        True -> hook.tip_y + da_sin * step
+        False -> raw_y
+    }
+
+    let bounce = arena.check_bounce(def_x, def_y, deflected_angle, da_cos, da_sin)
 
     let bx = bounce.new_x
     let by = bounce.new_y
@@ -123,7 +219,11 @@ pub fn tick_launching(hook: types.HookData) -> TickLaunchResult {
         False -> new_accum
     }
 
-    let new_state = case new_dist >= hook.max_range {
+    let reached_max = new_dist >= hook.max_range
+    let exceeded_bounces = new_bounce_count > max_bounces
+    let should_retract = reached_max || exceeded_bounces
+
+    let new_state = case should_retract {
         True -> HookState::Retracting
         False -> HookState::Launching
     }
@@ -146,6 +246,7 @@ pub fn tick_launching(hook: types.HookData) -> TickLaunchResult {
         chain_links: new_links,
         link_accum: final_accum,
         bounce_count: new_bounce_count,
+        caught_target: Option::None,
     }
 
     TickLaunchResult {
@@ -182,7 +283,7 @@ fn move_links_retracting(links: List(Unit), cx: Float, cy: Float, step: Float) -
             let ly = unit.get_y(clone(link))
             let dx = cx - lx
             let dy = cy - ly
-            let dist = math.sqrt(dx * dx + dy * dy)
+            let dist: Float = math.sqrt(dx * dx + dy * dy)
             case dist > 1.0 {
                 True -> {
                     let ratio = step / dist
@@ -203,7 +304,7 @@ pub fn tick_retracting(hook: types.HookData) -> TickRetractResult {
     let cy = unit.get_y(clone(hook.caster))
     let step = hook.velocity
 
-    let angle_to_caster = math.atan2(cy - hook.tip_y, cx - hook.tip_x)
+    let angle_to_caster: Float = math.atan2(cy - hook.tip_y, cx - hook.tip_x)
     let new_tx = hook.tip_x + math.cos(angle_to_caster) * step
     let new_ty = hook.tip_y + math.sin(angle_to_caster) * step
 
@@ -259,6 +360,87 @@ pub fn tick_retracting(hook: types.HookData) -> TickRetractResult {
         chain_links: remaining,
         link_accum: hook.link_accum,
         bounce_count: hook.bounce_count,
+        caught_target: hook.caught_target,
+    }
+
+    TickRetractResult {
+        hook: updated,
+        links_to_remove: all_remove,
+        done: tip_reached,
+    }
+}
+
+pub fn tick_retracting_with_target(hook: types.HookData) -> TickRetractResult {
+    let cx = unit.get_x(clone(hook.caster))
+    let cy = unit.get_y(clone(hook.caster))
+    let step = hook.velocity
+
+    let angle_to_caster: Float = math.atan2(cy - hook.tip_y, cx - hook.tip_x)
+    let new_tx = hook.tip_x + math.cos(angle_to_caster) * step
+    let new_ty = hook.tip_y + math.sin(angle_to_caster) * step
+
+    let dx = cx - new_tx
+    let dy = cy - new_ty
+    let dist_sq = dx * dx + dy * dy
+    let threshold_sq = step * step
+
+    let tip_reached = dist_sq <= threshold_sq
+
+    let facing = math.rad2deg(angle_to_caster)
+    let new_tip = case hook.tip_unit {
+        Option::Some(tip) -> case tip_reached {
+            True -> Option::None
+            False -> Option::Some(move_tip(tip, new_tx, new_ty, facing))
+        }
+        Option::None -> Option::None
+    }
+
+    let tip_to_remove = case hook.tip_unit {
+        Option::Some(tip) -> case tip_reached {
+            True -> [tip]
+            False -> []
+        }
+        Option::None -> []
+    }
+
+    let _ = case hook.caught_target {
+        Option::Some(target) -> {
+            let _ = unit.set_x(clone(target), new_tx)
+            let _ = unit.set_y(clone(target), new_ty)
+            0
+        }
+        Option::None -> 0
+    }
+
+    let moved_links = move_links_retracting(hook.chain_links, cx, cy, step)
+    let (remaining, to_remove) = partition_links(moved_links, cx, cy, threshold_sq)
+
+    let all_remove = append_units(tip_to_remove, to_remove)
+
+    let new_state = case tip_reached {
+        True -> HookState::Idle
+        False -> HookState::RetractingWithTarget
+    }
+
+    let updated = types.HookData {
+        state: new_state,
+        tip_x: new_tx,
+        tip_y: new_ty,
+        angle: angle_to_caster,
+        cos_a: math.cos(angle_to_caster),
+        sin_a: math.sin(angle_to_caster),
+        velocity: hook.velocity,
+        max_range: hook.max_range,
+        distance: hook.distance,
+        damage: hook.damage,
+        radius: hook.radius,
+        owner_index: hook.owner_index,
+        caster: hook.caster,
+        tip_unit: new_tip,
+        chain_links: remaining,
+        link_accum: hook.link_accum,
+        bounce_count: hook.bounce_count,
+        caught_target: hook.caught_target,
     }
 
     TickRetractResult {

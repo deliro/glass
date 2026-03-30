@@ -102,18 +102,37 @@ impl ModuleResolver {
             match self.resolve_single_import(imp) {
                 Ok(resolved) => {
                     let module_name = &resolved.module_name;
-                    // Add definitions, deduplicating by qualified name (module.fn)
                     for def in &resolved.definitions {
                         let name = def_name(def);
                         let dedup_key = match name {
                             Some(n) => format!("{}.{}", module_name, n),
                             None => format!("{}.__anon_{}", module_name, all_imported_defs.len()),
                         };
-                        if seen_defs.insert(dedup_key) {
+                        let should_add = if seen_defs.insert(dedup_key) {
+                            true
+                        } else if let Definition::External(e) = def {
+                            if let Some(ref src) = e.source_module {
+                                let src_key = name.map(|n| format!("{}.{}", src, n));
+                                src_key.map_or(false, |k| seen_defs.insert(k))
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        if should_add {
                             if resolved.qualified {
                                 def_module_map.insert(all_imported_defs.len(), module_name.clone());
                             }
-                            all_imported_defs.push(def.clone());
+                            let mut def = def.clone();
+                            if resolved.qualified {
+                                if let Definition::External(ref mut e) = def {
+                                    if e.source_module.is_none() {
+                                        e.source_module = Some(module_name.clone());
+                                    }
+                                }
+                            }
+                            all_imported_defs.push(def);
                         }
                     }
                     resolved_imports.push(resolved);

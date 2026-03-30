@@ -1,6 +1,7 @@
 import effect
 import subscription
 import option { Option }
+import int
 import types
 import arena
 import hook
@@ -9,6 +10,8 @@ import wc3/math
 import wc3/player
 
 const hook_ability: Int = 'A000'
+const respawn_tick_interval: Float = 1.0
+const invuln_duration: Float = 3.0
 
 pub enum Msg {
     SpellCast { caster: Unit, spell_id: Int, target: Unit }
@@ -21,6 +24,8 @@ pub enum Msg {
     PlayerLeft { player_id: Int }
     HeroLevelUp { hero: Unit }
     DamageTaken { source: Unit, target: Unit, amount: Float }
+    RespawnTick
+    RemoveInvuln { unit: Unit }
 }
 
 pub struct Model {
@@ -101,17 +106,17 @@ fn list_length_hooks(xs: List(types.HookData)) -> Int {
     }
 }
 
-fn tick_all_hooks(hooks: List(types.HookData), idx: Int) -> (List(types.HookData), List(effect.Effect(Msg))) {
+fn tick_all_hooks(hooks: List(types.HookData), all_hooks: List(types.HookData), idx: Int) -> (List(types.HookData), List(effect.Effect(Msg))) {
     case hooks {
         [] -> ([], [])
         [h | rest] -> {
-            let (updated_hook, effects) = tick_one_hook(h, idx)
-            let (rest_hooks, rest_effects) = tick_all_hooks(rest, idx + 1)
-            let all_hooks = case updated_hook.state {
+            let (updated_hook, effects) = tick_one_hook(h, all_hooks, idx)
+            let (rest_hooks, rest_effects) = tick_all_hooks(rest, all_hooks, idx + 1)
+            let all = case updated_hook.state {
                 Idle -> rest_hooks
                 _ -> [updated_hook | rest_hooks]
             }
-            (all_hooks, append_effects(effects, rest_effects))
+            (all, append_effects(effects, rest_effects))
         }
     }
 }
@@ -123,7 +128,28 @@ fn make_remove_effects(units: List(Unit)) -> List(effect.Effect(Msg)) {
     }
 }
 
-fn tick_one_hook(h: types.HookData, idx: Int) -> (types.HookData, List(effect.Effect(Msg))) {
+fn make_catch_effects(target: Unit) -> List(effect.Effect(Msg)) {
+    [
+        effect.pause_unit(clone(target), True),
+        effect.add_sfx_target("Abilities\\Spells\\Undead\\DeathCoil\\DeathCoilSpecialArt.mdl", target, "origin"),
+    ]
+}
+
+fn make_arrival_effects(caster: Unit, target: Unit, damage: Float) -> List(effect.Effect(Msg)) {
+    [
+        effect.pause_unit(clone(target), False),
+        effect.damage_unit(caster, target, damage, 5, 4),
+    ]
+}
+
+fn make_headshot_effects(target: Unit) -> List(effect.Effect(Msg)) {
+    [
+        effect.damage_unit(clone(target), clone(target), 99999.0, 5, 4),
+        effect.show_floating_text("HEADSHOT!", unit.get_x(clone(target)), unit.get_y(clone(target)), 12.0),
+    ]
+}
+
+fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -> (types.HookData, List(effect.Effect(Msg))) {
     case h.state {
         Launching -> {
             let result = hook.tick_launching(h)
@@ -140,19 +166,91 @@ fn tick_one_hook(h: types.HookData, idx: Int) -> (types.HookData, List(effect.Ef
                 ]
                 False -> []
             }
-            (result.hook, link_effects)
+            let collision = hook.check_collision(result.hook.tip_x, result.hook.tip_y, result.hook.radius, clone(result.hook.caster))
+            case collision {
+                Option::Some(target) -> {
+                    let target_id = unit.handle_id(clone(target))
+                    let is_headshot = hook.is_unit_caught_by_hooks(all_hooks, target_id)
+                    case is_headshot {
+                        True -> {
+                            let headshot_effects = make_headshot_effects(target)
+                            let retract_hook = types.HookData {
+                                state: HookState::Retracting,
+                                tip_x: result.hook.tip_x,
+                                tip_y: result.hook.tip_y,
+                                angle: result.hook.angle,
+                                cos_a: result.hook.cos_a,
+                                sin_a: result.hook.sin_a,
+                                velocity: result.hook.velocity,
+                                max_range: result.hook.max_range,
+                                distance: result.hook.distance,
+                                damage: result.hook.damage,
+                                radius: result.hook.radius,
+                                owner_index: result.hook.owner_index,
+                                caster: result.hook.caster,
+                                tip_unit: result.hook.tip_unit,
+                                chain_links: result.hook.chain_links,
+                                link_accum: result.hook.link_accum,
+                                bounce_count: result.hook.bounce_count,
+                                caught_target: Option::None,
+                            }
+                            (retract_hook, append_effects(link_effects, headshot_effects))
+                        }
+                        False -> {
+                            let catch_effects = make_catch_effects(clone(target))
+                            let caught_hook = types.HookData {
+                                state: HookState::RetractingWithTarget,
+                                tip_x: result.hook.tip_x,
+                                tip_y: result.hook.tip_y,
+                                angle: result.hook.angle,
+                                cos_a: result.hook.cos_a,
+                                sin_a: result.hook.sin_a,
+                                velocity: result.hook.velocity,
+                                max_range: result.hook.max_range,
+                                distance: result.hook.distance,
+                                damage: result.hook.damage,
+                                radius: result.hook.radius,
+                                owner_index: result.hook.owner_index,
+                                caster: result.hook.caster,
+                                tip_unit: result.hook.tip_unit,
+                                chain_links: result.hook.chain_links,
+                                link_accum: result.hook.link_accum,
+                                bounce_count: result.hook.bounce_count,
+                                caught_target: Option::Some(target),
+                            }
+                            (caught_hook, append_effects(link_effects, catch_effects))
+                        }
+                    }
+                }
+                Option::None -> (result.hook, link_effects)
+            }
         }
         Retracting -> {
             let result = hook.tick_retracting(h)
             let remove_effects = make_remove_effects(result.links_to_remove)
             (result.hook, remove_effects)
         }
+        RetractingWithTarget -> {
+            let target_copy = h.caught_target
+            let result = hook.tick_retracting_with_target(h)
+            let remove_effects = make_remove_effects(result.links_to_remove)
+            case result.done {
+                True -> {
+                    let arrival_effects = case target_copy {
+                        Option::Some(t) -> make_arrival_effects(clone(result.hook.caster), t, result.hook.damage)
+                        Option::None -> []
+                    }
+                    (result.hook, append_effects(remove_effects, arrival_effects))
+                }
+                False -> (result.hook, remove_effects)
+            }
+        }
         _ -> (h, [])
     }
 }
 
 fn handle_hook_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
-    let (new_hooks, effects) = tick_all_hooks(model.hooks, 0)
+    let (new_hooks, effects) = tick_all_hooks(model.hooks, model.hooks, 0)
     let new_model = Model {
         phase: model.phase,
         mode: model.mode,
@@ -186,6 +284,7 @@ fn set_hook_tip(hooks: List(types.HookData), idx: Int, tip: Unit) -> List(types.
                     chain_links: h.chain_links,
                     link_accum: h.link_accum,
                     bounce_count: h.bounce_count,
+                    caught_target: h.caught_target,
                 }
                 [updated | rest]
             }
@@ -217,6 +316,7 @@ fn add_chain_link(hooks: List(types.HookData), idx: Int, link: Unit) -> List(typ
                     chain_links: [link | h.chain_links],
                     link_accum: h.link_accum,
                     bounce_count: h.bounce_count,
+                    caught_target: h.caught_target,
                 }
                 [updated | rest]
             }
@@ -251,6 +351,228 @@ fn handle_link_created(model: Model, hook_index: Int, link: Unit) -> (Model, Lis
     (new_model, [])
 }
 
+fn get_player_spree(players: List(types.PlayerData), pid: Int) -> Int {
+    case players {
+        [] -> 0
+        [p | rest] -> case p.index == pid {
+            True -> p.spree
+            False -> get_player_spree(rest, pid)
+        }
+    }
+}
+
+fn update_player_kill(players: List(types.PlayerData), killer_idx: Int, reward: Int) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == killer_idx {
+            True -> [types.PlayerData {
+                index: p.index,
+                team: p.team,
+                alive: p.alive,
+                kills: p.kills + 1,
+                deaths: p.deaths,
+                spree: p.spree + 1,
+                hook_speed: p.hook_speed,
+                hook_damage: p.hook_damage,
+                hook_range: p.hook_range,
+                hook_radius: p.hook_radius,
+                respawn_timer: p.respawn_timer,
+                gold: p.gold + reward,
+            } | rest]
+            False -> [p | update_player_kill(rest, killer_idx, reward)]
+        }
+    }
+}
+
+fn update_player_death(players: List(types.PlayerData), victim_idx: Int, hero_level: Int) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == victim_idx {
+            True -> [types.PlayerData {
+                index: p.index,
+                team: p.team,
+                alive: False,
+                kills: p.kills,
+                deaths: p.deaths + 1,
+                spree: 0,
+                hook_speed: p.hook_speed,
+                hook_damage: p.hook_damage,
+                hook_range: p.hook_range,
+                hook_radius: p.hook_radius,
+                respawn_timer: int.to_float(hero_level + 5),
+                gold: p.gold,
+            } | rest]
+            False -> [p | update_player_death(rest, victim_idx, hero_level)]
+        }
+    }
+}
+
+fn calc_kill_reward(victim_level: Int, killer_spree: Int) -> Int {
+    let base = 10 + 5 * (victim_level - 1)
+    let spree_bonus = case killer_spree >= 3 {
+        True -> killer_spree * 10
+        False -> 0
+    }
+    base + spree_bonus
+}
+
+fn release_caught_target_hooks(hooks: List(types.HookData), target_id: Int) -> List(types.HookData) {
+    case hooks {
+        [] -> []
+        [h | rest] -> {
+            let ct: Option(Unit) = h.caught_target
+            let released = case ct {
+                Option::Some(u) -> case unit.handle_id(u) == target_id {
+                    True -> types.HookData {
+                        state: HookState::Retracting,
+                        tip_x: h.tip_x,
+                        tip_y: h.tip_y,
+                        angle: h.angle,
+                        cos_a: h.cos_a,
+                        sin_a: h.sin_a,
+                        velocity: h.velocity,
+                        max_range: h.max_range,
+                        distance: h.distance,
+                        damage: h.damage,
+                        radius: h.radius,
+                        owner_index: h.owner_index,
+                        caster: h.caster,
+                        tip_unit: h.tip_unit,
+                        chain_links: h.chain_links,
+                        link_accum: h.link_accum,
+                        bounce_count: h.bounce_count,
+                        caught_target: Option::None,
+                    }
+                    False -> h
+                }
+                Option::None -> h
+            }
+            [released | release_caught_target_hooks(rest, target_id)]
+        }
+    }
+}
+
+fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let victim_owner = player.get_id(player.get_owner(clone(victim)))
+    let killer_owner = player.get_id(player.get_owner(clone(killer)))
+    let victim_level = unit.get_hero_level(clone(victim))
+    let is_hero = unit.is_type(clone(victim), 0)
+    case is_hero {
+        True -> {
+            let victim_id = unit.handle_id(clone(victim))
+            let new_hooks = release_caught_target_hooks(model.hooks, victim_id)
+            let killer_spree = get_player_spree(model.players, killer_owner)
+            let reward = calc_kill_reward(victim_level, killer_spree)
+            let players_after_kill = update_player_kill(model.players, killer_owner, reward)
+            let players_after_death = update_player_death(players_after_kill, victim_owner, victim_level)
+            let gold_effect = effect.give_gold(killer_owner, reward)
+            let text_effect = effect.show_floating_text("+" <> int.to_string(reward) <> " gold", unit.get_x(clone(killer)), unit.get_y(clone(killer)), 10.0)
+            let new_model = Model {
+                phase: model.phase,
+                mode: model.mode,
+                players: players_after_death,
+                hooks: new_hooks,
+                tick_count: model.tick_count,
+            }
+            (new_model, [gold_effect, text_effect])
+        }
+        False -> (model, [])
+    }
+}
+
+fn get_spawn_for_team(team: types.Team) -> (Float, Float) {
+    case team {
+        West -> (arena.west_spawn_x(), arena.west_spawn_y())
+        East -> (arena.east_spawn_x(), arena.east_spawn_y())
+    }
+}
+
+fn tick_respawn_players(players: List(types.PlayerData)) -> (List(types.PlayerData), List(effect.Effect(Msg))) {
+    case players {
+        [] -> ([], [])
+        [p | rest] -> {
+            let (rest_players, rest_effects) = tick_respawn_players(rest)
+            case p.alive {
+                True -> ([p | rest_players], rest_effects)
+                False -> {
+                    let new_timer = p.respawn_timer - respawn_tick_interval
+                    case new_timer <= 0.0 {
+                        True -> {
+                            let (sx, sy) = get_spawn_for_team(p.team)
+                            let revived = types.PlayerData {
+                                index: p.index,
+                                team: p.team,
+                                alive: True,
+                                kills: p.kills,
+                                deaths: p.deaths,
+                                spree: p.spree,
+                                hook_speed: p.hook_speed,
+                                hook_damage: p.hook_damage,
+                                hook_range: p.hook_range,
+                                hook_radius: p.hook_radius,
+                                respawn_timer: 0.0,
+                                gold: p.gold,
+                            }
+                            let hero_effects = [
+                                effect.for_units_in_range(sx, sy, 9999.0, fn(u: Unit) -> Msg {
+                                    Msg::RemoveInvuln { unit: u }
+                                }),
+                            ]
+                            ([revived | rest_players], append_effects(hero_effects, rest_effects))
+                        }
+                        False -> {
+                            let waiting = types.PlayerData {
+                                index: p.index,
+                                team: p.team,
+                                alive: False,
+                                kills: p.kills,
+                                deaths: p.deaths,
+                                spree: p.spree,
+                                hook_speed: p.hook_speed,
+                                hook_damage: p.hook_damage,
+                                hook_range: p.hook_range,
+                                hook_radius: p.hook_radius,
+                                respawn_timer: new_timer,
+                                gold: p.gold,
+                            }
+                            ([waiting | rest_players], rest_effects)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn handle_respawn_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    let (new_players, effects) = tick_respawn_players(model.players)
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        players: new_players,
+        hooks: model.hooks,
+        tick_count: model.tick_count,
+    }
+    (new_model, effects)
+}
+
+fn build_board_rows(players: List(types.PlayerData)) -> List(effect.BoardRow) {
+    case players {
+        [] -> []
+        [p | rest] -> {
+            let row = effect.board_row(
+                "P" <> int.to_string(p.index + 1),
+                int.to_string(p.kills) <> "/" <> int.to_string(p.deaths)
+            )
+            [row | build_board_rows(rest)]
+        }
+    }
+}
+
+fn make_board_effect(players: List(types.PlayerData)) -> effect.Effect(Msg) {
+    effect.update_board("Pudge Wars", build_board_rows(players))
+}
+
 pub fn init() -> (Model, List(effect.Effect(Msg))) {
     let players = append_players(make_west_players(0), make_east_players(6))
     let model = Model {
@@ -270,11 +592,13 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
         HookTick -> handle_hook_tick(model)
         HookTipCreated(hook_index, tip) -> handle_tip_created(model, hook_index, tip)
         ChainLinkCreated(hook_index, link) -> handle_link_created(model, hook_index, link)
-        UnitDied(victim, killer) -> (model, [])
+        UnitDied(victim, killer) -> handle_unit_died(model, victim, killer)
         ChatCommand(player_id, text) -> (model, [])
         PlayerLeft(player_id) -> (model, [])
         HeroLevelUp(hero) -> (model, [])
         DamageTaken(source, target, amount) -> (model, [])
+        RespawnTick -> handle_respawn_tick(model)
+        RemoveInvuln(u) -> (model, [effect.set_invulnerable(u, False)])
     }
 }
 
@@ -302,5 +626,6 @@ pub fn subscriptions(model: Model) -> List(subscription.Subscription(Msg)) {
         subscription.on_damage(fn(s: Unit, t: Unit, a: Float) -> Msg {
             Msg::DamageTaken { source: s, target: t, amount: a }
         }),
+        subscription.on_timer(respawn_tick_interval, fn() -> Msg { Msg::RespawnTick }),
     ]
 }

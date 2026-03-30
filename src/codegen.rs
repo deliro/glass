@@ -5,7 +5,7 @@ use crate::closures::{CapturedVar, LambdaInfo};
 use crate::modules::ResolvedImport;
 use crate::runtime::ElmEntryPoints;
 use crate::type_repr::{Substitution, Type, TypeVarId};
-use crate::types::TypeRegistry;
+use crate::types::{TypeRegistry, TypeInfo, VariantInfo};
 
 fn is_jass_type_keyword(name: &str) -> bool {
     matches!(
@@ -163,6 +163,17 @@ impl JassCodegen {
     pub fn generate(mut self, module: &Module, imports: &[ResolvedImport]) -> String {
         // Phase 0: Collect external bindings and identify functions needing mono
         // Register externals with both unqualified AND qualified (module.name) keys
+        for def in &module.definitions {
+            if let Definition::External(e) = def {
+                if let Some(ref src) = e.source_module {
+                    let qualified = format!("{}.{}", src, e.fn_name);
+                    self.externals.entry(qualified).or_insert_with(|| ExternalInfo {
+                        jass_name: e.name_in_module.clone(),
+                        module: e.module.clone(),
+                    });
+                }
+            }
+        }
         for def in &module.definitions {
             match def {
                 Definition::Const(c) => {
@@ -1093,6 +1104,24 @@ impl JassCodegen {
                                 _ => None,
                             },
                             _ => None,
+                        })
+                        .or_else(|| {
+                            if let Expr::Var(name) = &subject.node {
+                                self.local_var_jass_types.get(name).and_then(|_| {
+                                    for arm in arms.iter() {
+                                        if let Pattern::Constructor { name: pname, .. }
+                                            | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
+                                        {
+                                            if let Some((ti, _)) = self.resolve_variant(pname) {
+                                                return Some(ti.name.clone());
+                                            }
+                                        }
+                                    }
+                                    None
+                                })
+                            } else {
+                                None
+                            }
                         });
 
                 let new_list_type = self.extract_list_elem_type_from_subject(subject);
@@ -1334,7 +1363,15 @@ impl JassCodegen {
                             if let Some(ext) = self
                                 .externals
                                 .get(&qualified)
-                                .or_else(|| self.externals.get(field.as_str()))
+                                .or_else(|| {
+                                    if self.fn_defs.contains_key(field.as_str())
+                                        || self.fn_defs.contains_key(qualified.as_str())
+                                    {
+                                        None
+                                    } else {
+                                        self.externals.get(field.as_str())
+                                    }
+                                })
                                 .cloned()
                             {
                                 let args_str: Vec<String> =
@@ -1450,12 +1487,19 @@ impl JassCodegen {
             } => {
                 // Check if this is a qualified module call (module.function)
                 if let Expr::Var(module_name) = &object.node {
-                    // Check for external (JASS native or Glass intrinsic)
                     let qualified_name = format!("{}.{}", module_name, method);
                     let ext_info = self
                         .externals
                         .get(&qualified_name)
-                        .or_else(|| self.externals.get(method.as_str()))
+                        .or_else(|| {
+                            if self.fn_defs.contains_key(method.as_str())
+                                || self.fn_defs.contains_key(qualified_name.as_str())
+                            {
+                                None
+                            } else {
+                                self.externals.get(method.as_str())
+                            }
+                        })
                         .cloned();
                     if let Some(ext) = ext_info {
                         let args_str: Vec<String> =
@@ -1568,7 +1612,6 @@ impl JassCodegen {
                     .unwrap_or_else(|| "integer".to_string());
                 let result_var = self.fresh_temp_typed(&case_jass_type);
 
-                // Look up subject type for enum tag access
                 let subject_type_name =
                     self.lookup_full_type(subject.span)
                         .and_then(|ty| match &ty {
@@ -1578,6 +1621,24 @@ impl JassCodegen {
                                 _ => None,
                             },
                             _ => None,
+                        })
+                        .or_else(|| {
+                            if let Expr::Var(name) = &subject.node {
+                                self.local_var_jass_types.get(name).and_then(|_| {
+                                    for arm in arms.iter() {
+                                        if let Pattern::Constructor { name: pname, .. }
+                                            | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
+                                        {
+                                            if let Some((ti, _)) = self.resolve_variant(pname) {
+                                                return Some(ti.name.clone());
+                                            }
+                                        }
+                                    }
+                                    None
+                                })
+                            } else {
+                                None
+                            }
                         });
 
                 // If subject type is Bool but generated code is a dispatch call (returns integer),
@@ -1806,7 +1867,15 @@ impl JassCodegen {
                             if let Some(ext) = self
                                 .externals
                                 .get(&qualified)
-                                .or_else(|| self.externals.get(field.as_str()))
+                                .or_else(|| {
+                                    if self.fn_defs.contains_key(field.as_str())
+                                        || self.fn_defs.contains_key(qualified.as_str())
+                                    {
+                                        None
+                                    } else {
+                                        self.externals.get(field.as_str())
+                                    }
+                                })
                                 .cloned()
                             {
                                 return format!("{}({})", ext.jass_name, l);
@@ -1834,14 +1903,8 @@ impl JassCodegen {
                     return value.clone();
                 }
 
-                let after_colons = name.rsplit("::").next().unwrap_or(name);
-                let bare_name = after_colons
-                    .rsplit('.')
-                    .next()
-                    .unwrap_or(after_colons);
                 let variant_info = self
-                    .types
-                    .get_variant(bare_name)
+                    .resolve_variant(name)
                     .map(|(ti, v)| (ti.name.clone(), v.name.clone()));
 
                 match variant_info {
@@ -2000,6 +2063,30 @@ impl JassCodegen {
         name.rsplit("::").next().unwrap_or(name)
     }
 
+    fn full_bare_name(name: &str) -> &str {
+        let after_colons = name.rsplit("::").next().unwrap_or(name);
+        after_colons.rsplit('.').next().unwrap_or(after_colons)
+    }
+
+    fn type_hint_from_ctor_name(name: &str) -> Option<&str> {
+        if name.contains("::") {
+            let before = name.split("::").next().unwrap_or("");
+            let type_part = before.rsplit('.').next().unwrap_or(before);
+            if type_part.is_empty() { None } else { Some(type_part) }
+        } else {
+            None
+        }
+    }
+
+    fn resolve_variant<'a>(&'a self, name: &str) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
+        let bare = Self::full_bare_name(name);
+        match Self::type_hint_from_ctor_name(name) {
+            Some(tn) => self.types.get_variant_of_type(bare, tn)
+                .or_else(|| self.types.get_variant(bare)),
+            None => self.types.get_variant(bare),
+        }
+    }
+
     fn gen_pattern_condition_typed(
         &self,
         pattern: &Pattern,
@@ -2020,8 +2107,9 @@ impl JassCodegen {
                         format!("({} == {})", subject, value)
                     } else {
                         let variant_info = match type_name {
-                            Some(tn) => self.types.get_variant_of_type(bare, tn),
-                            None => self.types.get_variant(bare),
+                            Some(tn) => self.types.get_variant_of_type(bare, tn)
+                                .or_else(|| self.resolve_variant(name)),
+                            None => self.resolve_variant(name),
                         };
                         let qualified = variant_info
                             .map(|(ti, _)| format!("{}_{}", ti.name, bare))
@@ -2033,9 +2121,11 @@ impl JassCodegen {
                         Some(tn) => format!("glass_{}_tag[{}]", tn, subject),
                         None => format!("glass_tag({})", subject),
                     };
-                    let qualified = self
-                        .types
-                        .get_variant(bare)
+                    let qualified = match type_name {
+                        Some(tn) => self.types.get_variant_of_type(bare, tn)
+                            .or_else(|| self.resolve_variant(name)),
+                        None => self.resolve_variant(name),
+                    }
                         .map(|(ti, _)| format!("{}_{}", ti.name, bare))
                         .unwrap_or_else(|| bare.to_string());
                     format!("({} == glass_TAG_{})", tag_access, qualified)
@@ -2047,9 +2137,11 @@ impl JassCodegen {
                     Some(tn) => format!("glass_{}_tag[{}]", tn, subject),
                     None => format!("glass_tag({})", subject),
                 };
-                let qualified = self
-                    .types
-                    .get_variant(bare)
+                let qualified = match type_name {
+                    Some(tn) => self.types.get_variant_of_type(bare, tn)
+                        .or_else(|| self.resolve_variant(name)),
+                    None => self.resolve_variant(name),
+                }
                     .map(|(ti, _)| format!("{}_{}", ti.name, bare))
                     .unwrap_or_else(|| bare.to_string());
                 format!("({} == glass_TAG_{})", tag_access, qualified)
@@ -2113,8 +2205,7 @@ impl JassCodegen {
             Pattern::ConstructorNamed { name, fields, .. } => {
                 let bare = Self::bare_ctor_name(name);
                 let type_name = self
-                    .types
-                    .get_variant(bare)
+                    .resolve_variant(name)
                     .map(|(ti, _)| ti.name.clone())
                     .unwrap_or_default();
                 let prefix = if type_name.is_empty() {
@@ -2161,7 +2252,7 @@ impl JassCodegen {
             }
             Pattern::Constructor { name, args } => {
                 let bare = Self::bare_ctor_name(name);
-                let variant_info = self.types.get_variant(bare).map(|(ti, v)| {
+                let variant_info = self.resolve_variant(name).map(|(ti, v)| {
                     let field_names: Vec<String> =
                         v.fields.iter().map(|f| f.name.clone()).collect();
                     (ti.name.clone(), field_names)
@@ -2183,8 +2274,7 @@ impl JassCodegen {
             Pattern::ConstructorNamed { name, fields, .. } => {
                 let bare = Self::bare_ctor_name(name);
                 let type_name = self
-                    .types
-                    .get_variant(bare)
+                    .resolve_variant(name)
                     .map(|(ti, _)| ti.name.clone())
                     .unwrap_or_default();
                 let prefix = if type_name.is_empty() {
@@ -2381,11 +2471,8 @@ impl JassCodegen {
                 locals.push((name.clone(), "integer".to_string()));
             }
             Pattern::Constructor { name, args } => {
-                // Look up field types from TypeRegistry for correct JASS types
-                let bare = Self::bare_ctor_name(name);
                 let field_types: Vec<String> = self
-                    .types
-                    .get_variant(bare)
+                    .resolve_variant(name)
                     .map(|(_, v)| v.fields.iter().map(|f| f.jass_type.clone()).collect())
                     .unwrap_or_default();
                 for (i, arg) in args.iter().enumerate() {
@@ -2403,10 +2490,8 @@ impl JassCodegen {
                 }
             }
             Pattern::ConstructorNamed { name, fields, .. } => {
-                let bare = Self::bare_ctor_name(name);
                 let field_types: HashMap<String, String> = self
-                    .types
-                    .get_variant(bare)
+                    .resolve_variant(name)
                     .map(|(_, v)| {
                         v.fields
                             .iter()
