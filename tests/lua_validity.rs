@@ -468,3 +468,32 @@ pub fn test() -> Int { add((10, 20)) }
 "#,
     );
 }
+
+#[test]
+fn option_multi_instantiation_valid_lua() {
+    compile_and_validate(
+        r#"
+enum Option(T) {
+    Some(T)
+    None
+}
+
+pub fn make_unit_opt(u: Unit) -> Option(Unit) { Option::Some(u) }
+pub fn make_float_opt() -> Option(Float) { Option::Some(3.14) }
+
+pub fn test_unit(o: Option(Unit)) -> Bool {
+    case o {
+        Option::Some(u) -> True
+        Option::None -> False
+    }
+}
+
+pub fn test_float(o: Option(Float)) -> Float {
+    case o {
+        Option::Some(v) -> v
+        Option::None -> 0.0
+    }
+}
+"#,
+    );
+}
