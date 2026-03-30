@@ -274,12 +274,41 @@ fn launch_hook(model: Model, caster: Unit, tx: Float, ty: Float, variant: types.
     let has_flame = powerup.has_buff(player_buffs, PowerupKind::Flame)
     let spectral = powerup.has_buff(player_buffs, PowerupKind::SpectralDagger)
     let barathrum_lvl = items.item_level(player_items, ItemKind::BarathrumLantern)
-    let damage = case barathrum_lvl > 0 {
+    let damage_after_barathrum = case barathrum_lvl > 0 {
         True -> base_damage + items.barathrum_speed_bonus(speed, barathrum_lvl)
         False -> base_damage
     }
+    let has_berserker = powerup.has_buff(player_buffs, PowerupKind::Berserker)
+    let berserker_mult = case has_berserker {
+        True -> {
+            let hero_opt = get_player_hero(model.players, owner_id)
+            case hero_opt {
+                Option::Some(h) -> {
+                    let current_hp = unit.get_hp(clone(h))
+                    let max_hp = unit.get_max_hp(h)
+                    let missing_pct = case max_hp > 0.0 {
+                        True -> (max_hp - current_hp) / max_hp
+                        False -> 0.0
+                    }
+                    1.0 + missing_pct
+                }
+                Option::None -> 1.0
+            }
+        }
+        False -> 1.0
+    }
+    let damage = damage_after_barathrum * berserker_mult
+    let final_speed = speed * berserker_mult
+    let toss_level = items.item_level(player_items, ItemKind::TinysArm)
+    let final_range = case variant {
+        HookVariant::Toss -> 1000.0 + 300.0 * int.to_float(case toss_level < 1 {
+            True -> 1
+            False -> toss_level
+        })
+        _ -> range
+    }
     let hook_idx = list_length_hooks(model.hooks)
-    let result = hook.launch(caster, owner_id, tx, ty, speed, range, damage, radius, variant, has_thunder, has_flame, spectral)
+    let result = hook.launch(caster, owner_id, tx, ty, final_speed, final_range, damage, radius, variant, has_thunder, has_flame, spectral)
     let new_hooks = append_hooks(model.hooks, [result.hook])
     let new_model = Model {
         phase: model.phase,
