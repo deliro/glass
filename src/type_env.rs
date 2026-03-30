@@ -92,7 +92,19 @@ impl TypeEnv {
         }
     }
 
-    /// Collect all free type variables in the environment.
+    pub fn all_names(&self) -> Vec<&str> {
+        let mut seen = std::collections::HashSet::new();
+        let mut names = Vec::new();
+        for scope in self.scopes.iter().rev() {
+            for key in scope.keys() {
+                if seen.insert(key.as_str()) {
+                    names.push(key.as_str());
+                }
+            }
+        }
+        names
+    }
+
     fn free_vars(&self) -> BTreeSet<TypeVarId> {
         let mut fv = BTreeSet::new();
         for scope in &self.scopes {

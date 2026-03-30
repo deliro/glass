@@ -20,6 +20,7 @@ mod mono;
 mod optimize;
 mod parser;
 mod runtime;
+mod suggest;
 mod tco;
 mod token;
 mod type_env;
