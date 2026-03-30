@@ -104,6 +104,8 @@ pub struct JassCodegen {
     current_list_elem_type: Option<String>,
     var_list_elem_types: HashMap<String, String>,
     local_var_jass_types: HashMap<String, String>,
+    local_var_glass_types: HashMap<String, String>,
+    pattern_var_types: HashMap<String, String>,
     extend_methods: HashMap<String, String>,
 }
 
@@ -152,6 +154,8 @@ impl JassCodegen {
             current_list_elem_type: None,
             var_list_elem_types: HashMap::new(),
             local_var_jass_types: HashMap::new(),
+            local_var_glass_types: HashMap::new(),
+            pattern_var_types: HashMap::new(),
             extend_methods: HashMap::new(),
         }
     }
@@ -260,6 +264,8 @@ impl JassCodegen {
 
         // Phase 1b: List SoA
         self.gen_list_preamble();
+
+        self.pre_collect_pattern_var_types(module);
 
         // Phase 1c: Closure globals + alloc/dealloc (before user functions)
         self.gen_closure_globals_and_alloc();
@@ -483,6 +489,11 @@ impl JassCodegen {
                 return resolved;
             }
         }
+        if let Some(jt) = self.pattern_var_types.get(&capture.name) {
+            if jt != "integer" {
+                return jt.clone();
+            }
+        }
         ty.to_string()
     }
 
@@ -535,6 +546,92 @@ impl JassCodegen {
                 has_captures: !l.captures.is_empty(),
             })
             .collect()
+    }
+
+    fn pre_collect_pattern_var_types(&mut self, module: &Module) {
+        for def in &module.definitions {
+            if let Definition::Function(f) = def {
+                self.scan_pattern_vars_in_expr(&f.body.node);
+            }
+        }
+    }
+
+    fn scan_pattern_vars_in_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Case { subject, arms } => {
+                self.scan_pattern_vars_in_expr(&subject.node);
+                for arm in arms {
+                    self.scan_pattern_var_bindings(&arm.pattern.node);
+                    self.scan_pattern_vars_in_expr(&arm.body.node);
+                }
+            }
+            Expr::Let { value, body, .. } => {
+                self.scan_pattern_vars_in_expr(&value.node);
+                self.scan_pattern_vars_in_expr(&body.node);
+            }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    self.scan_pattern_vars_in_expr(&e.node);
+                }
+            }
+            Expr::Lambda { body, .. } => {
+                self.scan_pattern_vars_in_expr(&body.node);
+            }
+            Expr::Call { function, args } => {
+                self.scan_pattern_vars_in_expr(&function.node);
+                for a in args {
+                    self.scan_pattern_vars_in_expr(&a.node);
+                }
+            }
+            Expr::BinOp { left, right, .. } | Expr::Pipe { left, right } => {
+                self.scan_pattern_vars_in_expr(&left.node);
+                self.scan_pattern_vars_in_expr(&right.node);
+            }
+            Expr::UnaryOp { operand, .. } | Expr::Clone(operand) => {
+                self.scan_pattern_vars_in_expr(&operand.node);
+            }
+            Expr::TcoLoop { body } => {
+                self.scan_pattern_vars_in_expr(&body.node);
+            }
+            _ => {}
+        }
+    }
+
+    fn scan_pattern_var_bindings(&mut self, pattern: &Pattern) {
+        match pattern {
+            Pattern::Constructor { name, args } => {
+                let field_types: Vec<String> = self
+                    .resolve_variant(name)
+                    .map(|(_, v)| v.fields.iter().map(|f| f.jass_type.clone()).collect())
+                    .unwrap_or_default();
+                for (i, arg) in args.iter().enumerate() {
+                    if let Pattern::Var(vname) = &arg.node {
+                        if vname != "_" {
+                            if let Some(jt) = field_types.get(i) {
+                                self.pattern_var_types.insert(vname.clone(), jt.clone());
+                            }
+                        }
+                    } else {
+                        self.scan_pattern_var_bindings(&arg.node);
+                    }
+                }
+            }
+            Pattern::ConstructorNamed { name, fields, .. } => {
+                let field_type_map: HashMap<String, String> = self
+                    .resolve_variant(name)
+                    .map(|(_, v)| v.fields.iter().map(|f| (f.name.clone(), f.jass_type.clone())).collect())
+                    .unwrap_or_default();
+                for fp in fields {
+                    if let Some(jt) = field_type_map.get(&fp.field_name) {
+                        let binding = fp.binding_name();
+                        if binding != "_" {
+                            self.pattern_var_types.insert(binding.to_string(), jt.clone());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Emit closure globals and alloc/dealloc functions (safe before user code).
@@ -644,6 +741,12 @@ impl JassCodegen {
                 }
             }
 
+            // Pre-populate capture types so collect_locals can resolve value types
+            let saved_local_types = self.local_var_jass_types.clone();
+            for (cname, ctype) in &info.captures {
+                self.local_var_jass_types.insert(cname.clone(), ctype.clone());
+            }
+
             // Collect user locals, then generate body with fresh temp counter
             let mut locals = Vec::new();
             self.collect_locals(&body.node, &mut locals);
@@ -656,6 +759,7 @@ impl JassCodegen {
             self.indent = 1;
 
             let result = self.gen_expr(&body.node);
+            self.local_var_jass_types = saved_local_types;
 
             let body_output = std::mem::replace(&mut self.output, saved_output);
             let temp_types = std::mem::replace(&mut self.temp_types, saved_temp_types);
@@ -983,6 +1087,7 @@ impl JassCodegen {
         self.collect_locals(&f.body.node, &mut locals);
 
         self.local_var_jass_types.clear();
+        self.local_var_glass_types.clear();
         for (name, jass_type) in &locals {
             self.local_var_jass_types
                 .insert(name.clone(), jass_type.clone());
@@ -990,6 +1095,9 @@ impl JassCodegen {
         for p in &f.params {
             self.local_var_jass_types
                 .insert(p.name.clone(), self.type_to_jass(&p.type_expr));
+            if let Some(glass_type) = Self::extract_inner_type_name(&p.type_expr) {
+                self.local_var_glass_types.insert(p.name.clone(), glass_type);
+            }
         }
 
         // Reset temp counter for this function, generate body into buffer
@@ -1106,22 +1214,16 @@ impl JassCodegen {
                             _ => None,
                         })
                         .or_else(|| {
-                            if let Expr::Var(name) = &subject.node {
-                                self.local_var_jass_types.get(name).and_then(|_| {
-                                    for arm in arms.iter() {
-                                        if let Pattern::Constructor { name: pname, .. }
-                                            | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
-                                        {
-                                            if let Some((ti, _)) = self.resolve_variant(pname) {
-                                                return Some(ti.name.clone());
-                                            }
-                                        }
+                            for arm in arms.iter() {
+                                if let Pattern::Constructor { name: pname, .. }
+                                    | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
+                                {
+                                    if let Some((ti, _)) = self.resolve_variant(pname) {
+                                        return Some(ti.name.clone());
                                     }
-                                    None
-                                })
-                            } else {
-                                None
+                                }
                             }
+                            None
                         });
 
                 let new_list_type = self.extract_list_elem_type_from_subject(subject);
@@ -1452,11 +1554,30 @@ impl JassCodegen {
                     if candidates.len() == 1 {
                         type_name = candidates.into_iter().next().unwrap_or_default();
                     } else if candidates.len() > 1 {
-                        let param_match = candidates
-                            .iter()
-                            .find(|c| self.current_fn_param_type_names.contains(c))
-                            .cloned();
-                        type_name = param_match
+                        let obj_glass_type = if let Expr::Var(name) = &object.node {
+                            self.local_var_glass_types.get(name).cloned()
+                        } else {
+                            None
+                        };
+                        let local_match = obj_glass_type
+                            .and_then(|gt| candidates.iter().find(|c| **c == gt).cloned());
+                        let struct_match = || {
+                            candidates
+                                .iter()
+                                .find(|c| {
+                                    self.types.types.get(*c).is_some_and(|ti| !ti.is_enum)
+                                })
+                                .cloned()
+                        };
+                        let param_match = || {
+                            candidates
+                                .iter()
+                                .find(|c| self.current_fn_param_type_names.contains(c))
+                                .cloned()
+                        };
+                        type_name = local_match
+                            .or_else(struct_match)
+                            .or_else(param_match)
                             .or_else(|| candidates.into_iter().next())
                             .unwrap_or_default();
                     }
@@ -1623,22 +1744,16 @@ impl JassCodegen {
                             _ => None,
                         })
                         .or_else(|| {
-                            if let Expr::Var(name) = &subject.node {
-                                self.local_var_jass_types.get(name).and_then(|_| {
-                                    for arm in arms.iter() {
-                                        if let Pattern::Constructor { name: pname, .. }
-                                            | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
-                                        {
-                                            if let Some((ti, _)) = self.resolve_variant(pname) {
-                                                return Some(ti.name.clone());
-                                            }
-                                        }
+                            for arm in arms.iter() {
+                                if let Pattern::Constructor { name: pname, .. }
+                                    | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
+                                {
+                                    if let Some((ti, _)) = self.resolve_variant(pname) {
+                                        return Some(ti.name.clone());
                                     }
-                                    None
-                                })
-                            } else {
-                                None
+                                }
                             }
+                            None
                         });
 
                 // If subject type is Bool but generated code is a dispatch call (returns integer),
@@ -2366,6 +2481,14 @@ impl JassCodegen {
                                 let lt = self.lookup_type(value.span);
                                 if lt == "integer" && self.expr_has_float(&value.node) {
                                     "real".to_string()
+                                } else if lt == "integer" {
+                                    if let Expr::Var(ref vname) = value.node {
+                                        self.local_var_jass_types.get(vname)
+                                            .cloned()
+                                            .unwrap_or_else(|| lt.to_string())
+                                    } else {
+                                        lt.to_string()
+                                    }
                                 } else {
                                     lt.to_string()
                                 }

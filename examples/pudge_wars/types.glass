@@ -6,6 +6,7 @@ pub enum Team {
 }
 
 pub enum GameMode {
+    NoMode
     KillMode { target: Int }
     RoundMode { target: Int }
     TimedMode { minutes: Int }
@@ -22,6 +23,22 @@ pub enum HookState {
     Launching
     Retracting
     RetractingWithTarget
+}
+
+pub struct Modifiers {
+    no_timer: Bool,
+    boosted: Bool,
+    no_powerup: Bool,
+    hook_only: Bool,
+}
+
+pub fn default_modifiers() -> Modifiers {
+    Modifiers {
+        no_timer: False,
+        boosted: False,
+        no_powerup: False,
+        hook_only: False,
+    }
 }
 
 pub struct HookData {
@@ -58,6 +75,12 @@ pub struct PlayerData {
     hook_radius: Float,
     respawn_timer: Float,
     gold: Int,
+    hero: Option(Unit),
+    left: Bool,
+    speed_level: Int,
+    damage_level: Int,
+    range_level: Int,
+    radius_level: Int,
 }
 
 pub fn new_player(idx: Int, team: Team) -> PlayerData {
@@ -74,5 +97,11 @@ pub fn new_player(idx: Int, team: Team) -> PlayerData {
         hook_radius: 150.0,
         respawn_timer: 0.0,
         gold: 0,
+        hero: Option::None,
+        left: False,
+        speed_level: 0,
+        damage_level: 0,
+        range_level: 0,
+        radius_level: 0,
     }
 }

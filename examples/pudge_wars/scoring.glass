@@ -1,0 +1,59 @@
+import types
+
+pub enum WinCheck {
+    Winner { team: types.Team }
+    NoWinner
+}
+
+fn sum_team_kills_helper(players: List(types.PlayerData), team_tag: Int) -> Int {
+    case players {
+        [] -> 0
+        [p | rest] -> {
+            let is_match = case team_tag {
+                0 -> case p.team { West -> True _ -> False }
+                _ -> case p.team { East -> True _ -> False }
+            }
+            case is_match {
+                True -> p.kills + sum_team_kills_helper(rest, team_tag)
+                False -> sum_team_kills_helper(rest, team_tag)
+            }
+        }
+    }
+}
+
+pub fn sum_west_kills(players: List(types.PlayerData)) -> Int {
+    sum_team_kills_helper(players, 0)
+}
+
+pub fn sum_east_kills(players: List(types.PlayerData)) -> Int {
+    sum_team_kills_helper(players, 1)
+}
+
+fn check_kill_mode(players: List(types.PlayerData), target: Int) -> WinCheck {
+    let west = sum_west_kills(players)
+    let east = sum_east_kills(players)
+    case west >= target {
+        True -> WinCheck::Winner { team: Team::West }
+        False -> case east >= target {
+            True -> WinCheck::Winner { team: Team::East }
+            False -> WinCheck::NoWinner
+        }
+    }
+}
+
+pub fn check_win_condition(mode: types.GameMode, players: List(types.PlayerData)) -> WinCheck {
+    case mode {
+        KillMode(target) -> check_kill_mode(players, target)
+        RoundMode(target) -> check_kill_mode(players, target)
+        _ -> WinCheck::NoWinner
+    }
+}
+
+pub fn check_timed_winner(players: List(types.PlayerData)) -> types.Team {
+    let west = sum_west_kills(players)
+    let east = sum_east_kills(players)
+    case west >= east {
+        True -> Team::West
+        False -> Team::East
+    }
+}

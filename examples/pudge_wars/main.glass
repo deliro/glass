@@ -2,9 +2,13 @@ import effect
 import subscription
 import option { Option }
 import int
+import float
+import string
 import types
 import arena
 import hook
+import commands
+import scoring
 import wc3/unit
 import wc3/math
 import wc3/player
@@ -12,6 +16,11 @@ import wc3/player
 const hook_ability: Int = 'A000'
 const respawn_tick_interval: Float = 1.0
 const invuln_duration: Float = 3.0
+const hero_type_id: Int = 'H000'
+const upgrade_speed: Int = 'A00Z'
+const upgrade_damage: Int = 'A00X'
+const upgrade_range: Int = 'A00W'
+const upgrade_radius: Int = 'A00Y'
 
 pub enum Msg {
     SpellCast { caster: Unit, spell_id: Int, target: Unit }
@@ -22,15 +31,18 @@ pub enum Msg {
     UnitDied { victim: Unit, killer: Unit }
     ChatCommand { player_id: Int, text: String }
     PlayerLeft { player_id: Int }
-    HeroLevelUp { hero: Unit }
+    HeroLevelUp { leveled: Unit }
     DamageTaken { source: Unit, target: Unit, amount: Float }
     RespawnTick
-    RemoveInvuln { unit: Unit }
+    RemoveInvuln { invuln_player: Int }
+    HeroCreated { player_index: Int, created_hero: Unit }
+    TimedModeExpired
 }
 
 pub struct Model {
     phase: types.Phase,
-    mode: Option(types.GameMode),
+    mode: types.GameMode,
+    modifiers: types.Modifiers,
     players: List(types.PlayerData),
     hooks: List(types.HookData),
     tick_count: Int,
@@ -64,16 +76,150 @@ fn append_effects(xs: List(effect.Effect(Msg)), ys: List(effect.Effect(Msg))) ->
     }
 }
 
+fn get_spawn_for_team(team: types.Team) -> (Float, Float) {
+    case team {
+        West -> (arena.west_spawn_x(), arena.west_spawn_y())
+        East -> (arena.east_spawn_x(), arena.east_spawn_y())
+    }
+}
+
+fn make_hero_effects(players: List(types.PlayerData)) -> List(effect.Effect(Msg)) {
+    case players {
+        [] -> []
+        [p | rest] -> {
+            let (sx, sy) = get_spawn_for_team(p.team)
+            let pid = p.index
+            let eff = effect.create_unit_callback(
+                pid,
+                hero_type_id,
+                sx,
+                sy,
+                0.0,
+                fn(u: Unit) -> Msg { Msg::HeroCreated { player_index: pid, created_hero: u } }
+            )
+            [eff | make_hero_effects(rest)]
+        }
+    }
+}
+
+fn set_player_hero(players: List(types.PlayerData), pid: Int, new_hero: Unit) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> [types.PlayerData {
+                index: p.index,
+                team: p.team,
+                alive: p.alive,
+                kills: p.kills,
+                deaths: p.deaths,
+                spree: p.spree,
+                hook_speed: p.hook_speed,
+                hook_damage: p.hook_damage,
+                hook_range: p.hook_range,
+                hook_radius: p.hook_radius,
+                respawn_timer: p.respawn_timer,
+                gold: p.gold,
+                hero: Option::Some(new_hero),
+                left: p.left,
+                speed_level: p.speed_level,
+                damage_level: p.damage_level,
+                range_level: p.range_level,
+                radius_level: p.radius_level,
+            } | rest]
+            False -> [p | set_player_hero(rest, pid, new_hero)]
+        }
+    }
+}
+
+fn get_player_hook_speed(players: List(types.PlayerData), pid: Int) -> Float {
+    case players {
+        [] -> 1600.0
+        [p | rest] -> case p.index == pid {
+            True -> p.hook_speed
+            False -> get_player_hook_speed(rest, pid)
+        }
+    }
+}
+
+fn get_player_hook_range(players: List(types.PlayerData), pid: Int) -> Float {
+    case players {
+        [] -> 1300.0
+        [p | rest] -> case p.index == pid {
+            True -> p.hook_range
+            False -> get_player_hook_range(rest, pid)
+        }
+    }
+}
+
+fn get_player_hook_damage(players: List(types.PlayerData), pid: Int) -> Float {
+    case players {
+        [] -> 360.0
+        [p | rest] -> case p.index == pid {
+            True -> p.hook_damage
+            False -> get_player_hook_damage(rest, pid)
+        }
+    }
+}
+
+fn get_player_hook_radius(players: List(types.PlayerData), pid: Int) -> Float {
+    case players {
+        [] -> 150.0
+        [p | rest] -> case p.index == pid {
+            True -> p.hook_radius
+            False -> get_player_hook_radius(rest, pid)
+        }
+    }
+}
+
+fn get_player_team(players: List(types.PlayerData), pid: Int) -> types.Team {
+    case players {
+        [] -> Team::West
+        [p | rest] -> case p.index == pid {
+            True -> p.team
+            False -> get_player_team(rest, pid)
+        }
+    }
+}
+
+fn get_player_hero(players: List(types.PlayerData), pid: Int) -> Option(Unit) {
+    case players {
+        [] -> Option::None
+        [p | rest] -> case p.index == pid {
+            True -> p.hero
+            False -> get_player_hero(rest, pid)
+        }
+    }
+}
+
+fn get_player_stats_text(players: List(types.PlayerData), pid: Int) -> String {
+    case players {
+        [] -> "No stats available."
+        [p | rest] -> case p.index == pid {
+            True ->
+                "Range: " <> int.to_string(float.to_int(p.hook_range))
+                <> " | Damage: " <> int.to_string(float.to_int(p.hook_damage))
+                <> " | Radius: " <> int.to_string(float.to_int(p.hook_radius))
+                <> " | Speed: " <> int.to_string(float.to_int(p.hook_speed))
+            False -> get_player_stats_text(rest, pid)
+        }
+    }
+}
+
 fn handle_spell_ground(model: Model, caster: Unit, spell_id: Int, tx: Float, ty: Float) -> (Model, List(effect.Effect(Msg))) {
     case spell_id == hook_ability {
         True -> {
             let owner_id = player.get_id(player.get_owner(clone(caster)))
+            let speed = get_player_hook_speed(model.players, owner_id)
+            let range = get_player_hook_range(model.players, owner_id)
+            let damage = get_player_hook_damage(model.players, owner_id)
+            let radius = get_player_hook_radius(model.players, owner_id)
             let hook_idx = list_length_hooks(model.hooks)
-            let result = hook.launch(caster, owner_id, tx, ty, 1600.0, 1300.0, 360.0, 150.0)
+            let result = hook.launch(caster, owner_id, tx, ty, speed, range, damage, radius)
             let new_hooks = append_hooks(model.hooks, [result.hook])
             let new_model = Model {
                 phase: model.phase,
                 mode: model.mode,
+                modifiers: model.modifiers,
                 players: model.players,
                 hooks: new_hooks,
                 tick_count: model.tick_count,
@@ -88,7 +234,140 @@ fn handle_spell_ground(model: Model, caster: Unit, spell_id: Int, tx: Float, ty:
             )
             (new_model, [tip_effect])
         }
-        False -> (model, [])
+        False -> handle_upgrade(model, caster, spell_id)
+    }
+}
+
+fn handle_upgrade(model: Model, caster: Unit, spell_id: Int) -> (Model, List(effect.Effect(Msg))) {
+    let owner_id = player.get_id(player.get_owner(clone(caster)))
+    case spell_id == upgrade_speed {
+        True -> {
+            let new_players = upgrade_player_speed(model.players, owner_id)
+            let new_model = Model {
+                phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+                players: new_players, hooks: model.hooks, tick_count: model.tick_count,
+            }
+            (new_model, [])
+        }
+        False -> case spell_id == upgrade_damage {
+            True -> {
+                let new_players = upgrade_player_damage(model.players, owner_id)
+                let new_model = Model {
+                    phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+                    players: new_players, hooks: model.hooks, tick_count: model.tick_count,
+                }
+                (new_model, [])
+            }
+            False -> case spell_id == upgrade_range {
+                True -> {
+                    let new_players = upgrade_player_range(model.players, owner_id)
+                    let new_model = Model {
+                        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+                        players: new_players, hooks: model.hooks, tick_count: model.tick_count,
+                    }
+                    (new_model, [])
+                }
+                False -> case spell_id == upgrade_radius {
+                    True -> {
+                        let new_players = upgrade_player_radius(model.players, owner_id)
+                        let new_model = Model {
+                            phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+                            players: new_players, hooks: model.hooks, tick_count: model.tick_count,
+                        }
+                        (new_model, [])
+                    }
+                    False -> (model, [])
+                }
+            }
+        }
+    }
+}
+
+fn upgrade_player_speed(players: List(types.PlayerData), pid: Int) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> case p.speed_level < 25 {
+                True -> [types.PlayerData {
+                    index: p.index, team: p.team, alive: p.alive,
+                    kills: p.kills, deaths: p.deaths, spree: p.spree,
+                    hook_speed: p.hook_speed + 20.0, hook_damage: p.hook_damage,
+                    hook_range: p.hook_range, hook_radius: p.hook_radius,
+                    respawn_timer: p.respawn_timer, gold: p.gold,
+                    hero: p.hero, left: p.left,
+                    speed_level: p.speed_level + 1, damage_level: p.damage_level,
+                    range_level: p.range_level, radius_level: p.radius_level,
+                } | rest]
+                False -> [p | rest]
+            }
+            False -> [p | upgrade_player_speed(rest, pid)]
+        }
+    }
+}
+
+fn upgrade_player_damage(players: List(types.PlayerData), pid: Int) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> case p.damage_level < 25 {
+                True -> [types.PlayerData {
+                    index: p.index, team: p.team, alive: p.alive,
+                    kills: p.kills, deaths: p.deaths, spree: p.spree,
+                    hook_speed: p.hook_speed, hook_damage: p.hook_damage + 20.0,
+                    hook_range: p.hook_range, hook_radius: p.hook_radius,
+                    respawn_timer: p.respawn_timer, gold: p.gold,
+                    hero: p.hero, left: p.left,
+                    speed_level: p.speed_level, damage_level: p.damage_level + 1,
+                    range_level: p.range_level, radius_level: p.radius_level,
+                } | rest]
+                False -> [p | rest]
+            }
+            False -> [p | upgrade_player_damage(rest, pid)]
+        }
+    }
+}
+
+fn upgrade_player_range(players: List(types.PlayerData), pid: Int) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> case p.range_level < 25 {
+                True -> [types.PlayerData {
+                    index: p.index, team: p.team, alive: p.alive,
+                    kills: p.kills, deaths: p.deaths, spree: p.spree,
+                    hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                    hook_range: p.hook_range + 125.0, hook_radius: p.hook_radius,
+                    respawn_timer: p.respawn_timer, gold: p.gold,
+                    hero: p.hero, left: p.left,
+                    speed_level: p.speed_level, damage_level: p.damage_level,
+                    range_level: p.range_level + 1, radius_level: p.radius_level,
+                } | rest]
+                False -> [p | rest]
+            }
+            False -> [p | upgrade_player_range(rest, pid)]
+        }
+    }
+}
+
+fn upgrade_player_radius(players: List(types.PlayerData), pid: Int) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> case p.radius_level < 25 {
+                True -> [types.PlayerData {
+                    index: p.index, team: p.team, alive: p.alive,
+                    kills: p.kills, deaths: p.deaths, spree: p.spree,
+                    hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                    hook_range: p.hook_range, hook_radius: p.hook_radius + 10.0,
+                    respawn_timer: p.respawn_timer, gold: p.gold,
+                    hero: p.hero, left: p.left,
+                    speed_level: p.speed_level, damage_level: p.damage_level,
+                    range_level: p.range_level, radius_level: p.radius_level + 1,
+                } | rest]
+                False -> [p | rest]
+            }
+            False -> [p | upgrade_player_radius(rest, pid)]
+        }
     }
 }
 
@@ -128,24 +407,24 @@ fn make_remove_effects(units: List(Unit)) -> List(effect.Effect(Msg)) {
     }
 }
 
-fn make_catch_effects(target: Unit) -> List(effect.Effect(Msg)) {
+fn make_catch_effects(caught: Unit) -> List(effect.Effect(Msg)) {
     [
-        effect.pause_unit(clone(target), True),
-        effect.add_sfx_target("Abilities\\Spells\\Undead\\DeathCoil\\DeathCoilSpecialArt.mdl", target, "origin"),
+        effect.pause_unit(clone(caught), True),
+        effect.add_sfx_target("Abilities\\Spells\\Undead\\DeathCoil\\DeathCoilSpecialArt.mdl", caught, "origin"),
     ]
 }
 
-fn make_arrival_effects(caster: Unit, target: Unit, damage: Float) -> List(effect.Effect(Msg)) {
+fn make_arrival_effects(caster: Unit, arrived: Unit, damage: Float) -> List(effect.Effect(Msg)) {
     [
-        effect.pause_unit(clone(target), False),
-        effect.damage_unit(caster, target, damage, 5, 4),
+        effect.pause_unit(clone(arrived), False),
+        effect.damage_unit(caster, arrived, damage, 5, 4),
     ]
 }
 
-fn make_headshot_effects(target: Unit) -> List(effect.Effect(Msg)) {
+fn make_headshot_effects(victim: Unit) -> List(effect.Effect(Msg)) {
     [
-        effect.damage_unit(clone(target), clone(target), 99999.0, 5, 4),
-        effect.show_floating_text("HEADSHOT!", unit.get_x(clone(target)), unit.get_y(clone(target)), 12.0),
+        effect.damage_unit(clone(victim), clone(victim), 99999.0, 5, 4),
+        effect.show_floating_text("HEADSHOT!", unit.get_x(clone(victim)), unit.get_y(clone(victim)), 12.0),
     ]
 }
 
@@ -168,12 +447,12 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
             }
             let collision = hook.check_collision(result.hook.tip_x, result.hook.tip_y, result.hook.radius, clone(result.hook.caster))
             case collision {
-                Option::Some(target) -> {
-                    let target_id = unit.handle_id(clone(target))
+                Option::Some(hit) -> {
+                    let target_id = unit.handle_id(clone(hit))
                     let is_headshot = hook.is_unit_caught_by_hooks(all_hooks, target_id)
                     case is_headshot {
                         True -> {
-                            let headshot_effects = make_headshot_effects(target)
+                            let headshot_effects = make_headshot_effects(hit)
                             let retract_hook = types.HookData {
                                 state: HookState::Retracting,
                                 tip_x: result.hook.tip_x,
@@ -197,7 +476,7 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
                             (retract_hook, append_effects(link_effects, headshot_effects))
                         }
                         False -> {
-                            let catch_effects = make_catch_effects(clone(target))
+                            let catch_effects = make_catch_effects(clone(hit))
                             let caught_hook = types.HookData {
                                 state: HookState::RetractingWithTarget,
                                 tip_x: result.hook.tip_x,
@@ -216,7 +495,7 @@ fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int) -
                                 chain_links: result.hook.chain_links,
                                 link_accum: result.hook.link_accum,
                                 bounce_count: result.hook.bounce_count,
-                                caught_target: Option::Some(target),
+                                caught_target: Option::Some(hit),
                             }
                             (caught_hook, append_effects(link_effects, catch_effects))
                         }
@@ -254,6 +533,7 @@ fn handle_hook_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
     let new_model = Model {
         phase: model.phase,
         mode: model.mode,
+        modifiers: model.modifiers,
         players: model.players,
         hooks: new_hooks,
         tick_count: model.tick_count + 1,
@@ -331,6 +611,7 @@ fn handle_tip_created(model: Model, hook_index: Int, tip: Unit) -> (Model, List(
     let new_model = Model {
         phase: model.phase,
         mode: model.mode,
+        modifiers: model.modifiers,
         players: model.players,
         hooks: new_hooks,
         tick_count: model.tick_count,
@@ -344,6 +625,7 @@ fn handle_link_created(model: Model, hook_index: Int, link: Unit) -> (Model, Lis
     let new_model = Model {
         phase: model.phase,
         mode: model.mode,
+        modifiers: model.modifiers,
         players: model.players,
         hooks: new_hooks,
         tick_count: model.tick_count,
@@ -366,18 +648,14 @@ fn update_player_kill(players: List(types.PlayerData), killer_idx: Int, reward: 
         [] -> []
         [p | rest] -> case p.index == killer_idx {
             True -> [types.PlayerData {
-                index: p.index,
-                team: p.team,
-                alive: p.alive,
-                kills: p.kills + 1,
-                deaths: p.deaths,
-                spree: p.spree + 1,
-                hook_speed: p.hook_speed,
-                hook_damage: p.hook_damage,
-                hook_range: p.hook_range,
-                hook_radius: p.hook_radius,
-                respawn_timer: p.respawn_timer,
-                gold: p.gold + reward,
+                index: p.index, team: p.team, alive: p.alive,
+                kills: p.kills + 1, deaths: p.deaths, spree: p.spree + 1,
+                hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                hook_range: p.hook_range, hook_radius: p.hook_radius,
+                respawn_timer: p.respawn_timer, gold: p.gold + reward,
+                hero: p.hero, left: p.left,
+                speed_level: p.speed_level, damage_level: p.damage_level,
+                range_level: p.range_level, radius_level: p.radius_level,
             } | rest]
             False -> [p | update_player_kill(rest, killer_idx, reward)]
         }
@@ -389,18 +667,15 @@ fn update_player_death(players: List(types.PlayerData), victim_idx: Int, hero_le
         [] -> []
         [p | rest] -> case p.index == victim_idx {
             True -> [types.PlayerData {
-                index: p.index,
-                team: p.team,
-                alive: False,
-                kills: p.kills,
-                deaths: p.deaths + 1,
-                spree: 0,
-                hook_speed: p.hook_speed,
-                hook_damage: p.hook_damage,
-                hook_range: p.hook_range,
-                hook_radius: p.hook_radius,
+                index: p.index, team: p.team, alive: False,
+                kills: p.kills, deaths: p.deaths + 1, spree: 0,
+                hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                hook_range: p.hook_range, hook_radius: p.hook_radius,
                 respawn_timer: int.to_float(hero_level + 5),
                 gold: p.gold,
+                hero: p.hero, left: p.left,
+                speed_level: p.speed_level, damage_level: p.damage_level,
+                range_level: p.range_level, radius_level: p.radius_level,
             } | rest]
             False -> [p | update_player_death(rest, victim_idx, hero_level)]
         }
@@ -452,6 +727,25 @@ fn release_caught_target_hooks(hooks: List(types.HookData), target_id: Int) -> L
     }
 }
 
+fn make_victory_effects(winner: types.Team) -> List(effect.Effect(Msg)) {
+    let msg = case winner {
+        West -> "|cff00FF00West team wins!|r"
+        East -> "|cffFF0000East team wins!|r"
+    }
+    [
+        effect.display_text(0, msg, 30.0),
+        effect.display_text(1, msg, 30.0),
+        effect.display_text(2, msg, 30.0),
+        effect.display_text(3, msg, 30.0),
+        effect.display_text(4, msg, 30.0),
+        effect.display_text(6, msg, 30.0),
+        effect.display_text(7, msg, 30.0),
+        effect.display_text(8, msg, 30.0),
+        effect.display_text(9, msg, 30.0),
+        effect.display_text(10, msg, 30.0),
+    ]
+}
+
 fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(effect.Effect(Msg))) {
     let victim_owner = player.get_id(player.get_owner(clone(victim)))
     let killer_owner = player.get_id(player.get_owner(clone(killer)))
@@ -467,23 +761,35 @@ fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(ef
             let players_after_death = update_player_death(players_after_kill, victim_owner, victim_level)
             let gold_effect = effect.give_gold(killer_owner, reward)
             let text_effect = effect.show_floating_text("+" <> int.to_string(reward) <> " gold", unit.get_x(clone(killer)), unit.get_y(clone(killer)), 10.0)
-            let new_model = Model {
-                phase: model.phase,
-                mode: model.mode,
-                players: players_after_death,
-                hooks: new_hooks,
-                tick_count: model.tick_count,
+            let board_effect = make_board_effect(players_after_death, model.mode)
+            let win_check = scoring.check_win_condition(model.mode, players_after_death)
+            case win_check {
+                Winner(winner) -> {
+                    let new_model = Model {
+                        phase: Phase::Victory { winner: winner },
+                        mode: model.mode,
+                        modifiers: model.modifiers,
+                        players: players_after_death,
+                        hooks: new_hooks,
+                        tick_count: model.tick_count,
+                    }
+                    let victory_effects = make_victory_effects(winner)
+                    (new_model, append_effects([gold_effect, text_effect, board_effect], victory_effects))
+                }
+                NoWinner -> {
+                    let new_model = Model {
+                        phase: model.phase,
+                        mode: model.mode,
+                        modifiers: model.modifiers,
+                        players: players_after_death,
+                        hooks: new_hooks,
+                        tick_count: model.tick_count,
+                    }
+                    (new_model, [gold_effect, text_effect, board_effect])
+                }
             }
-            (new_model, [gold_effect, text_effect])
         }
         False -> (model, [])
-    }
-}
-
-fn get_spawn_for_team(team: types.Team) -> (Float, Float) {
-    case team {
-        West -> (arena.west_spawn_x(), arena.west_spawn_y())
-        East -> (arena.east_spawn_x(), arena.east_spawn_y())
     }
 }
 
@@ -494,48 +800,49 @@ fn tick_respawn_players(players: List(types.PlayerData)) -> (List(types.PlayerDa
             let (rest_players, rest_effects) = tick_respawn_players(rest)
             case p.alive {
                 True -> ([p | rest_players], rest_effects)
-                False -> {
-                    let new_timer = p.respawn_timer - respawn_tick_interval
-                    case new_timer <= 0.0 {
-                        True -> {
-                            let (sx, sy) = get_spawn_for_team(p.team)
-                            let revived = types.PlayerData {
-                                index: p.index,
-                                team: p.team,
-                                alive: True,
-                                kills: p.kills,
-                                deaths: p.deaths,
-                                spree: p.spree,
-                                hook_speed: p.hook_speed,
-                                hook_damage: p.hook_damage,
-                                hook_range: p.hook_range,
-                                hook_radius: p.hook_radius,
-                                respawn_timer: 0.0,
-                                gold: p.gold,
+                False -> case p.left {
+                    True -> ([p | rest_players], rest_effects)
+                    False -> {
+                        let new_timer = p.respawn_timer - respawn_tick_interval
+                        case new_timer <= 0.0 {
+                            True -> {
+                                let (sx, sy) = get_spawn_for_team(p.team)
+                                let revived = types.PlayerData {
+                                    index: p.index, team: p.team, alive: True,
+                                    kills: p.kills, deaths: p.deaths, spree: p.spree,
+                                    hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                                    hook_range: p.hook_range, hook_radius: p.hook_radius,
+                                    respawn_timer: 0.0, gold: p.gold,
+                                    hero: p.hero, left: p.left,
+                                    speed_level: p.speed_level, damage_level: p.damage_level,
+                                    range_level: p.range_level, radius_level: p.radius_level,
+                                }
+                                let pid = p.index
+                                let hero_effects = case p.hero {
+                                    Option::Some(h) -> [
+                                        effect.revive_hero(clone(h), sx, sy),
+                                        effect.set_invulnerable(h, True),
+                                        effect.after(invuln_duration, fn() -> Msg {
+                                            Msg::RemoveInvuln { invuln_player: pid }
+                                        }),
+                                    ]
+                                    Option::None -> []
+                                }
+                                ([revived | rest_players], append_effects(hero_effects, rest_effects))
                             }
-                            let hero_effects = [
-                                effect.for_units_in_range(sx, sy, 9999.0, fn(u: Unit) -> Msg {
-                                    Msg::RemoveInvuln { unit: u }
-                                }),
-                            ]
-                            ([revived | rest_players], append_effects(hero_effects, rest_effects))
-                        }
-                        False -> {
-                            let waiting = types.PlayerData {
-                                index: p.index,
-                                team: p.team,
-                                alive: False,
-                                kills: p.kills,
-                                deaths: p.deaths,
-                                spree: p.spree,
-                                hook_speed: p.hook_speed,
-                                hook_damage: p.hook_damage,
-                                hook_range: p.hook_range,
-                                hook_radius: p.hook_radius,
-                                respawn_timer: new_timer,
-                                gold: p.gold,
+                            False -> {
+                                let waiting = types.PlayerData {
+                                    index: p.index, team: p.team, alive: False,
+                                    kills: p.kills, deaths: p.deaths, spree: p.spree,
+                                    hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                                    hook_range: p.hook_range, hook_radius: p.hook_radius,
+                                    respawn_timer: new_timer, gold: p.gold,
+                                    hero: p.hero, left: p.left,
+                                    speed_level: p.speed_level, damage_level: p.damage_level,
+                                    range_level: p.range_level, radius_level: p.radius_level,
+                                }
+                                ([waiting | rest_players], rest_effects)
                             }
-                            ([waiting | rest_players], rest_effects)
                         }
                     }
                 }
@@ -549,6 +856,7 @@ fn handle_respawn_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
     let new_model = Model {
         phase: model.phase,
         mode: model.mode,
+        modifiers: model.modifiers,
         players: new_players,
         hooks: model.hooks,
         tick_count: model.tick_count,
@@ -556,49 +864,297 @@ fn handle_respawn_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
     (new_model, effects)
 }
 
+fn mode_name(mode: types.GameMode) -> String {
+    case mode {
+        NoMode -> "No Mode"
+        KillMode(t) -> "Kill " <> int.to_string(t)
+        RoundMode(t) -> "Round " <> int.to_string(t)
+        TimedMode(t) -> "Timed " <> int.to_string(t) <> "m"
+    }
+}
+
+fn player_status(p: types.PlayerData) -> String {
+    case p.left {
+        True -> "|cff888888Left|r"
+        False -> case p.alive {
+            True -> "|cff00FF00Alive|r"
+            False -> "|cffFF0000" <> int.to_string(float.to_int(p.respawn_timer)) <> "s|r"
+        }
+    }
+}
+
 fn build_board_rows(players: List(types.PlayerData)) -> List(effect.BoardRow) {
     case players {
         [] -> []
         [p | rest] -> {
+            let name = "P" <> int.to_string(p.index + 1)
+            let kd = int.to_string(p.kills) <> "/" <> int.to_string(p.deaths)
+            let status = player_status(p)
             let row = effect.board_row(
-                "P" <> int.to_string(p.index + 1),
-                int.to_string(p.kills) <> "/" <> int.to_string(p.deaths)
+                name <> " " <> kd,
+                status
             )
             [row | build_board_rows(rest)]
         }
     }
 }
 
-fn make_board_effect(players: List(types.PlayerData)) -> effect.Effect(Msg) {
-    effect.update_board("Pudge Wars", build_board_rows(players))
+fn make_board_effect(players: List(types.PlayerData), mode: types.GameMode) -> effect.Effect(Msg) {
+    let title = "Pudge Wars - " <> mode_name(mode)
+    effect.update_board(title, build_board_rows(players))
+}
+
+fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, List(effect.Effect(Msg))) {
+    let cmd = commands.parse_command(text)
+    case cmd {
+        SetMode(mode) -> case player_id == 0 {
+            True -> case model.phase {
+                WaitingForMode -> {
+                    let timer_effect = case mode {
+                        TimedMode(minutes) -> [
+                            effect.after(int.to_float(minutes) * 60.0, fn() -> Msg { Msg::TimedModeExpired })
+                        ]
+                        _ -> []
+                    }
+                    let boosted_effects = case model.modifiers.boosted {
+                        True -> make_boosted_effects(model.players)
+                        False -> []
+                    }
+                    let new_model = Model {
+                        phase: Phase::Playing,
+                        mode: mode,
+                        modifiers: model.modifiers,
+                        players: model.players,
+                        hooks: model.hooks,
+                        tick_count: model.tick_count,
+                    }
+                    let board = make_board_effect(new_model.players, new_model.mode)
+                    let announce = effect.display_text(0, "Mode set: " <> mode_name(new_model.mode), 10.0)
+                    (new_model, append_effects([board, announce], append_effects(timer_effect, boosted_effects)))
+                }
+                _ -> (model, [])
+            }
+            False -> (model, [effect.display_text(player_id, "Only the host can set the mode.", 5.0)])
+        }
+        ToggleNoTimer -> case player_id == 0 {
+            True -> {
+                let new_mods = types.Modifiers {
+                    no_timer: model.modifiers.no_timer == False,
+                    boosted: model.modifiers.boosted,
+                    no_powerup: model.modifiers.no_powerup,
+                    hook_only: model.modifiers.hook_only,
+                }
+                let new_model = Model {
+                    phase: model.phase, mode: model.mode, modifiers: new_mods,
+                    players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                }
+                let msg_text = case new_mods.no_timer { True -> "No Timer: ON" False -> "No Timer: OFF" }
+                (new_model, [effect.display_text(player_id, msg_text, 5.0)])
+            }
+            False -> (model, [])
+        }
+        ToggleBoosted -> case player_id == 0 {
+            True -> {
+                let new_mods = types.Modifiers {
+                    no_timer: model.modifiers.no_timer,
+                    boosted: model.modifiers.boosted == False,
+                    no_powerup: model.modifiers.no_powerup,
+                    hook_only: model.modifiers.hook_only,
+                }
+                let new_model = Model {
+                    phase: model.phase, mode: model.mode, modifiers: new_mods,
+                    players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                }
+                let msg_text = case new_mods.boosted { True -> "Boosted Mode: ON" False -> "Boosted Mode: OFF" }
+                (new_model, [effect.display_text(player_id, msg_text, 5.0)])
+            }
+            False -> (model, [])
+        }
+        ToggleNoPowerup -> case player_id == 0 {
+            True -> {
+                let new_mods = types.Modifiers {
+                    no_timer: model.modifiers.no_timer,
+                    boosted: model.modifiers.boosted,
+                    no_powerup: model.modifiers.no_powerup == False,
+                    hook_only: model.modifiers.hook_only,
+                }
+                let new_model = Model {
+                    phase: model.phase, mode: model.mode, modifiers: new_mods,
+                    players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                }
+                let msg_text = case new_mods.no_powerup { True -> "No Powerup: ON" False -> "No Powerup: OFF" }
+                (new_model, [effect.display_text(player_id, msg_text, 5.0)])
+            }
+            False -> (model, [])
+        }
+        ToggleHookOnly -> case player_id == 0 {
+            True -> {
+                let new_mods = types.Modifiers {
+                    no_timer: model.modifiers.no_timer,
+                    boosted: model.modifiers.boosted,
+                    no_powerup: model.modifiers.no_powerup,
+                    hook_only: model.modifiers.hook_only == False,
+                }
+                let new_model = Model {
+                    phase: model.phase, mode: model.mode, modifiers: new_mods,
+                    players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+                }
+                let msg_text = case new_mods.hook_only { True -> "Hook Only: ON" False -> "Hook Only: OFF" }
+                (new_model, [effect.display_text(player_id, msg_text, 5.0)])
+            }
+            False -> (model, [])
+        }
+        ShowStats -> {
+            let msg_text = get_player_stats_text(model.players, player_id)
+            (model, [effect.display_text(player_id, msg_text, 10.0)])
+        }
+        Unstuck -> {
+            let team = get_player_team(model.players, player_id)
+            let (sx, sy) = get_spawn_for_team(team)
+            let hero_opt = get_player_hero(model.players, player_id)
+            case hero_opt {
+                Option::Some(h) -> (model, [effect.move_unit(h, sx, sy)])
+                Option::None -> (model, [])
+            }
+        }
+        ClearText -> (model, [effect.display_text(player_id, "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n", 1.0)])
+        ToggleBoard -> (model, [effect.display_text(player_id, "Board toggled.", 3.0)])
+        SetCamera(distance) -> (model, [])
+        Unknown -> (model, [])
+    }
+}
+
+fn make_boosted_effects(players: List(types.PlayerData)) -> List(effect.Effect(Msg)) {
+    case players {
+        [] -> []
+        [p | rest] -> {
+            let gold_eff = effect.give_gold(p.index, 250)
+            [gold_eff | make_boosted_effects(rest)]
+        }
+    }
+}
+
+fn handle_player_left(model: Model, player_id: Int) -> (Model, List(effect.Effect(Msg))) {
+    let new_players = mark_player_left(model.players, player_id)
+    let leave_effects = make_leave_effects(model.players, player_id)
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        modifiers: model.modifiers,
+        players: new_players,
+        hooks: model.hooks,
+        tick_count: model.tick_count,
+    }
+    let board = make_board_effect(new_players, model.mode)
+    (new_model, [board | leave_effects])
+}
+
+fn mark_player_left(players: List(types.PlayerData), pid: Int) -> List(types.PlayerData) {
+    case players {
+        [] -> []
+        [p | rest] -> case p.index == pid {
+            True -> [types.PlayerData {
+                index: p.index, team: p.team, alive: False,
+                kills: p.kills, deaths: p.deaths, spree: p.spree,
+                hook_speed: p.hook_speed, hook_damage: p.hook_damage,
+                hook_range: p.hook_range, hook_radius: p.hook_radius,
+                respawn_timer: 0.0, gold: p.gold,
+                hero: p.hero, left: True,
+                speed_level: p.speed_level, damage_level: p.damage_level,
+                range_level: p.range_level, radius_level: p.radius_level,
+            } | rest]
+            False -> [p | mark_player_left(rest, pid)]
+        }
+    }
+}
+
+fn make_leave_effects(players: List(types.PlayerData), pid: Int) -> List(effect.Effect(Msg)) {
+    let hero_opt = get_player_hero(players, pid)
+    case hero_opt {
+        Option::Some(h) -> [
+            effect.show_unit(clone(h), False),
+            effect.move_unit(clone(h), 0.0, 0.0),
+            effect.pause_unit(h, True),
+        ]
+        Option::None -> []
+    }
+}
+
+fn handle_hero_created(model: Model, player_index: Int, new_hero: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let new_players = set_player_hero(model.players, player_index, new_hero)
+    let new_model = Model {
+        phase: model.phase,
+        mode: model.mode,
+        modifiers: model.modifiers,
+        players: new_players,
+        hooks: model.hooks,
+        tick_count: model.tick_count,
+    }
+    (new_model, [])
+}
+
+fn handle_timed_mode_expired(model: Model) -> (Model, List(effect.Effect(Msg))) {
+    case model.phase {
+        Playing -> {
+            let winner = scoring.check_timed_winner(model.players)
+            let new_model = Model {
+                phase: Phase::Victory { winner: winner },
+                mode: model.mode,
+                modifiers: model.modifiers,
+                players: model.players,
+                hooks: model.hooks,
+                tick_count: model.tick_count,
+            }
+            let victory_effects = make_victory_effects(winner)
+            (new_model, victory_effects)
+        }
+        _ -> (model, [])
+    }
 }
 
 pub fn init() -> (Model, List(effect.Effect(Msg))) {
     let players = append_players(make_west_players(0), make_east_players(6))
+    let hero_effects = make_hero_effects(players)
     let model = Model {
         phase: Phase::WaitingForMode,
-        mode: Option::None,
+        mode: GameMode::NoMode,
+        modifiers: types.default_modifiers(),
         players: players,
         hooks: [],
         tick_count: 0,
     }
-    (model, [])
+    (model, hero_effects)
 }
 
 pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    case model.phase {
+        Victory(_) -> (model, [])
+        _ -> dispatch(model, msg)
+    }
+}
+
+fn dispatch(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
     case msg {
-        SpellCast(caster, spell_id, target) -> (model, [])
+        SpellCast(caster, spell_id, _) -> handle_upgrade(model, caster, spell_id)
         SpellGround(caster, spell_id, x, y) -> handle_spell_ground(model, caster, spell_id, x, y)
         HookTick -> handle_hook_tick(model)
         HookTipCreated(hook_index, tip) -> handle_tip_created(model, hook_index, tip)
         ChainLinkCreated(hook_index, link) -> handle_link_created(model, hook_index, link)
         UnitDied(victim, killer) -> handle_unit_died(model, victim, killer)
-        ChatCommand(player_id, text) -> (model, [])
-        PlayerLeft(player_id) -> (model, [])
-        HeroLevelUp(hero) -> (model, [])
-        DamageTaken(source, target, amount) -> (model, [])
+        ChatCommand(player_id, text) -> handle_chat_command(model, player_id, text)
+        PlayerLeft(player_id) -> handle_player_left(model, player_id)
+        HeroLevelUp(_) -> (model, [])
+        DamageTaken(_, _, _) -> (model, [])
         RespawnTick -> handle_respawn_tick(model)
-        RemoveInvuln(u) -> (model, [effect.set_invulnerable(u, False)])
+        RemoveInvuln(pid) -> {
+            let hero_opt = get_player_hero(model.players, pid)
+            case hero_opt {
+                Option::Some(h) -> (model, [effect.set_invulnerable(h, False)])
+                Option::None -> (model, [])
+            }
+        }
+        HeroCreated(player_index, new_hero) -> handle_hero_created(model, player_index, new_hero)
+        TimedModeExpired -> handle_timed_mode_expired(model)
     }
 }
 
@@ -621,7 +1177,7 @@ pub fn subscriptions(model: Model) -> List(subscription.Subscription(Msg)) {
             Msg::PlayerLeft { player_id: pid }
         }),
         subscription.on_hero_level_up(fn(h: Unit) -> Msg {
-            Msg::HeroLevelUp { hero: h }
+            Msg::HeroLevelUp { leveled: h }
         }),
         subscription.on_damage(fn(s: Unit, t: Unit, a: Float) -> Msg {
             Msg::DamageTaken { source: s, target: t, amount: a }

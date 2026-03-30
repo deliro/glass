@@ -1,0 +1,85 @@
+import option { Option }
+import string
+import int
+import types
+
+pub enum ParsedCommand {
+    SetMode { mode: types.GameMode }
+    ToggleNoTimer
+    ToggleBoosted
+    ToggleNoPowerup
+    ToggleHookOnly
+    ShowStats
+    Unstuck
+    ClearText
+    ToggleBoard
+    SetCamera { distance: Int }
+    Unknown
+}
+
+fn parse_3digit(text: String, prefix_len: Int) -> Int {
+    let rest = string.slice(text, prefix_len, string.length(text))
+    int.parse(rest)
+}
+
+pub fn parse_command(text: String) -> ParsedCommand {
+    let lower = string.to_lower(text)
+    case string.starts_with(lower, "-km") {
+        True -> {
+            let n = parse_3digit(lower, 3)
+            case n > 0 {
+                True -> ParsedCommand::SetMode { mode: GameMode::KillMode { target: n } }
+                False -> ParsedCommand::Unknown
+            }
+        }
+        False -> case string.starts_with(lower, "-rm") {
+            True -> {
+                let n = parse_3digit(lower, 3)
+                case n > 0 {
+                    True -> ParsedCommand::SetMode { mode: GameMode::RoundMode { target: n } }
+                    False -> ParsedCommand::Unknown
+                }
+            }
+            False -> case string.starts_with(lower, "-tm") {
+                True -> {
+                    let n = parse_3digit(lower, 3)
+                    case n > 0 {
+                        True -> ParsedCommand::SetMode { mode: GameMode::TimedMode { minutes: n } }
+                        False -> ParsedCommand::Unknown
+                    }
+                }
+                False -> case lower == "-nt" {
+                    True -> ParsedCommand::ToggleNoTimer
+                    False -> case lower == "-bm" {
+                        True -> ParsedCommand::ToggleBoosted
+                        False -> case lower == "-np" {
+                            True -> ParsedCommand::ToggleNoPowerup
+                            False -> case lower == "-ho" {
+                                True -> ParsedCommand::ToggleHookOnly
+                                False -> case lower == "-stats" {
+                                    True -> ParsedCommand::ShowStats
+                                    False -> case lower == "-unstuck" {
+                                        True -> ParsedCommand::Unstuck
+                                        False -> case lower == "-clear" {
+                                            True -> ParsedCommand::ClearText
+                                            False -> case lower == "-sb" {
+                                                True -> ParsedCommand::ToggleBoard
+                                                False -> case string.starts_with(lower, "-camh ") {
+                                                    True -> {
+                                                        let n = parse_3digit(lower, 6)
+                                                        ParsedCommand::SetCamera { distance: n }
+                                                    }
+                                                    False -> ParsedCommand::Unknown
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
