@@ -433,6 +433,7 @@ fn elm_runtime_jass_snapshot() {
         has_update: true,
         has_subscriptions: false,
         msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
+        effect_variants: vec![],
     };
     let mut output = String::new();
     crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut output);
@@ -461,6 +462,7 @@ fn elm_runtime_lua_snapshot() {
         has_update: true,
         has_subscriptions: false,
         msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
+        effect_variants: vec![],
     };
     let mut output = String::new();
     crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut output);
@@ -474,6 +476,7 @@ fn elm_runtime_jass_with_subs_snapshot() {
         has_update: true,
         has_subscriptions: true,
         msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
+        effect_variants: vec![],
     };
     let mut output = String::new();
     crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut output);
@@ -487,6 +490,7 @@ fn elm_runtime_lua_with_subs_snapshot() {
         has_update: true,
         has_subscriptions: true,
         msg_variants: vec![("Tick".into(), 0, 0), ("UnitDied".into(), 1, 2)],
+        effect_variants: vec![],
     };
     let mut output = String::new();
     crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut output);
@@ -500,6 +504,7 @@ fn lua_send_msg_reconciles_subs() {
         has_update: true,
         has_subscriptions: true,
         msg_variants: vec![],
+        effect_variants: vec![],
     };
     let mut output = String::new();
     crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut output);
@@ -516,6 +521,7 @@ fn jass_send_msg_reconciles_subs() {
         has_update: true,
         has_subscriptions: true,
         msg_variants: vec![],
+        effect_variants: vec![],
     };
     let mut output = String::new();
     crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut output);
@@ -532,6 +538,7 @@ fn lua_reconcile_destroys_old_subs() {
         has_update: true,
         has_subscriptions: true,
         msg_variants: vec![],
+        effect_variants: vec![],
     };
     let mut output = String::new();
     crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut output);
@@ -547,6 +554,7 @@ fn jass_reconcile_destroys_old_subs() {
         has_update: true,
         has_subscriptions: true,
         msg_variants: vec![],
+        effect_variants: vec![],
     };
     let mut output = String::new();
     crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut output);
@@ -562,6 +570,7 @@ fn no_reconciliation_without_subs() {
         has_update: true,
         has_subscriptions: false,
         msg_variants: vec![],
+        effect_variants: vec![],
     };
     let mut jass_output = String::new();
     crate::runtime::gen_elm_runtime_functions(&entry, &[], &std::collections::HashSet::new(), &mut jass_output);
@@ -589,6 +598,84 @@ fn closure_captures_unit_handle_simple() {
 }
 
 #[test]
+fn data_driven_effect_dispatch_with_exec_fn() {
+    use crate::runtime::EffectVariantDef;
+    use crate::types::FieldInfo;
+
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: false,
+        msg_variants: vec![],
+        effect_variants: vec![
+            EffectVariantDef {
+                name: "DisplayText".into(),
+                tag: 0,
+                fields: vec![
+                    FieldInfo {
+                        name: "player_id".into(),
+                        jass_type: "integer".into(),
+                        is_callback: false,
+                        callback_param_jass_types: vec![],
+                    },
+                    FieldInfo {
+                        name: "text".into(),
+                        jass_type: "string".into(),
+                        is_callback: false,
+                        callback_param_jass_types: vec![],
+                    },
+                    FieldInfo {
+                        name: "duration".into(),
+                        jass_type: "real".into(),
+                        is_callback: false,
+                        callback_param_jass_types: vec![],
+                    },
+                ],
+                has_exec_fn: true,
+            },
+            EffectVariantDef {
+                name: "KillUnit".into(),
+                tag: 1,
+                fields: vec![FieldInfo {
+                    name: "unit".into(),
+                    jass_type: "unit".into(),
+                    is_callback: false,
+                    callback_param_jass_types: vec![],
+                }],
+                has_exec_fn: true,
+            },
+        ],
+    };
+
+    let mut jass = String::new();
+    crate::runtime::gen_elm_runtime_functions(
+        &entry,
+        &[],
+        &std::collections::HashSet::new(),
+        &mut jass,
+    );
+    assert!(
+        jass.contains("call glass_exec_display_text(glass_Effect_DisplayText_player_id[fx_id], glass_Effect_DisplayText_text[fx_id], glass_Effect_DisplayText_duration[fx_id])"),
+        "JASS must dispatch to exec function with SoA field args"
+    );
+    assert!(
+        jass.contains("call glass_exec_kill_unit(glass_Effect_KillUnit_unit[fx_id])"),
+        "JASS must dispatch to exec function for KillUnit"
+    );
+
+    let mut lua = String::new();
+    crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut lua);
+    assert!(
+        lua.contains("glass_exec_display_text(fx.player_id, fx.text, fx.duration)"),
+        "Lua must dispatch to exec function with table field args"
+    );
+    assert!(
+        lua.contains("glass_exec_kill_unit(fx.unit)"),
+        "Lua must dispatch to exec function for KillUnit"
+    );
+}
+
+#[test]
 fn closure_captures_unit_via_clone() {
     let source = r#"
 enum Msg {
@@ -610,6 +697,110 @@ fn make_aoe(caster: Unit, dmg: Float) -> Int {
         jass.contains("local unit caster"),
         "local caster in dispatch should be unit type, got:\n{}",
         jass
+    );
+}
+
+#[test]
+fn data_driven_effect_callback_variants() {
+    use crate::runtime::EffectVariantDef;
+    use crate::types::FieldInfo;
+
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: false,
+        msg_variants: vec![],
+        effect_variants: vec![
+            EffectVariantDef {
+                name: "After".into(),
+                tag: 0,
+                fields: vec![
+                    FieldInfo {
+                        name: "duration".into(),
+                        jass_type: "real".into(),
+                        is_callback: false,
+                        callback_param_jass_types: vec![],
+                    },
+                    FieldInfo {
+                        name: "callback".into(),
+                        jass_type: "integer".into(),
+                        is_callback: true,
+                        callback_param_jass_types: vec![],
+                    },
+                ],
+                has_exec_fn: false,
+            },
+            EffectVariantDef {
+                name: "ForUnitsInRange".into(),
+                tag: 1,
+                fields: vec![
+                    FieldInfo {
+                        name: "x".into(),
+                        jass_type: "real".into(),
+                        is_callback: false,
+                        callback_param_jass_types: vec![],
+                    },
+                    FieldInfo {
+                        name: "y".into(),
+                        jass_type: "real".into(),
+                        is_callback: false,
+                        callback_param_jass_types: vec![],
+                    },
+                    FieldInfo {
+                        name: "radius".into(),
+                        jass_type: "real".into(),
+                        is_callback: false,
+                        callback_param_jass_types: vec![],
+                    },
+                    FieldInfo {
+                        name: "callback".into(),
+                        jass_type: "integer".into(),
+                        is_callback: true,
+                        callback_param_jass_types: vec!["unit".into()],
+                    },
+                ],
+                has_exec_fn: false,
+            },
+        ],
+    };
+
+    let mut jass = String::new();
+    crate::runtime::gen_elm_runtime_functions(
+        &entry,
+        &[],
+        &std::collections::HashSet::new(),
+        &mut jass,
+    );
+    assert!(
+        jass.contains("glass_TAG_Effect_After"),
+        "JASS must handle After variant"
+    );
+    assert!(
+        jass.contains("glass_timer_callback"),
+        "JASS After must use timer callback"
+    );
+    assert!(
+        jass.contains("glass_TAG_Effect_ForUnitsInRange"),
+        "JASS must handle ForUnitsInRange variant"
+    );
+    assert!(
+        jass.contains("GroupEnumUnitsInRange"),
+        "JASS ForUnitsInRange must iterate group"
+    );
+
+    let mut lua = String::new();
+    crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut lua);
+    assert!(
+        lua.contains("glass_TAG_Effect_After"),
+        "Lua must handle After variant"
+    );
+    assert!(
+        lua.contains("glass_send_msg(msg)"),
+        "Lua After must send msg via callback"
+    );
+    assert!(
+        lua.contains("glass_TAG_Effect_ForUnitsInRange"),
+        "Lua must handle ForUnitsInRange variant"
     );
 }
 
@@ -736,5 +927,70 @@ fn test(w: Wrapper) -> Int {
         jass.contains("unit array glass_clos0_u"),
         "capture array for u should be unit type, got:\n{}",
         jass
+    );
+}
+
+#[test]
+fn data_driven_custom_effect_variant() {
+    use crate::runtime::EffectVariantDef;
+    use crate::types::FieldInfo;
+
+    let entry = crate::runtime::ElmEntryPoints {
+        has_init: true,
+        has_update: true,
+        has_subscriptions: false,
+        msg_variants: vec![],
+        effect_variants: vec![EffectVariantDef {
+            name: "CustomBlast".into(),
+            tag: 99,
+            fields: vec![
+                FieldInfo {
+                    name: "x".into(),
+                    jass_type: "real".into(),
+                    is_callback: false,
+                    callback_param_jass_types: vec![],
+                },
+                FieldInfo {
+                    name: "y".into(),
+                    jass_type: "real".into(),
+                    is_callback: false,
+                    callback_param_jass_types: vec![],
+                },
+                FieldInfo {
+                    name: "power".into(),
+                    jass_type: "integer".into(),
+                    is_callback: false,
+                    callback_param_jass_types: vec![],
+                },
+            ],
+            has_exec_fn: true,
+        }],
+    };
+
+    let mut jass = String::new();
+    crate::runtime::gen_elm_runtime_functions(
+        &entry,
+        &[],
+        &std::collections::HashSet::new(),
+        &mut jass,
+    );
+    assert!(
+        jass.contains("glass_TAG_Effect_CustomBlast"),
+        "JASS must handle custom user-defined effect variant"
+    );
+    assert!(
+        jass.contains("call glass_exec_custom_blast(glass_Effect_CustomBlast_x[fx_id], glass_Effect_CustomBlast_y[fx_id], glass_Effect_CustomBlast_power[fx_id])"),
+        "JASS must dispatch custom effect to exec function"
+    );
+
+    let mut lua = String::new();
+    crate::lua_runtime::gen_lua_elm_runtime(&entry, &mut lua);
+    assert!(
+        lua.contains("glass_TAG_Effect_CustomBlast"),
+        "Lua must handle custom user-defined effect variant"
+    );
+    assert!(
+        lua.contains("glass_exec_custom_blast(fx.x, fx.y, fx.power)"),
+        "Lua must dispatch custom effect to exec function"
     );
 }

@@ -5,7 +5,8 @@
 // - Tables replace SoA arrays (no tuple extraction functions)
 // - Local variables in any scope (no forward declaration issues)
 
-use crate::runtime::ElmEntryPoints;
+use crate::runtime::{to_snake_case, EffectVariantDef, ElmEntryPoints};
+use crate::types::FieldInfo;
 
 /// Generate the Elm runtime Lua code (after user functions).
 pub fn gen_lua_elm_runtime(entry: &ElmEntryPoints, output: &mut String) {
@@ -19,8 +20,7 @@ pub fn gen_lua_elm_runtime(entry: &ElmEntryPoints, output: &mut String) {
     }
     output.push('\n');
 
-    // Effect executor
-    gen_exec_effect(output);
+    gen_exec_effect(entry, output);
 
     // Process effects (walk a linked list of effects)
     gen_process_effects(output);
@@ -40,199 +40,165 @@ pub fn gen_lua_elm_runtime(entry: &ElmEntryPoints, output: &mut String) {
     gen_map_init(output);
 }
 
-fn gen_exec_effect(output: &mut String) {
+fn gen_lua_exec_call(variant: &EffectVariantDef, indent: &str, output: &mut String) {
+    let snake = to_snake_case(&variant.name);
+    let non_cb: Vec<&FieldInfo> = variant.non_callback_fields();
+    let args: Vec<String> = non_cb.iter().map(|f| format!("fx.{}", f.name)).collect();
+    output.push_str(&format!(
+        "{}glass_exec_{}({})\n",
+        indent, snake, args.join(", ")
+    ));
+}
+
+fn gen_lua_after_effect(indent: &str, output: &mut String) {
+    output.push_str(&format!("{}local trig = CreateTrigger()\n", indent));
+    output.push_str(&format!("{}local cb = fx.callback\n", indent));
+    output.push_str(&format!(
+        "{}TriggerRegisterTimerEvent(trig, fx.duration, false)\n",
+        indent
+    ));
+    output.push_str(&format!("{}TriggerAddAction(trig, function()\n", indent));
+    output.push_str(&format!("{}    local msg = cb()\n", indent));
+    output.push_str(&format!("{}    glass_send_msg(msg)\n", indent));
+    output.push_str(&format!("{}end)\n", indent));
+}
+
+fn gen_lua_find_nearest_enemy(indent: &str, output: &mut String) {
+    output.push_str(&format!("{}local g = CreateGroup()\n", indent));
+    output.push_str(&format!(
+        "{}GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)\n",
+        indent
+    ));
+    output.push_str(&format!("{}local best = FirstOfGroup(g)\n", indent));
+    output.push_str(&format!("{}DestroyGroup(g)\n", indent));
+    output.push_str(&format!("{}if best ~= nil then\n", indent));
+    output.push_str(&format!("{}    local msg = fx.callback(best)\n", indent));
+    output.push_str(&format!("{}    glass_send_msg(msg)\n", indent));
+    output.push_str(&format!("{}end\n", indent));
+}
+
+fn gen_lua_create_unit_callback(indent: &str, output: &mut String) {
+    output.push_str(&format!(
+        "{}local u = CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)\n",
+        indent
+    ));
+    output.push_str(&format!("{}local msg = fx.callback(u)\n", indent));
+    output.push_str(&format!("{}glass_send_msg(msg)\n", indent));
+}
+
+fn gen_lua_for_units_in_range(indent: &str, output: &mut String) {
+    output.push_str(&format!("{}local g = CreateGroup()\n", indent));
+    output.push_str(&format!(
+        "{}GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)\n",
+        indent
+    ));
+    output.push_str(&format!("{}local u = FirstOfGroup(g)\n", indent));
+    output.push_str(&format!("{}while u ~= nil do\n", indent));
+    output.push_str(&format!("{}    local msg = fx.callback(u)\n", indent));
+    output.push_str(&format!("{}    glass_send_msg(msg)\n", indent));
+    output.push_str(&format!("{}    GroupRemoveUnit(g, u)\n", indent));
+    output.push_str(&format!("{}    u = FirstOfGroup(g)\n", indent));
+    output.push_str(&format!("{}end\n", indent));
+    output.push_str(&format!("{}DestroyGroup(g)\n", indent));
+}
+
+fn gen_lua_update_board(indent: &str, output: &mut String) {
+    output.push_str(&format!("{}local row_count = 0\n", indent));
+    output.push_str(&format!("{}local cur = fx.rows\n", indent));
+    output.push_str(&format!(
+        "{}while cur ~= nil do row_count = row_count + 1; cur = cur.tail end\n",
+        indent
+    ));
+    output.push_str(&format!("{}if glass_multiboard == nil then\n", indent));
+    output.push_str(&format!(
+        "{}    glass_multiboard = CreateMultiboard()\n",
+        indent
+    ));
+    output.push_str(&format!("{}end\n", indent));
+    output.push_str(&format!(
+        "{}MultiboardSetColumnCount(glass_multiboard, 2)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}MultiboardSetRowCount(glass_multiboard, row_count)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}MultiboardSetTitleText(glass_multiboard, fx.title)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}MultiboardDisplay(glass_multiboard, true)\n",
+        indent
+    ));
+    output.push_str(&format!("{}cur = fx.rows\n", indent));
+    output.push_str(&format!("{}local ri = 0\n", indent));
+    output.push_str(&format!("{}while cur ~= nil do\n", indent));
+    output.push_str(&format!("{}    local r = cur.head\n", indent));
+    output.push_str(&format!(
+        "{}    local mbi0 = MultiboardGetItem(glass_multiboard, ri, 0)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    MultiboardSetItemValue(mbi0, r.label)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    MultiboardSetItemWidth(mbi0, 0.10)\n",
+        indent
+    ));
+    output.push_str(&format!("{}    MultiboardReleaseItem(mbi0)\n", indent));
+    output.push_str(&format!(
+        "{}    local mbi1 = MultiboardGetItem(glass_multiboard, ri, 1)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    MultiboardSetItemValue(mbi1, r.value)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    MultiboardSetItemWidth(mbi1, 0.08)\n",
+        indent
+    ));
+    output.push_str(&format!("{}    MultiboardReleaseItem(mbi1)\n", indent));
+    output.push_str(&format!("{}    ri = ri + 1\n", indent));
+    output.push_str(&format!("{}    cur = cur.tail\n", indent));
+    output.push_str(&format!("{}end\n", indent));
+}
+
+fn gen_lua_effect_variant_body(
+    variant: &EffectVariantDef,
+    indent: &str,
+    output: &mut String,
+) {
+    match variant.name.as_str() {
+        "After" => gen_lua_after_effect(indent, output),
+        "FindNearestEnemy" => gen_lua_find_nearest_enemy(indent, output),
+        "CreateUnitCallback" => gen_lua_create_unit_callback(indent, output),
+        "ForUnitsInRange" => gen_lua_for_units_in_range(indent, output),
+        "UpdateBoard" => gen_lua_update_board(indent, output),
+        _ if variant.has_exec_fn => gen_lua_exec_call(variant, indent, output),
+        _ => {}
+    }
+}
+
+fn gen_exec_effect(entry: &ElmEntryPoints, output: &mut String) {
     output.push_str("function glass_exec_effect(fx)\n");
 
-    // After
-    output.push_str("    if fx.tag == glass_TAG_Effect_After then\n");
-    output.push_str("        local trig = CreateTrigger()\n");
-    output.push_str("        local cb = fx.callback\n");
-    output.push_str("        TriggerRegisterTimerEvent(trig, fx.duration, false)\n");
-    output.push_str("        TriggerAddAction(trig, function()\n");
-    output.push_str("            local msg = cb()\n");
-    output.push_str("            glass_send_msg(msg)\n");
-    output.push_str("        end)\n");
+    let mut first = true;
+    for variant in &entry.effect_variants {
+        let keyword = if first { "if" } else { "elseif" };
+        first = false;
+        output.push_str(&format!(
+            "    {} fx.tag == glass_TAG_Effect_{} then\n",
+            keyword, variant.name
+        ));
+        gen_lua_effect_variant_body(variant, "        ", output);
+    }
 
-    // DisplayText
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_DisplayText then\n");
-    output.push_str(
-        "        DisplayTimedTextToPlayer(Player(fx.player_id), 0, 0, fx.duration, fx.text)\n",
-    );
-
-    // DamageUnit
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_DamageUnit then\n");
-    output.push_str("        UnitDamageTarget(fx.source, fx.target, fx.amount, true, false, ConvertAttackType(fx.attack_type), ConvertDamageType(fx.damage_type), WEAPON_TYPE_WHOKNOWS)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_CreateUnit then\n");
-    output.push_str(
-        "        local u = CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)\n",
-    );
-    output.push_str("        u = nil\n");
-
-    // RemoveUnit
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_RemoveUnit then\n");
-    output.push_str("        RemoveUnit(fx.unit)\n");
-
-    // MoveUnit
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_MoveUnit then\n");
-    output.push_str("        SetUnitPosition(fx.unit, fx.x, fx.y)\n");
-
-    // PlayAnimation
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_PlayAnimation then\n");
-    output.push_str("        SetUnitAnimation(fx.unit, fx.anim)\n");
-
-    // AddAbility
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_AddAbility then\n");
-    output.push_str("        UnitAddAbility(fx.unit, fx.ability_id)\n");
-
-    // AddSfx
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_AddSfx then\n");
-    output.push_str("        DestroyEffect(AddSpecialEffect(fx.model, fx.x, fx.y))\n");
-
-    // SetUnitHp
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_SetUnitHp then\n");
-    output.push_str("        SetUnitState(fx.unit, UNIT_STATE_LIFE, fx.hp)\n");
-
-    // SetUnitMana
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_SetUnitMana then\n");
-    output.push_str("        SetUnitState(fx.unit, UNIT_STATE_MANA, fx.mana)\n");
-
-    // PanCamera
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_PanCamera then\n");
-    output.push_str("        if GetLocalPlayer() == Player(fx.player_id) then\n");
-    output.push_str("            PanCameraTo(fx.x, fx.y)\n");
-    output.push_str("        end\n");
-
-    // ShowFloatingText
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_ShowFloatingText then\n");
-    output.push_str("        local tt = CreateTextTag()\n");
-    output.push_str("        SetTextTagText(tt, fx.text, fx.size)\n");
-    output.push_str("        SetTextTagPos(tt, fx.x, fx.y, 0.0)\n");
-    output.push_str("        SetTextTagLifespan(tt, 3.0)\n");
-    output.push_str("        SetTextTagPermanent(tt, false)\n");
-    output.push_str("        SetTextTagVelocity(tt, 0.0, 0.04)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_PlaySound then\n");
-    output.push_str(
-        "        local snd = CreateSound(fx.path, false, false, false, 10, 10, \"DefaultEAXON\")\n",
-    );
-    output.push_str("        SetSoundVolume(snd, 127)\n");
-    output.push_str("        StartSound(snd)\n");
-    output.push_str("        KillSoundWhenDone(snd)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_FindNearestEnemy then\n");
-    output.push_str("        local g = CreateGroup()\n");
-    output.push_str("        GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)\n");
-    output.push_str("        local best = FirstOfGroup(g)\n");
-    output.push_str("        DestroyGroup(g)\n");
-    output.push_str("        if best ~= nil then\n");
-    output.push_str("            local msg = fx.callback(best)\n");
-    output.push_str("            glass_send_msg(msg)\n");
-    output.push_str("        end\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_CreateUnitCallback then\n");
-    output.push_str(
-        "        local u = CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)\n",
-    );
-    output.push_str("        local msg = fx.callback(u)\n");
-    output.push_str("        glass_send_msg(msg)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_GiveGold then\n");
-    output.push_str("        SetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_GOLD) + fx.gold_amount)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_GiveLumber then\n");
-    output.push_str("        SetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_LUMBER, GetPlayerState(Player(fx.player_id), PLAYER_STATE_RESOURCE_LUMBER) + fx.lumber_amount)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_KillUnit then\n");
-    output.push_str("        KillUnit(fx.unit)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_RemoveAbility then\n");
-    output.push_str("        UnitRemoveAbility(fx.unit, fx.ability_id)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_SetUnitOwner then\n");
-    output.push_str("        SetUnitOwner(fx.unit, Player(fx.player_id), true)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_PauseUnit then\n");
-    output.push_str("        PauseUnit(fx.unit, fx.paused)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_ShowUnit then\n");
-    output.push_str("        ShowUnit(fx.unit, fx.shown)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_SetInvulnerable then\n");
-    output.push_str("        SetUnitInvulnerable(fx.unit, fx.invulnerable)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_IssueOrder then\n");
-    output.push_str("        IssueImmediateOrder(fx.unit, fx.order)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_IssuePointOrder then\n");
-    output.push_str("        IssuePointOrder(fx.unit, fx.order, fx.x, fx.y)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_IssueTargetOrder then\n");
-    output.push_str("        IssueTargetOrder(fx.unit, fx.order, fx.target)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_AddSfxTarget then\n");
-    output.push_str(
-        "        DestroyEffect(AddSpecialEffectTarget(fx.model, fx.unit, fx.attach_point))\n",
-    );
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_ReviveHero then\n");
-    output.push_str("        ReviveHero(fx.unit, fx.x, fx.y, true)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_AddHeroXp then\n");
-    output.push_str("        AddHeroXP(fx.unit, fx.xp, true)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_SetUnitFacing then\n");
-    output.push_str("        SetUnitFacing(fx.unit, fx.facing)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_PingMinimap then\n");
-    output.push_str("        PingMinimap(fx.x, fx.y, fx.duration)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_CreateItem then\n");
-    output.push_str("        CreateItem(fx.item_type_id, fx.x, fx.y)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_SetUnitMoveSpeed then\n");
-    output.push_str("        SetUnitMoveSpeed(fx.unit, fx.speed)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_ForUnitsInRange then\n");
-    output.push_str("        local g = CreateGroup()\n");
-    output.push_str("        GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)\n");
-    output.push_str("        local u = FirstOfGroup(g)\n");
-    output.push_str("        while u ~= nil do\n");
-    output.push_str("            local msg = fx.callback(u)\n");
-    output.push_str("            glass_send_msg(msg)\n");
-    output.push_str("            GroupRemoveUnit(g, u)\n");
-    output.push_str("            u = FirstOfGroup(g)\n");
-    output.push_str("        end\n");
-    output.push_str("        DestroyGroup(g)\n");
-
-    output.push_str("    elseif fx.tag == glass_TAG_Effect_UpdateBoard then\n");
-    output.push_str("        local row_count = 0\n");
-    output.push_str("        local cur = fx.rows\n");
-    output.push_str("        while cur ~= nil do row_count = row_count + 1; cur = cur.tail end\n");
-    output.push_str("        if glass_multiboard == nil then\n");
-    output.push_str("            glass_multiboard = CreateMultiboard()\n");
-    output.push_str("        end\n");
-    output.push_str("        MultiboardSetColumnCount(glass_multiboard, 2)\n");
-    output.push_str("        MultiboardSetRowCount(glass_multiboard, row_count)\n");
-    output.push_str("        MultiboardSetTitleText(glass_multiboard, fx.title)\n");
-    output.push_str("        MultiboardDisplay(glass_multiboard, true)\n");
-    output.push_str("        cur = fx.rows\n");
-    output.push_str("        local ri = 0\n");
-    output.push_str("        while cur ~= nil do\n");
-    output.push_str("            local r = cur.head\n");
-    output.push_str("            local mbi0 = MultiboardGetItem(glass_multiboard, ri, 0)\n");
-    output.push_str("            MultiboardSetItemValue(mbi0, r.label)\n");
-    output.push_str("            MultiboardSetItemWidth(mbi0, 0.10)\n");
-    output.push_str("            MultiboardReleaseItem(mbi0)\n");
-    output.push_str("            local mbi1 = MultiboardGetItem(glass_multiboard, ri, 1)\n");
-    output.push_str("            MultiboardSetItemValue(mbi1, r.value)\n");
-    output.push_str("            MultiboardSetItemWidth(mbi1, 0.08)\n");
-    output.push_str("            MultiboardReleaseItem(mbi1)\n");
-    output.push_str("            ri = ri + 1\n");
-    output.push_str("            cur = cur.tail\n");
-    output.push_str("        end\n");
-
-    output.push_str("    end\n");
+    if !entry.effect_variants.is_empty() {
+        output.push_str("    end\n");
+    }
     output.push_str("end\n\n");
 }
 
