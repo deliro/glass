@@ -226,7 +226,11 @@ mod tests {
     fn check(source: &str) -> Vec<String> {
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().expect("parse failed");
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
 
         // Run inference first to populate constructor registry
         let mut inferencer = Inferencer::new();

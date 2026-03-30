@@ -61,21 +61,24 @@ impl GlassLsp {
             }
         };
         let mut parser = crate::parser::Parser::new(tokens);
-        let module = match parser.parse_module() {
-            Ok(m) => m,
-            Err(e) => {
-                let diag = Diagnostic {
+        let output = parser.parse_module();
+        if !output.errors.is_empty() {
+            let diags: Vec<Diagnostic> = output
+                .errors
+                .iter()
+                .map(|e| Diagnostic {
                     range: span_to_range(&source, e.span),
                     severity: Some(DiagnosticSeverity::ERROR),
-                    message: e.message,
+                    message: e.message.clone(),
                     ..Default::default()
-                };
-                self.client
-                    .publish_diagnostics(uri.clone(), vec![diag], None)
-                    .await;
-                return;
-            }
-        };
+                })
+                .collect();
+            self.client
+                .publish_diagnostics(uri.clone(), diags, None)
+                .await;
+            return;
+        }
+        let module = output.module;
 
         let input_path = uri.to_file_path().unwrap_or_default();
         let mut resolver = crate::modules::ModuleResolver::new(&input_path);

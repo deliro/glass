@@ -461,7 +461,11 @@ mod tests {
     fn parse_and_lift(source: &str) -> Module {
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let mut module = parser.parse_module().expect("parse failed");
+        let mut module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
         apply_lambda_lifting(&mut module);
         module
     }

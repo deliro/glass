@@ -1186,7 +1186,11 @@ mod tests {
     fn detect_entry_points(source: &str) -> Option<ElmEntryPoints> {
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().expect("parse failed");
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
         let types = TypeRegistry::from_module(&module);
         ElmEntryPoints::detect(&module, &types)
     }

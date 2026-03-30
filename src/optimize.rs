@@ -853,7 +853,7 @@ pub fn h(p: Pair) -> Int {
 }
 "#;
         let tokens = Lexer::tokenize(source).expect("lex failed");
-        let module = Parser::new(tokens).parse_module().unwrap();
+        let module = Parser::new(tokens).parse_module().module;
         let type_registry = TypeRegistry::from_module(&module);
         let mut lc = LambdaCollector::new();
         lc.collect_module(&module);
@@ -908,7 +908,7 @@ pub fn h(p: Pair) -> Int {
 
         let source = "fn test(x: Int) -> Int { x }";
         let tokens = Lexer::tokenize(source).expect("lex failed");
-        let module = Parser::new(tokens).parse_module().unwrap();
+        let module = Parser::new(tokens).parse_module().module;
         let reserved = collect_reserved_names(&module);
 
         for native_name in &[

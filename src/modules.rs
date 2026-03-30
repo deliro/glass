@@ -235,10 +235,14 @@ impl ModuleResolver {
             import: imp.clone(),
         })?;
         let mut parser = Parser::new(tokens);
-        let parsed = parser.parse_module().map_err(|e| ModuleError {
-            message: format!("parse error in '{}': {}", file_path.display(), e.message),
-            import: imp.clone(),
-        })?;
+        let output = parser.parse_module();
+        if let Some(e) = output.errors.first() {
+            return Err(ModuleError {
+                message: format!("parse error in '{}': {}", file_path.display(), e.message),
+                import: imp.clone(),
+            });
+        }
+        let parsed = output.module;
 
         // Recursively resolve imports in the imported module
         let (resolved_module, _sub_imports, _, _) =
@@ -296,7 +300,11 @@ mod tests {
         let source = "import option";
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().unwrap();
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
 
         let (resolved, imports, _, _) = resolver.resolve_module(&module).unwrap();
         // Should contain Option type from sdk/option.glass
@@ -327,7 +335,11 @@ mod tests {
         let source = "import option { Option, option_map }";
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().unwrap();
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
 
         let (_resolved, imports, _, _) = resolver.resolve_module(&module).unwrap();
         assert_eq!(imports.len(), 1);
@@ -344,7 +356,11 @@ mod tests {
         let source = "import option { Option, self }";
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().unwrap();
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
 
         let (_resolved, imports, _, _) = resolver.resolve_module(&module).unwrap();
         assert_eq!(imports.len(), 1);
@@ -366,7 +382,11 @@ mod tests {
         let source = std::fs::read_to_string(&input).unwrap();
         let tokens = Lexer::tokenize(&source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().unwrap();
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
 
         let result = resolver.resolve_module(&module);
         assert!(result.is_err());
@@ -382,7 +402,11 @@ mod tests {
         let source = "import nonexistent_module";
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
-        let module = parser.parse_module().unwrap();
+        let module = {
+            let _o = parser.parse_module();
+            assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+            _o.module
+        };
 
         let result = resolver.resolve_module(&module);
         assert!(result.is_err());
