@@ -14,18 +14,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
-use crate::jass_parser::JassSdk;
 use crate::token::Span;
-
-fn build_handle_types() -> HashSet<String> {
-    let stub = include_str!("../tests/common_stub.j");
-    let sdk = JassSdk::parse(stub);
-    sdk.types
-        .keys()
-        .filter(|name| sdk.is_handle_type(name) && *name != "handle")
-        .map(|name| JassSdk::jass_to_glass_type(name))
-        .collect()
-}
 
 fn is_handle_type(name: &str, handle_types: &HashSet<String>) -> bool {
     handle_types.contains(name)
@@ -68,11 +57,11 @@ pub struct LinearityChecker {
 }
 
 impl LinearityChecker {
-    pub fn new() -> Self {
+    pub fn new(handle_types: HashSet<String>) -> Self {
         Self {
             errors: Vec::new(),
             warnings: Vec::new(),
-            handle_types: build_handle_types(),
+            handle_types,
             types_with_handles: HashSet::new(),
             constructor_to_type: HashMap::new(),
         }
@@ -676,15 +665,21 @@ fn is_desync_unsafe(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jass_parser::JassSdk;
     use crate::parser::Parser;
     use crate::token::Lexer;
     use rstest::rstest;
+
+    fn test_handle_types() -> HashSet<String> {
+        let stub = include_str!("../tests/common_stub.j");
+        JassSdk::parse(stub).handle_type_names()
+    }
 
     fn check(source: &str) -> LinearityResult {
         let tokens = Lexer::tokenize(source);
         let mut parser = Parser::new(tokens);
         let module = parser.parse_module().expect("parse failed");
-        LinearityChecker::new().check_module(&module)
+        LinearityChecker::new(test_handle_types()).check_module(&module)
     }
 
     fn errors(source: &str) -> Vec<String> {

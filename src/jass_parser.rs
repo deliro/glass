@@ -161,6 +161,14 @@ impl JassSdk {
         }
         false
     }
+
+    pub fn handle_type_names(&self) -> std::collections::HashSet<String> {
+        self.types
+            .keys()
+            .filter(|name| self.is_handle_type(name) && *name != "handle")
+            .map(|name| Self::jass_to_glass_type(name))
+            .collect()
+    }
 }
 
 // === Auto-binding generation ===

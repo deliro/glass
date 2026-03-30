@@ -20,6 +20,22 @@ struct GlassLsp {
 }
 
 impl GlassLsp {
+    fn build_handle_types(input_path: &std::path::Path) -> std::collections::HashSet<String> {
+        let mut candidates = Vec::new();
+        if let Some(parent) = input_path.parent() {
+            candidates.push(parent.join("sdk").join("common.j"));
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd.join("sdk").join("common.j"));
+        }
+        for path in candidates {
+            if let Ok(source) = std::fs::read_to_string(&path) {
+                return crate::jass_parser::JassSdk::parse(&source).handle_type_names();
+            }
+        }
+        std::collections::HashSet::new()
+    }
+
     async fn analyze(&self, uri: &Url) {
         let source = {
             let docs = self.documents.read().await;
@@ -76,8 +92,9 @@ impl GlassLsp {
             }
         }
 
+        let handle_types = Self::build_handle_types(&input_path);
         let linearity_result =
-            crate::linearity::LinearityChecker::new().check_module(&resolved_module);
+            crate::linearity::LinearityChecker::new(handle_types).check_module(&resolved_module);
         for err in &linearity_result.errors {
             if err.span.start < source_len && err.span.end <= source_len {
                 diagnostics.push(Diagnostic {
