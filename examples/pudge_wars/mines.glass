@@ -1,0 +1,55 @@
+import int
+import types
+import wc3/math
+
+const MINE_SPACING: Float = 183.0
+const MINE_LIFE: Float = 10.0
+const PROXIMITY_RADIUS: Float = 75.0
+const MINE_UNIT_ID: Int = 'h00D'
+
+pub fn mine_unit_id() -> Int { MINE_UNIT_ID }
+pub fn proximity_radius() -> Float { PROXIMITY_RADIUS }
+
+pub fn close_damage(level: Int) -> Float {
+    400.0 + 62.5 * int.to_float(level - 1)
+}
+
+pub fn far_damage(level: Int) -> Float {
+    200.0 + 31.25 * int.to_float(level - 1)
+}
+
+pub fn cooldown(level: Int) -> Float {
+    case level < 5 {
+        True -> 20.0
+        False -> 15.0
+    }
+}
+
+pub fn mine_positions(cx: Float, cy: Float, angle: Float, max_range: Float, accum: Float) -> List((Float, Float)) {
+    case accum > max_range {
+        True -> []
+        False -> {
+            let px = cx + math.cos(angle) * accum
+            let py = cy + math.sin(angle) * accum
+            [(px, py) | mine_positions(cx, cy, angle, max_range, accum + MINE_SPACING)]
+        }
+    }
+}
+
+pub fn tick_mine(m: types.ActiveMine, dt: Float) -> types.ActiveMine {
+    types.ActiveMine {
+        x: m.x,
+        y: m.y,
+        close_damage: m.close_damage,
+        far_damage: m.far_damage,
+        remaining: m.remaining - dt,
+        owner_index: m.owner_index,
+        handle: m.handle,
+    }
+}
+
+pub fn mine_expired(m: types.ActiveMine) -> Bool {
+    m.remaining <= 0.0
+}
+
+pub fn mine_life() -> Float { MINE_LIFE }

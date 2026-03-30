@@ -102,6 +102,7 @@ pub struct JassCodegen {
     const_values: HashMap<String, String>,
     dispatch_sigs: HashSet<String>,
     current_list_elem_type: Option<String>,
+    current_tuple_field_types: Option<Vec<String>>,
     var_list_elem_types: HashMap<String, String>,
     local_var_jass_types: HashMap<String, String>,
     local_var_glass_types: HashMap<String, String>,
@@ -152,6 +153,7 @@ impl JassCodegen {
             const_values: HashMap::new(),
             dispatch_sigs: HashSet::new(),
             current_list_elem_type: None,
+            current_tuple_field_types: None,
             var_list_elem_types: HashMap::new(),
             local_var_jass_types: HashMap::new(),
             local_var_glass_types: HashMap::new(),
@@ -684,6 +686,24 @@ impl JassCodegen {
                         }
                     }
                 }
+            }
+            Pattern::Tuple(elems) => {
+                let field_types = self.lookup_tuple_field_types(elems.len());
+                for (i, elem) in elems.iter().enumerate() {
+                    if let Pattern::Var(vname) = &elem.node {
+                        if vname != "_" {
+                            if let Some(jt) = field_types.get(i) {
+                                self.pattern_var_types.insert(vname.clone(), jt.clone());
+                            }
+                        }
+                    } else {
+                        self.scan_pattern_var_bindings(&elem.node);
+                    }
+                }
+            }
+            Pattern::ListCons { head, tail } => {
+                self.scan_pattern_var_bindings(&head.node);
+                self.scan_pattern_var_bindings(&tail.node);
             }
             _ => {}
         }
@@ -1289,6 +1309,11 @@ impl JassCodegen {
                     Some(et) => self.current_list_elem_type.replace(et),
                     None => None,
                 };
+                let new_tuple_types = self.extract_tuple_field_types_from_subject(subject);
+                let prev_tuple_types = match new_tuple_types {
+                    Some(tt) => self.current_tuple_field_types.replace(tt),
+                    None => None,
+                };
 
                 let subj = if subject_type_name.as_deref() == Some("Bool")
                     && subj.contains("glass_dispatch_")
@@ -1326,6 +1351,11 @@ impl JassCodegen {
                 self.emit("endif");
                 if let Some(prev) = prev_list_type {
                     self.current_list_elem_type = Some(prev);
+                }
+                if let Some(prev) = prev_tuple_types {
+                    self.current_tuple_field_types = Some(prev);
+                } else {
+                    self.current_tuple_field_types = None;
                 }
             }
             Expr::Let {
@@ -1791,7 +1821,7 @@ impl JassCodegen {
                         if has_compound_arm || has_integer_var_arm {
                             return "integer".to_string();
                         }
-                        if jt != "real"
+                        if jt == "integer"
                             && arms
                                 .iter()
                                 .any(|a| self.expr_has_float(&a.body.node))
@@ -1861,6 +1891,11 @@ impl JassCodegen {
                     Some(et) => self.current_list_elem_type.replace(et),
                     None => None,
                 };
+                let new_tuple_types = self.extract_tuple_field_types_from_subject(subject);
+                let prev_tuple_types = match new_tuple_types {
+                    Some(tt) => self.current_tuple_field_types.replace(tt),
+                    None => None,
+                };
 
                 for (i, arm) in arms.iter().enumerate() {
                     let condition = self.gen_pattern_condition_typed(
@@ -1891,6 +1926,11 @@ impl JassCodegen {
                 self.emit("endif");
                 if let Some(prev) = prev_list_type {
                     self.current_list_elem_type = Some(prev);
+                }
+                if let Some(prev) = prev_tuple_types {
+                    self.current_tuple_field_types = Some(prev);
+                } else {
+                    self.current_tuple_field_types = None;
                 }
                 result_var
             }
@@ -2283,6 +2323,71 @@ impl JassCodegen {
         }
     }
 
+    fn extract_tuple_field_types_from_subject(&self, subject: &Spanned<Expr>) -> Option<Vec<String>> {
+        let ty = self.lookup_full_type(subject.span)?;
+        match ty {
+            Type::App(con, args) => {
+                if let Type::Con(name) = *con {
+                    if name == "List" {
+                        if let Some(elem_ty) = args.into_iter().next() {
+                            return self.tuple_field_types_from_type(&elem_ty);
+                        }
+                    }
+                }
+                None
+            }
+            Type::Tuple(elems) => {
+                Some(elems.iter().map(|e| e.to_jass().to_string()).collect())
+            }
+            _ => None,
+        }
+    }
+
+    fn tuple_field_types_from_type(&self, ty: &Type) -> Option<Vec<String>> {
+        match ty {
+            Type::Tuple(elems) => {
+                Some(elems.iter().map(|e| e.to_jass().to_string()).collect())
+            }
+            Type::App(con, args) => {
+                if let Type::Con(name) = con.as_ref() {
+                    if name.starts_with("Tuple") {
+                        return Some(args.iter().map(|a| a.to_jass().to_string()).collect());
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn lookup_tuple_field_types(&self, arity: usize) -> Vec<String> {
+        if let Some(ref types) = self.current_tuple_field_types {
+            if types.len() == arity {
+                return types.clone();
+            }
+        }
+        let prefix = format!("Tuple{}_", arity);
+        let candidates: Vec<&TypeInfo> = self
+            .types
+            .types
+            .values()
+            .filter(|ti| {
+                ti.name.starts_with(&prefix)
+                    && ti.variants.first().is_some_and(|v| v.fields.len() == arity)
+            })
+            .collect();
+        if candidates.len() == 1 {
+            candidates[0]
+                .variants[0]
+                .fields
+                .iter()
+                .map(|f| f.jass_type.clone())
+                .collect()
+        } else {
+            vec!["integer".to_string(); arity]
+        }
+    }
+
     fn resolve_variant<'a>(&'a self, name: &str) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
         let bare = Self::full_bare_name(name);
         match Self::type_hint_from_ctor_name(name) {
@@ -2385,7 +2490,12 @@ impl JassCodegen {
                 }
             }
             Pattern::Tuple(elems) => {
-                let shape: Vec<String> = elems.iter().map(|_| "integer".to_string()).collect();
+                let field_types = self.lookup_tuple_field_types(elems.len());
+                let shape: Vec<String> = if field_types.iter().any(|t| t != "integer") {
+                    field_types
+                } else {
+                    elems.iter().map(|_| "integer".to_string()).collect()
+                };
                 let tuple_type = crate::types::TypeRegistry::tuple_type_name(&shape);
 
                 let tmp = if val.starts_with("glass_") {
@@ -2517,27 +2627,8 @@ impl JassCodegen {
                 self.gen_pattern_bindings(&tail.node, &tail_expr);
             }
             Pattern::Tuple(elems) => {
-                let n = elems.len();
-                let prefix = format!("Tuple{}_", n);
-                let tuple_type = self
-                    .types
-                    .types
-                    .keys()
-                    .find(|k| {
-                        k.starts_with(&prefix)
-                            && self
-                                .types
-                                .types
-                                .get(*k)
-                                .and_then(|ti| ti.variants.first())
-                                .is_some_and(|v| v.fields.len() == n)
-                    })
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        let shape: Vec<String> =
-                            elems.iter().map(|_| "integer".to_string()).collect();
-                        crate::types::TypeRegistry::tuple_type_name(&shape)
-                    });
+                let field_types = self.lookup_tuple_field_types(elems.len());
+                let tuple_type = crate::types::TypeRegistry::tuple_type_name(&field_types);
                 for (i, elem) in elems.iter().enumerate() {
                     let field_val =
                         format!("glass_{}_{}__{} [{}]", tuple_type, tuple_type, i, subject);
@@ -2622,12 +2713,22 @@ impl JassCodegen {
                     Some(et) => self.current_list_elem_type.replace(et),
                     None => None,
                 };
+                let new_tuple_types = self.extract_tuple_field_types_from_subject(subject);
+                let prev_tuple = match new_tuple_types {
+                    Some(tt) => self.current_tuple_field_types.replace(tt),
+                    None => None,
+                };
                 for arm in arms {
                     self.collect_pattern_locals(&arm.pattern.node, locals);
                     self.collect_locals(&arm.body.node, locals);
                 }
                 if let Some(prev_val) = prev {
                     self.current_list_elem_type = Some(prev_val);
+                }
+                if let Some(prev_val) = prev_tuple {
+                    self.current_tuple_field_types = Some(prev_val);
+                } else {
+                    self.current_tuple_field_types = None;
                 }
             }
             Expr::Block(exprs) => {
@@ -2751,8 +2852,19 @@ impl JassCodegen {
                 self.collect_pattern_locals(&pattern.node, locals);
             }
             Pattern::Tuple(elems) => {
-                for e in elems {
-                    self.collect_pattern_locals(&e.node, locals);
+                let field_types = self.lookup_tuple_field_types(elems.len());
+                for (i, e) in elems.iter().enumerate() {
+                    if let Pattern::Var(name) = &e.node {
+                        if name != "_" {
+                            let jass_type = field_types
+                                .get(i)
+                                .cloned()
+                                .unwrap_or_else(|| "integer".to_string());
+                            locals.push((name.clone(), jass_type));
+                        }
+                    } else {
+                        self.collect_pattern_locals(&e.node, locals);
+                    }
                 }
             }
             Pattern::ListCons { head, tail } => {

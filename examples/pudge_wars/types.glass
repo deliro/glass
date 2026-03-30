@@ -102,6 +102,7 @@ pub enum MaybeBuff {
 pub enum HookVariant {
     Normal
     Grapple
+    Toss
 }
 
 pub enum DamageKind {
@@ -183,6 +184,34 @@ pub fn damage_kind_tag(k: DamageKind) -> Int {
         Dynamite -> 9
         Rupture -> 10
     }
+}
+
+pub struct ActiveMine {
+    x: Float,
+    y: Float,
+    close_damage: Float,
+    far_damage: Float,
+    remaining: Float,
+    owner_index: Int,
+    handle: Unit,
+}
+
+pub struct Barricade {
+    handle: Unit,
+    owner_index: Int,
+}
+
+pub struct BladeBarrierState {
+    blades: List(Unit),
+    owner_index: Int,
+    angle: Float,
+    remaining: Float,
+}
+
+pub struct DynamiteState {
+    holder_index: Int,
+    prev_holder_index: Int,
+    remaining: Float,
 }
 
 pub fn new_player(idx: Int, team: Team) -> PlayerData {

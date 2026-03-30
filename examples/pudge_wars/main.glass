@@ -11,12 +11,18 @@ import commands
 import scoring
 import powerup
 import items
+import mines
+import barricade
+import blade_barrier
 import wc3/unit
 import wc3/math
 import wc3/player
 
 const HOOK_ABILITY: Int = 'A000'
 const GRAPPLE_ABILITY: Int = 'A00C'
+const TOSS_ABILITY: Int = 'A019'
+const FISSURE_ABILITY: Int = 'A001'
+const BARRICADE_ABILITY: Int = 'A00H'
 const DETONATE_ABILITY: Int = 'A00U'
 const RESPAWN_TICK_INTERVAL: Float = 1.0
 const INVULN_DURATION: Float = 3.0
@@ -62,6 +68,9 @@ pub enum Msg {
     PowerupCreated { kind: types.PowerupKind, direction: Float, created_unit: Unit }
     BuffTick
     ItemPickedUp { buyer: Unit, item_type: Int }
+    MineCreated { owner_index: Int, x: Float, y: Float, close_dmg: Float, far_dmg: Float, created_unit: Unit }
+    BarricadeCreated { owner_index: Int, hp: Float, created_unit: Unit }
+    BladeCreated { barrier_index: Int, blade_index: Int, created_blade: Unit }
 }
 
 pub struct Model {
@@ -74,6 +83,10 @@ pub struct Model {
     powerups: List(types.Powerup),
     next_spawn_south: Bool,
     spawn_count: Int,
+    active_mines: List(types.ActiveMine),
+    barricades: List(types.Barricade),
+    blade_barriers: List(types.BladeBarrierState),
+    dynamites: List(types.DynamiteState),
 }
 
 fn make_west_players(i: Int) -> List(types.PlayerData) {
@@ -278,6 +291,8 @@ fn launch_hook(model: Model, caster: Unit, tx: Float, ty: Float, variant: types.
         powerups: model.powerups,
         next_spawn_south: model.next_spawn_south,
         spawn_count: model.spawn_count,
+        active_mines: model.active_mines, barricades: model.barricades,
+        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
     }
     let tip_effect = effect.create_unit_callback(
         owner_id,
@@ -294,6 +309,9 @@ fn handle_spell_ground(model: Model, caster: Unit, spell_id: Int, tx: Float, ty:
     case spell_id {
         HOOK_ABILITY -> launch_hook(model, caster, tx, ty, HookVariant::Normal)
         GRAPPLE_ABILITY -> launch_hook(model, caster, tx, ty, HookVariant::Grapple)
+        TOSS_ABILITY -> launch_hook(model, caster, tx, ty, HookVariant::Toss)
+        FISSURE_ABILITY -> handle_fissure(model, caster, tx, ty)
+        BARRICADE_ABILITY -> handle_barricade(model, caster, tx, ty)
         _ -> handle_upgrade(model, caster, spell_id)
     }
 }
@@ -320,6 +338,8 @@ fn rebuild_model(model: Model, players: List(types.PlayerData)) -> Model {
         players: players, hooks: model.hooks, tick_count: model.tick_count,
         powerups: model.powerups, next_spawn_south: model.next_spawn_south,
         spawn_count: model.spawn_count,
+        active_mines: model.active_mines, barricades: model.barricades,
+        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
     }
 }
 
@@ -329,6 +349,8 @@ fn rebuild_model_hooks(model: Model, hooks: List(types.HookData)) -> Model {
         players: model.players, hooks: hooks, tick_count: model.tick_count,
         powerups: model.powerups, next_spawn_south: model.next_spawn_south,
         spawn_count: model.spawn_count,
+        active_mines: model.active_mines, barricades: model.barricades,
+        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
     }
 }
 
@@ -582,68 +604,103 @@ fn make_lifesteal_effect(caster: Unit, damage: Float, player_items: List(types.O
     }
 }
 
+fn make_toss_impact_effects(tip_x: Float, tip_y: Float, damage: Float, caster: Unit) -> List(effect.Effect(Msg)) {
+    let aoe = effect.for_units_in_range(tip_x, tip_y, 200.0, fn(u: Unit) -> Msg {
+        Msg::DamageTaken { source: clone(caster), target: u, amount: damage }
+    })
+    let sfx = effect.add_sfx("Abilities\\Spells\\Orc\\WarStomp\\WarStompCaster.mdl", tip_x, tip_y)
+    [aoe, sfx]
+}
+
 fn tick_one_hook(h: types.HookData, all_hooks: List(types.HookData), idx: Int, players: List(types.PlayerData)) -> (types.HookData, List(effect.Effect(Msg))) {
     case h.state {
         Launching -> {
             let result = hook.tick_launching(h)
-            let chain_model = result.hook.chain_model
-            let link_effects = case result.spawn_link {
-                True -> [
-                    effect.create_unit_callback(
-                        result.hook.owner_index,
-                        chain_model,
-                        result.link_x,
-                        result.link_y,
-                        0.0,
-                        fn(u: Unit) -> Msg { Msg::ChainLinkCreated { hook_index: idx, link: u } }
-                    )
-                ]
-                False -> []
+            let is_toss = case result.hook.variant {
+                HookVariant::Toss -> True
+                _ -> False
             }
-            let collision = hook.check_collision(result.hook.tip_x, result.hook.tip_y, result.hook.radius, clone(result.hook.caster), result.hook.spectral)
-            case collision {
-                Option::Some(hit) -> {
-                    let target_id = unit.handle_id(clone(hit))
-                    let is_headshot = hook.is_unit_caught_by_hooks(all_hooks, target_id)
-                    case is_headshot {
-                        True -> {
-                            let headshot_effects = make_headshot_effects(hit)
-                            let retract_hook = rebuild_hook_caught(result.hook, HookState::Retracting, Option::None)
-                            (retract_hook, append_effects(link_effects, headshot_effects))
-                        }
-                        False -> {
-                            let is_grapple = case result.hook.variant {
-                                Grapple -> True
-                                _ -> False
-                            }
-                            case is_grapple {
-                                True -> {
-                                    let grapple_hook = rebuild_hook_caught(result.hook, HookState::RetractingWithTarget, Option::Some(hit))
-                                    (grapple_hook, link_effects)
-                                }
-                                False -> {
-                                    let catch_effects = make_catch_effects(clone(hit))
-                                    let thunder_effects = case result.hook.has_thunder {
-                                        True -> make_thunder_effects(result.hook.tip_x, result.hook.tip_y, clone(result.hook.caster))
-                                        False -> []
-                                    }
-                                    let caught_hook = rebuild_hook_caught(result.hook, HookState::RetractingWithTarget, Option::Some(hit))
-                                    (caught_hook, append_effects(link_effects, append_effects(catch_effects, thunder_effects)))
-                                }
-                            }
-                        }
-                    }
-                }
-                Option::None -> {
+            case is_toss {
+                True -> {
                     let is_now_retracting = case result.hook.state {
                         Retracting -> True
                         _ -> False
                     }
-                    let flame_effects = case is_now_retracting && result.hook.has_flame {
-                        True -> [make_flame_trail_effect(result.hook.owner_index, result.hook.tip_x, result.hook.tip_y)]
+                    let collision = hook.check_collision(result.hook.tip_x, result.hook.tip_y, result.hook.radius, clone(result.hook.caster), result.hook.spectral)
+                    let hit_something = case collision {
+                        Option::Some(_) -> True
+                        Option::None -> False
+                    }
+                    case hit_something || is_now_retracting {
+                        True -> {
+                            let impact = make_toss_impact_effects(result.hook.tip_x, result.hook.tip_y, result.hook.damage, clone(result.hook.caster))
+                            let retract_hook = rebuild_hook_state(result.hook, HookState::Retracting)
+                            (retract_hook, impact)
+                        }
+                        False -> (result.hook, [])
+                    }
+                }
+                False -> {
+                    let chain_model = result.hook.chain_model
+                    let link_effects = case result.spawn_link {
+                        True -> [
+                            effect.create_unit_callback(
+                                result.hook.owner_index,
+                                chain_model,
+                                result.link_x,
+                                result.link_y,
+                                0.0,
+                                fn(u: Unit) -> Msg { Msg::ChainLinkCreated { hook_index: idx, link: u } }
+                            )
+                        ]
                         False -> []
                     }
-                    (result.hook, append_effects(link_effects, flame_effects))
+                    let collision = hook.check_collision(result.hook.tip_x, result.hook.tip_y, result.hook.radius, clone(result.hook.caster), result.hook.spectral)
+                    case collision {
+                        Option::Some(hit) -> {
+                            let target_id = unit.handle_id(clone(hit))
+                            let is_headshot = hook.is_unit_caught_by_hooks(all_hooks, target_id)
+                            case is_headshot {
+                                True -> {
+                                    let headshot_effects = make_headshot_effects(hit)
+                                    let retract_hook = rebuild_hook_caught(result.hook, HookState::Retracting, Option::None)
+                                    (retract_hook, append_effects(link_effects, headshot_effects))
+                                }
+                                False -> {
+                                    let is_grapple = case result.hook.variant {
+                                        Grapple -> True
+                                        _ -> False
+                                    }
+                                    case is_grapple {
+                                        True -> {
+                                            let grapple_hook = rebuild_hook_caught(result.hook, HookState::RetractingWithTarget, Option::Some(hit))
+                                            (grapple_hook, link_effects)
+                                        }
+                                        False -> {
+                                            let catch_effects = make_catch_effects(clone(hit))
+                                            let thunder_effects = case result.hook.has_thunder {
+                                                True -> make_thunder_effects(result.hook.tip_x, result.hook.tip_y, clone(result.hook.caster))
+                                                False -> []
+                                            }
+                                            let caught_hook = rebuild_hook_caught(result.hook, HookState::RetractingWithTarget, Option::Some(hit))
+                                            (caught_hook, append_effects(link_effects, append_effects(catch_effects, thunder_effects)))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Option::None -> {
+                            let is_now_retracting = case result.hook.state {
+                                Retracting -> True
+                                _ -> False
+                            }
+                            let flame_effects = case is_now_retracting && result.hook.has_flame {
+                                True -> [make_flame_trail_effect(result.hook.owner_index, result.hook.tip_x, result.hook.tip_y)]
+                                False -> []
+                            }
+                            (result.hook, append_effects(link_effects, flame_effects))
+                        }
+                    }
                 }
             }
         }
@@ -702,6 +759,8 @@ fn handle_hook_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
         powerups: model.powerups,
         next_spawn_south: model.next_spawn_south,
         spawn_count: model.spawn_count,
+        active_mines: model.active_mines, barricades: model.barricades,
+        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
     }
     (new_model, effects)
 }
@@ -903,6 +962,8 @@ fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(ef
                         powerups: model.powerups,
                         next_spawn_south: model.next_spawn_south,
                         spawn_count: model.spawn_count,
+                        active_mines: model.active_mines, barricades: model.barricades,
+                        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
                     }
                     let victory_effects = make_victory_effects(winner)
                     (new_model, append_effects([gold_effect, text_effect, board_effect], victory_effects))
@@ -918,6 +979,8 @@ fn handle_unit_died(model: Model, victim: Unit, killer: Unit) -> (Model, List(ef
                         powerups: model.powerups,
                         next_spawn_south: model.next_spawn_south,
                         spawn_count: model.spawn_count,
+                        active_mines: model.active_mines, barricades: model.barricades,
+                        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
                     }
                     (new_model, [gold_effect, text_effect, board_effect])
                 }
@@ -1060,6 +1123,8 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                         powerups: model.powerups,
                         next_spawn_south: model.next_spawn_south,
                         spawn_count: model.spawn_count,
+                        active_mines: model.active_mines, barricades: model.barricades,
+                        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
                     }
                     let board = make_board_effect(new_model.players, new_model.mode)
                     let announce = effect.display_text(0, "Mode set: " <> mode_name(new_model.mode), 10.0)
@@ -1082,6 +1147,8 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                     players: model.players, hooks: model.hooks, tick_count: model.tick_count,
                     powerups: model.powerups, next_spawn_south: model.next_spawn_south,
                     spawn_count: model.spawn_count,
+                    active_mines: model.active_mines, barricades: model.barricades,
+                    blade_barriers: model.blade_barriers, dynamites: model.dynamites,
                 }
                 let msg_text = case new_mods.no_timer {
                     True -> "No Timer: ON"
@@ -1104,6 +1171,8 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                     players: model.players, hooks: model.hooks, tick_count: model.tick_count,
                     powerups: model.powerups, next_spawn_south: model.next_spawn_south,
                     spawn_count: model.spawn_count,
+                    active_mines: model.active_mines, barricades: model.barricades,
+                    blade_barriers: model.blade_barriers, dynamites: model.dynamites,
                 }
                 let msg_text = case new_mods.boosted {
                     True -> "Boosted Mode: ON"
@@ -1126,6 +1195,8 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                     players: model.players, hooks: model.hooks, tick_count: model.tick_count,
                     powerups: model.powerups, next_spawn_south: model.next_spawn_south,
                     spawn_count: model.spawn_count,
+                    active_mines: model.active_mines, barricades: model.barricades,
+                    blade_barriers: model.blade_barriers, dynamites: model.dynamites,
                 }
                 let msg_text = case new_mods.no_powerup {
                     True -> "No Powerup: ON"
@@ -1148,6 +1219,8 @@ fn handle_chat_command(model: Model, player_id: Int, text: String) -> (Model, Li
                     players: model.players, hooks: model.hooks, tick_count: model.tick_count,
                     powerups: model.powerups, next_spawn_south: model.next_spawn_south,
                     spawn_count: model.spawn_count,
+                    active_mines: model.active_mines, barricades: model.barricades,
+                    blade_barriers: model.blade_barriers, dynamites: model.dynamites,
                 }
                 let msg_text = case new_mods.hook_only {
                     True -> "Hook Only: ON"
@@ -1247,6 +1320,8 @@ fn handle_timed_mode_expired(model: Model) -> (Model, List(effect.Effect(Msg))) 
                 powerups: model.powerups,
                 next_spawn_south: model.next_spawn_south,
                 spawn_count: model.spawn_count,
+                active_mines: model.active_mines, barricades: model.barricades,
+                blade_barriers: model.blade_barriers, dynamites: model.dynamites,
             }
             let victory_effects = make_victory_effects(winner)
             (new_model, victory_effects)
@@ -1288,6 +1363,8 @@ fn handle_powerup_spawn_tick(model: Model) -> (Model, List(effect.Effect(Msg))) 
                     powerups: model.powerups,
                     next_spawn_south: model.next_spawn_south == False,
                     spawn_count: model.spawn_count + 1,
+                    active_mines: model.active_mines, barricades: model.barricades,
+                    blade_barriers: model.blade_barriers, dynamites: model.dynamites,
                 }
                 (new_model, [spawn_eff])
             }
@@ -1316,6 +1393,8 @@ fn handle_powerup_created(model: Model, kind: types.PowerupKind, direction: Floa
         powerups: [pw | model.powerups],
         next_spawn_south: model.next_spawn_south,
         spawn_count: model.spawn_count,
+        active_mines: model.active_mines, barricades: model.barricades,
+        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
     }
     (new_model, [])
 }
@@ -1349,7 +1428,12 @@ fn tick_powerups(pups: List(types.Powerup)) -> (List(types.Powerup), List(effect
 }
 
 fn handle_powerup_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
-    let (new_pups, effects) = tick_powerups(model.powerups)
+    let dt = powerup.tick_interval()
+    let (new_pups, pup_effects) = tick_powerups(model.powerups)
+    let (ticked_mines, mine_tick_effects) = tick_mines(model.active_mines, dt)
+    let (alive_mines, mine_prox_effects) = check_mine_proximity(ticked_mines, model.players)
+    let (new_barriers, barrier_effects) = tick_blade_barriers(model.blade_barriers, dt, model.players)
+    let (new_dynamites, dyn_effects) = tick_dynamites(model.dynamites, dt, model.players)
     let new_model = Model {
         phase: model.phase,
         mode: model.mode,
@@ -1360,8 +1444,10 @@ fn handle_powerup_tick(model: Model) -> (Model, List(effect.Effect(Msg))) {
         powerups: new_pups,
         next_spawn_south: model.next_spawn_south,
         spawn_count: model.spawn_count,
+        active_mines: alive_mines, barricades: model.barricades,
+        blade_barriers: new_barriers, dynamites: new_dynamites,
     }
-    (new_model, effects)
+    (new_model, append_effects(pup_effects, append_effects(mine_tick_effects, append_effects(mine_prox_effects, append_effects(barrier_effects, dyn_effects)))))
 }
 
 fn add_buff_to_player(players: List(types.PlayerData), pid: Int, kind: types.PowerupKind) -> List(types.PlayerData) {
@@ -1459,6 +1545,401 @@ fn add_item_to_player(players: List(types.PlayerData), pid: Int, kind: types.Ite
     }
 }
 
+fn handle_fissure(model: Model, caster: Unit, tx: Float, ty: Float) -> (Model, List(effect.Effect(Msg))) {
+    let owner_id = player.get_id(player.get_owner(clone(caster)))
+    let cx = unit.get_x(clone(caster))
+    let cy = unit.get_y(clone(caster))
+    let angle: Float = math.atan2(ty - cy, tx - cx)
+    let level = items.item_level(get_player_items(model.players, owner_id), ItemKind::EarthshakerTotem)
+    let eff_level = case level < 1 {
+        True -> 1
+        False -> level
+    }
+    let close_dmg = mines.close_damage(eff_level)
+    let far_dmg = mines.far_damage(eff_level)
+    let max_range = get_player_hook_range(model.players, owner_id)
+    let positions = mines.mine_positions(cx, cy, angle, max_range, mines.proximity_radius())
+    let effects = make_mine_create_effects(positions, owner_id, close_dmg, far_dmg)
+    (model, effects)
+}
+
+fn make_mine_create_effects(positions: List((Float, Float)), owner_id: Int, close_dmg: Float, far_dmg: Float) -> List(effect.Effect(Msg)) {
+    case positions {
+        [] -> []
+        [(px, py) | rest] -> {
+            let oid = owner_id
+            let cd = close_dmg
+            let fd = far_dmg
+            let eff = effect.create_unit_callback(
+                NEUTRAL_PLAYER,
+                mines.mine_unit_id(),
+                px,
+                py,
+                0.0,
+                fn(u: Unit) -> Msg { Msg::MineCreated { owner_index: oid, x: px, y: py, close_dmg: cd, far_dmg: fd, created_unit: u } }
+            )
+            [eff | make_mine_create_effects(rest, owner_id, close_dmg, far_dmg)]
+        }
+    }
+}
+
+fn handle_mine_created(model: Model, owner_index: Int, x: Float, y: Float, close_dmg: Float, far_dmg: Float, u: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let invuln_eff = effect.set_invulnerable(clone(u), True)
+    let mine = types.ActiveMine {
+        x: x,
+        y: y,
+        close_damage: close_dmg,
+        far_damage: far_dmg,
+        remaining: mines.mine_life(),
+        owner_index: owner_index,
+        handle: u,
+    }
+    let new_model = Model {
+        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+        players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+        powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+        active_mines: [mine | model.active_mines], barricades: model.barricades,
+        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+    }
+    (new_model, [invuln_eff])
+}
+
+fn handle_barricade(model: Model, caster: Unit, tx: Float, ty: Float) -> (Model, List(effect.Effect(Msg))) {
+    let owner_id = player.get_id(player.get_owner(clone(caster)))
+    let level = items.item_level(get_player_items(model.players, owner_id), ItemKind::TechiesBarrel)
+    let eff_level = case level < 1 {
+        True -> 1
+        False -> level
+    }
+    let hp = barricade.health(eff_level)
+    let oid = owner_id
+    let eff = effect.create_unit_callback(
+        owner_id,
+        barricade.unit_id(),
+        tx,
+        ty,
+        0.0,
+        fn(u: Unit) -> Msg { Msg::BarricadeCreated { owner_index: oid, hp: hp, created_unit: u } }
+    )
+    (model, [eff])
+}
+
+fn handle_barricade_created(model: Model, owner_index: Int, hp: Float, u: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let _ = unit.set_hp(clone(u), hp)
+    let b = types.Barricade {
+        handle: u,
+        owner_index: owner_index,
+    }
+    let new_model = Model {
+        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+        players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+        powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+        active_mines: model.active_mines, barricades: [b | model.barricades],
+        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+    }
+    (new_model, [])
+}
+
+fn tick_mines(mine_list: List(types.ActiveMine), dt: Float) -> (List(types.ActiveMine), List(effect.Effect(Msg))) {
+    case mine_list {
+        [] -> ([], [])
+        [m | rest] -> {
+            let updated = mines.tick_mine(m, dt)
+            let (rest_mines, rest_effects) = tick_mines(rest, dt)
+            case mines.mine_expired(updated) {
+                True -> (rest_mines, [effect.remove_unit(updated.handle) | rest_effects])
+                False -> ([updated | rest_mines], rest_effects)
+            }
+        }
+    }
+}
+
+fn check_mine_proximity(mine_list: List(types.ActiveMine), players: List(types.PlayerData)) -> (List(types.ActiveMine), List(effect.Effect(Msg))) {
+    case mine_list {
+        [] -> ([], [])
+        [m | rest] -> {
+            let (rest_mines, rest_effects) = check_mine_proximity(rest, players)
+            let enemy_near = check_enemy_near_mine(m, players)
+            case enemy_near {
+                True -> {
+                    let aoe_close = effect.for_units_in_range(m.x, m.y, mines.proximity_radius(), fn(u: Unit) -> Msg {
+                        Msg::DamageTaken { source: clone(u), target: u, amount: m.close_damage }
+                    })
+                    let aoe_far = effect.for_units_in_range(m.x, m.y, mines.proximity_radius() * 2.0, fn(u: Unit) -> Msg {
+                        Msg::DamageTaken { source: clone(u), target: u, amount: m.far_damage }
+                    })
+                    let sfx = effect.add_sfx("Abilities\\Spells\\Orc\\WarStomp\\WarStompCaster.mdl", m.x, m.y)
+                    let rm = effect.remove_unit(m.handle)
+                    (rest_mines, append_effects([rm, aoe_close, aoe_far, sfx], rest_effects))
+                }
+                False -> ([m | rest_mines], rest_effects)
+            }
+        }
+    }
+}
+
+fn check_enemy_near_mine(m: types.ActiveMine, players: List(types.PlayerData)) -> Bool {
+    case players {
+        [] -> False
+        [p | rest] -> {
+            case p.alive && p.left == False {
+                True -> {
+                    let near = case p.hero {
+                        Option::Some(h) -> {
+                            let hx = unit.get_x(clone(h))
+                            let hy = unit.get_y(clone(h))
+                            let dx = hx - m.x
+                            let dy = hy - m.y
+                            dx * dx + dy * dy < mines.proximity_radius() * mines.proximity_radius()
+                        }
+                        Option::None -> False
+                    }
+                    case near {
+                        True -> True
+                        False -> check_enemy_near_mine(m, rest)
+                    }
+                }
+                False -> check_enemy_near_mine(m, rest)
+            }
+        }
+    }
+}
+
+fn rebuild_model_mines(model: Model, new_mines: List(types.ActiveMine)) -> Model {
+    Model {
+        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+        players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+        powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+        active_mines: new_mines, barricades: model.barricades,
+        blade_barriers: model.blade_barriers, dynamites: model.dynamites,
+    }
+}
+
+fn rebuild_model_barriers(model: Model, new_barriers: List(types.BladeBarrierState)) -> Model {
+    Model {
+        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+        players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+        powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+        active_mines: model.active_mines, barricades: model.barricades,
+        blade_barriers: new_barriers, dynamites: model.dynamites,
+    }
+}
+
+fn rebuild_model_dynamites(model: Model, new_dynamites: List(types.DynamiteState)) -> Model {
+    Model {
+        phase: model.phase, mode: model.mode, modifiers: model.modifiers,
+        players: model.players, hooks: model.hooks, tick_count: model.tick_count,
+        powerups: model.powerups, next_spawn_south: model.next_spawn_south,
+        spawn_count: model.spawn_count,
+        active_mines: model.active_mines, barricades: model.barricades,
+        blade_barriers: model.blade_barriers, dynamites: new_dynamites,
+    }
+}
+
+fn tick_blade_barriers(barriers: List(types.BladeBarrierState), dt: Float, players: List(types.PlayerData)) -> (List(types.BladeBarrierState), List(effect.Effect(Msg))) {
+    case barriers {
+        [] -> ([], [])
+        [b | rest] -> {
+            let new_remaining = blade_barrier.tick_remaining(b.remaining, dt)
+            let new_angle = blade_barrier.tick_angle(b.angle)
+            let (rest_barriers, rest_effects) = tick_blade_barriers(rest, dt, players)
+            case new_remaining <= 0.0 {
+                True -> {
+                    let rm_effects = make_remove_blade_effects(b.blades)
+                    (rest_barriers, append_effects(rm_effects, rest_effects))
+                }
+                False -> {
+                    let owner_pos = get_player_hero(players, b.owner_index)
+                    let move_effects = case owner_pos {
+                        Option::Some(h) -> {
+                            let ox = unit.get_x(clone(h))
+                            let oy = unit.get_y(clone(h))
+                            update_blade_positions(b.blades, ox, oy, new_angle, 0)
+                        }
+                        Option::None -> []
+                    }
+                    let updated = types.BladeBarrierState {
+                        blades: b.blades,
+                        owner_index: b.owner_index,
+                        angle: new_angle,
+                        remaining: new_remaining,
+                    }
+                    ([updated | rest_barriers], append_effects(move_effects, rest_effects))
+                }
+            }
+        }
+    }
+}
+
+fn make_remove_blade_effects(blades: List(Unit)) -> List(effect.Effect(Msg)) {
+    case blades {
+        [] -> []
+        [b | rest] -> [effect.remove_unit(b) | make_remove_blade_effects(rest)]
+    }
+}
+
+fn update_blade_positions(blades: List(Unit), cx: Float, cy: Float, base_angle: Float, idx: Int) -> List(effect.Effect(Msg)) {
+    case blades {
+        [] -> []
+        [b | rest] -> {
+            let bx = blade_barrier.blade_x(cx, idx, base_angle)
+            let by = blade_barrier.blade_y(cy, idx, base_angle)
+            let _ = unit.set_x(clone(b), bx)
+            let _ = unit.set_y(clone(b), by)
+            update_blade_positions(rest, cx, cy, base_angle, idx + 1)
+        }
+    }
+}
+
+fn tick_dynamites(dyns: List(types.DynamiteState), dt: Float, players: List(types.PlayerData)) -> (List(types.DynamiteState), List(effect.Effect(Msg))) {
+    case dyns {
+        [] -> ([], [])
+        [d | rest] -> {
+            let new_remaining = d.remaining - dt
+            let (rest_dyns, rest_effects) = tick_dynamites(rest, dt, players)
+            case new_remaining <= 0.0 {
+                True -> {
+                    let explosion_effects = make_dynamite_explosion(d, players)
+                    (rest_dyns, append_effects(explosion_effects, rest_effects))
+                }
+                False -> {
+                    let updated = types.DynamiteState {
+                        holder_index: d.holder_index,
+                        prev_holder_index: d.prev_holder_index,
+                        remaining: new_remaining,
+                    }
+                    ([updated | rest_dyns], rest_effects)
+                }
+            }
+        }
+    }
+}
+
+fn make_dynamite_explosion(d: types.DynamiteState, players: List(types.PlayerData)) -> List(effect.Effect(Msg)) {
+    let hero_opt = get_player_hero(players, d.holder_index)
+    case hero_opt {
+        Option::Some(h) -> {
+            let hx = unit.get_x(clone(h))
+            let hy = unit.get_y(clone(h))
+            let hp = unit.get_hp(clone(h))
+            let damage = hp * 2.0
+            let aoe = effect.for_units_in_range(hx, hy, 500.0, fn(u: Unit) -> Msg {
+                Msg::DamageTaken { source: clone(h), target: u, amount: damage }
+            })
+            let sfx = effect.add_sfx("Abilities\\Spells\\Human\\MarkOfChaos\\MarkOfChaosTarget.mdl", hx, hy)
+            let text = effect.show_floating_text("BOOM!", hx, hy, 14.0)
+            [aoe, sfx, text]
+        }
+        Option::None -> []
+    }
+}
+
+fn handle_blade_created(model: Model, barrier_index: Int, blade_index: Int, blade_unit: Unit) -> (Model, List(effect.Effect(Msg))) {
+    let _ = unit.set_scale(clone(blade_unit), 0.5, 0.5, 0.5)
+    let new_barriers = add_blade_to_barrier(model.blade_barriers, barrier_index, blade_unit)
+    (rebuild_model_barriers(model, new_barriers), [])
+}
+
+fn add_blade_to_barrier(barriers: List(types.BladeBarrierState), idx: Int, blade: Unit) -> List(types.BladeBarrierState) {
+    case barriers {
+        [] -> []
+        [b | rest] -> case idx == 0 {
+            True -> {
+                let updated = types.BladeBarrierState {
+                    blades: append_units_list(b.blades, [blade]),
+                    owner_index: b.owner_index,
+                    angle: b.angle,
+                    remaining: b.remaining,
+                }
+                [updated | rest]
+            }
+            False -> [b | add_blade_to_barrier(rest, idx - 1, blade)]
+        }
+    }
+}
+
+fn append_units_list(xs: List(Unit), ys: List(Unit)) -> List(Unit) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append_units_list(t, ys)]
+    }
+}
+
+fn list_length_barriers(xs: List(types.BladeBarrierState)) -> Int {
+    case xs {
+        [] -> 0
+        [_ | t] -> 1 + list_length_barriers(t)
+    }
+}
+
+fn make_blade_create_effects(barrier_index: Int, owner_index: Int, cx: Float, cy: Float, base_angle: Float, blade_idx: Int, count: Int) -> List(effect.Effect(Msg)) {
+    case blade_idx >= count {
+        True -> []
+        False -> {
+            let bx = blade_barrier.blade_x(cx, blade_idx, base_angle)
+            let by = blade_barrier.blade_y(cy, blade_idx, base_angle)
+            let bi = barrier_index
+            let bii = blade_idx
+            let eff = effect.create_unit_callback(
+                owner_index,
+                blade_barrier.blade_unit_id(),
+                bx,
+                by,
+                0.0,
+                fn(u: Unit) -> Msg { Msg::BladeCreated { barrier_index: bi, blade_index: bii, created_blade: u } }
+            )
+            [eff | make_blade_create_effects(barrier_index, owner_index, cx, cy, base_angle, blade_idx + 1, count)]
+        }
+    }
+}
+
+fn activate_blade_barrier(model: Model, owner_index: Int) -> (Model, List(effect.Effect(Msg))) {
+    let hero_opt = get_player_hero(model.players, owner_index)
+    case hero_opt {
+        Option::Some(h) -> {
+            let cx = unit.get_x(clone(h))
+            let cy = unit.get_y(clone(h))
+            let barrier_idx = list_length_barriers(model.blade_barriers)
+            let new_barrier = types.BladeBarrierState {
+                blades: [],
+                owner_index: owner_index,
+                angle: 0.0,
+                remaining: blade_barrier.duration(),
+            }
+            let new_model = rebuild_model_barriers(model, append_barrier_list(model.blade_barriers, [new_barrier]))
+            let effects = make_blade_create_effects(barrier_idx, owner_index, cx, cy, 0.0, 0, blade_barrier.blade_count())
+            (new_model, effects)
+        }
+        Option::None -> (model, [])
+    }
+}
+
+fn append_barrier_list(xs: List(types.BladeBarrierState), ys: List(types.BladeBarrierState)) -> List(types.BladeBarrierState) {
+    case xs {
+        [] -> ys
+        [h | t] -> [h | append_barrier_list(t, ys)]
+    }
+}
+
+fn activate_dynamite(model: Model, owner_index: Int) -> (Model, List(effect.Effect(Msg))) {
+    let d = types.DynamiteState {
+        holder_index: owner_index,
+        prev_holder_index: owner_index,
+        remaining: 10.0,
+    }
+    let new_model = rebuild_model_dynamites(model, [d | model.dynamites])
+    let hero_opt = get_player_hero(new_model.players, owner_index)
+    let text_effects = case hero_opt {
+        Option::Some(h) -> [effect.show_floating_text("DYNAMITE!", unit.get_x(clone(h)), unit.get_y(clone(h)), 12.0)]
+        Option::None -> []
+    }
+    (new_model, text_effects)
+}
+
 fn set_alliance_pair(a: Int, b: Int, alliance_type: Int) -> Int {
     let pa = player.get(a)
     let pb = player.get(b)
@@ -1524,6 +2005,10 @@ pub fn init() -> (Model, List(effect.Effect(Msg))) {
         powerups: [],
         next_spawn_south: True,
         spawn_count: 0,
+        active_mines: [],
+        barricades: [],
+        blade_barriers: [],
+        dynamites: [],
     }
     (model, [deflector_effect | hero_effects])
 }
@@ -1562,6 +2047,9 @@ fn dispatch(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
         PowerupCreated(kind, direction, u) -> handle_powerup_created(model, kind, direction, u)
         BuffTick -> handle_buff_tick(model)
         ItemPickedUp(buyer, item_type) -> handle_item_pickup(model, buyer, item_type)
+        MineCreated(owner_index, x, y, close_dmg, far_dmg, u) -> handle_mine_created(model, owner_index, x, y, close_dmg, far_dmg, u)
+        BarricadeCreated(owner_index, hp, u) -> handle_barricade_created(model, owner_index, hp, u)
+        BladeCreated(barrier_index, blade_index, blade_unit) -> handle_blade_created(model, barrier_index, blade_index, blade_unit)
     }
 }
 

@@ -1,0 +1,37 @@
+import int
+import types
+import wc3/math
+
+const BLADE_COUNT: Int = 30
+const ORBIT_RADIUS: Float = 200.0
+const BLADE_UNIT_ID: Int = 'h00K'
+const ROTATION_SPEED: Float = 0.1
+const DURATION: Float = 20.0
+const DEFLECT_RADIUS: Float = 250.0
+
+pub fn blade_unit_id() -> Int { BLADE_UNIT_ID }
+pub fn blade_count() -> Int { BLADE_COUNT }
+pub fn orbit_radius() -> Float { ORBIT_RADIUS }
+pub fn duration() -> Float { DURATION }
+pub fn deflect_radius() -> Float { DEFLECT_RADIUS }
+
+pub fn blade_angle(index: Int, base_angle: Float) -> Float {
+    let two_pi: Float = 3.14159265 * 2.0
+    base_angle + two_pi * int.to_float(index) / int.to_float(BLADE_COUNT)
+}
+
+pub fn blade_x(center_x: Float, index: Int, base_angle: Float) -> Float {
+    center_x + math.cos(blade_angle(index, base_angle)) * ORBIT_RADIUS
+}
+
+pub fn blade_y(center_y: Float, index: Int, base_angle: Float) -> Float {
+    center_y + math.sin(blade_angle(index, base_angle)) * ORBIT_RADIUS
+}
+
+pub fn tick_angle(angle: Float) -> Float {
+    angle + ROTATION_SPEED
+}
+
+pub fn tick_remaining(remaining: Float, dt: Float) -> Float {
+    remaining - dt
+}

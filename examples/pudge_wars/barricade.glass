@@ -1,0 +1,13 @@
+import int
+
+const BARRICADE_UNIT_ID: Int = 'h00B'
+
+pub fn unit_id() -> Int { BARRICADE_UNIT_ID }
+
+pub fn health(level: Int) -> Float {
+    750.0 + 150.0 * int.to_float(level - 1)
+}
+
+pub fn cooldown(level: Int) -> Float {
+    45.0 - 5.0 * int.to_float(level)
+}
