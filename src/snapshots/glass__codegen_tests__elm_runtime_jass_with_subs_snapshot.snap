@@ -1,0 +1,857 @@
+---
+source: src/codegen_tests.rs
+expression: output
+---
+// ========== Glass Elm Runtime Functions ==========
+
+function glass_rt_tuple_0 takes integer tid returns integer
+    return glass_Tuple2_integer_integer_Tuple2_integer_integer__0[tid]
+endfunction
+
+function glass_rt_tuple_1 takes integer tid returns integer
+    return glass_Tuple2_integer_integer_Tuple2_integer_integer__1[tid]
+endfunction
+
+function glass_dispatch_update takes nothing returns integer
+    return glass_update(glass_model, glass_msg_tag)
+endfunction
+
+function glass_timer_callback takes nothing returns nothing
+    local timer t = GetExpiredTimer()
+    local integer hid = GetHandleId(t)
+    local integer closure_id = LoadInteger(glass_timer_ht, hid, 0)
+    local integer cb_type = LoadInteger(glass_timer_ht, hid, 2)
+    local unit cb_unit = LoadUnitHandle(glass_timer_ht, hid, 1)
+    local integer msg_result = 0
+    local integer glass_result
+    local integer glass_effects
+    local integer current
+    local integer fx_id
+    local integer fx_tag
+    local timer t2
+    local unit u
+    local effect sfx
+    local texttag tt
+    local sound snd
+    local integer row_count
+    local integer row_cur
+    local integer row_data
+    local multiboarditem mbi
+    local integer ri
+    if cb_type == 1 then
+        set msg_result = glass_dispatch_1_unit(closure_id, cb_unit)
+    else
+        set msg_result = glass_dispatch_void(closure_id)
+    endif
+    call FlushChildHashtable(glass_timer_ht, hid)
+    call DestroyTimer(t)
+    set t = null
+    set cb_unit = null
+    set glass_msg_tag = msg_result
+    set glass_msg_p0 = 0
+    set glass_msg_p1 = 0
+    set glass_result = glass_dispatch_update()
+    set glass_model = glass_rt_tuple_0(glass_result)
+    set glass_effects = glass_rt_tuple_1(glass_result)
+    set current = glass_effects
+    loop
+        exitwhen current == -1
+        set fx_id = glass_List_integer_head[current]
+        set fx_tag = glass_Effect_tag[fx_id]
+        if fx_tag == glass_TAG_Effect_After then
+            set t2 = CreateTimer()
+            call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_After_callback[fx_id])
+            call TimerStart(t2, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)
+            set t2 = null
+        elseif fx_tag == glass_TAG_Effect_DisplayText then
+            call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])
+        elseif fx_tag == glass_TAG_Effect_CreateUnit then
+            set u = CreateUnit(Player(glass_Effect_CreateUnit_owner[fx_id]), glass_Effect_CreateUnit_type_id[fx_id], glass_Effect_CreateUnit_x[fx_id], glass_Effect_CreateUnit_y[fx_id], glass_Effect_CreateUnit_facing[fx_id])
+            set u = null
+        elseif fx_tag == glass_TAG_Effect_DamageUnit then
+            call UnitDamageTarget(glass_Effect_DamageUnit_source[fx_id], glass_Effect_DamageUnit_target[fx_id], glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)
+        elseif fx_tag == glass_TAG_Effect_AddSfx then
+            set sfx = AddSpecialEffect(glass_Effect_AddSfx_model[fx_id], glass_Effect_AddSfx_x[fx_id], glass_Effect_AddSfx_y[fx_id])
+            call DestroyEffect(sfx)
+            set sfx = null
+        elseif fx_tag == glass_TAG_Effect_RemoveUnit then
+            call RemoveUnit(glass_Effect_RemoveUnit_unit[fx_id])
+        elseif fx_tag == glass_TAG_Effect_MoveUnit then
+            call SetUnitPosition(glass_Effect_MoveUnit_unit[fx_id], glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])
+        elseif fx_tag == glass_TAG_Effect_PlayAnimation then
+            call SetUnitAnimation(glass_Effect_PlayAnimation_unit[fx_id], glass_Effect_PlayAnimation_anim[fx_id])
+        elseif fx_tag == glass_TAG_Effect_AddAbility then
+            call UnitAddAbility(glass_Effect_AddAbility_unit[fx_id], glass_Effect_AddAbility_ability_id[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetUnitHp then
+            call SetUnitState(glass_Effect_SetUnitHp_unit[fx_id], UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetUnitMana then
+            call SetUnitState(glass_Effect_SetUnitMana_unit[fx_id], UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])
+        elseif fx_tag == glass_TAG_Effect_PanCamera then
+            if GetLocalPlayer() == Player(glass_Effect_PanCamera_player_id[fx_id]) then
+                call PanCameraTo(glass_Effect_PanCamera_x[fx_id], glass_Effect_PanCamera_y[fx_id])
+            endif
+        elseif fx_tag == glass_TAG_Effect_ShowFloatingText then
+            set tt = CreateTextTag()
+            call SetTextTagText(tt, glass_Effect_ShowFloatingText_text[fx_id], glass_Effect_ShowFloatingText_size[fx_id])
+            call SetTextTagPos(tt, glass_Effect_ShowFloatingText_x[fx_id], glass_Effect_ShowFloatingText_y[fx_id], 0.0)
+            call SetTextTagLifespan(tt, 3.0)
+            call SetTextTagPermanent(tt, false)
+            call SetTextTagVelocity(tt, 0.0, 0.04)
+            set tt = null
+        elseif fx_tag == glass_TAG_Effect_GiveGold then
+            call SetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD) + glass_Effect_GiveGold_gold_amount[fx_id])
+        elseif fx_tag == glass_TAG_Effect_GiveLumber then
+            call SetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER, GetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER) + glass_Effect_GiveLumber_lumber_amount[fx_id])
+        elseif fx_tag == glass_TAG_Effect_KillUnit then
+            call KillUnit(glass_Effect_KillUnit_unit[fx_id])
+        elseif fx_tag == glass_TAG_Effect_RemoveAbility then
+            call UnitRemoveAbility(glass_Effect_RemoveAbility_unit[fx_id], glass_Effect_RemoveAbility_ability_id[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetUnitOwner then
+            call SetUnitOwner(glass_Effect_SetUnitOwner_unit[fx_id], Player(glass_Effect_SetUnitOwner_player_id[fx_id]), true)
+        elseif fx_tag == glass_TAG_Effect_PauseUnit then
+            call PauseUnit(glass_Effect_PauseUnit_unit[fx_id], glass_Effect_PauseUnit_paused[fx_id])
+        elseif fx_tag == glass_TAG_Effect_ShowUnit then
+            call ShowUnit(glass_Effect_ShowUnit_unit[fx_id], glass_Effect_ShowUnit_shown[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetInvulnerable then
+            call SetUnitInvulnerable(glass_Effect_SetInvulnerable_unit[fx_id], glass_Effect_SetInvulnerable_invulnerable[fx_id])
+        elseif fx_tag == glass_TAG_Effect_IssueOrder then
+            call IssueImmediateOrder(glass_Effect_IssueOrder_unit[fx_id], glass_Effect_IssueOrder_order[fx_id])
+        elseif fx_tag == glass_TAG_Effect_IssuePointOrder then
+            call IssuePointOrder(glass_Effect_IssuePointOrder_unit[fx_id], glass_Effect_IssuePointOrder_order[fx_id], glass_Effect_IssuePointOrder_x[fx_id], glass_Effect_IssuePointOrder_y[fx_id])
+        elseif fx_tag == glass_TAG_Effect_IssueTargetOrder then
+            call IssueTargetOrder(glass_Effect_IssueTargetOrder_unit[fx_id], glass_Effect_IssueTargetOrder_order[fx_id], glass_Effect_IssueTargetOrder_target[fx_id])
+        elseif fx_tag == glass_TAG_Effect_AddSfxTarget then
+            set sfx = AddSpecialEffectTarget(glass_Effect_AddSfxTarget_model[fx_id], glass_Effect_AddSfxTarget_unit[fx_id], glass_Effect_AddSfxTarget_attach_point[fx_id])
+            call DestroyEffect(sfx)
+            set sfx = null
+        elseif fx_tag == glass_TAG_Effect_ReviveHero then
+            call ReviveHero(glass_Effect_ReviveHero_unit[fx_id], glass_Effect_ReviveHero_x[fx_id], glass_Effect_ReviveHero_y[fx_id], true)
+        elseif fx_tag == glass_TAG_Effect_AddHeroXp then
+            call AddHeroXP(glass_Effect_AddHeroXp_unit[fx_id], glass_Effect_AddHeroXp_xp[fx_id], true)
+        elseif fx_tag == glass_TAG_Effect_SetUnitFacing then
+            call SetUnitFacing(glass_Effect_SetUnitFacing_unit[fx_id], glass_Effect_SetUnitFacing_facing[fx_id])
+        elseif fx_tag == glass_TAG_Effect_PingMinimap then
+            call PingMinimap(glass_Effect_PingMinimap_x[fx_id], glass_Effect_PingMinimap_y[fx_id], glass_Effect_PingMinimap_duration[fx_id])
+        elseif fx_tag == glass_TAG_Effect_CreateItem then
+            call CreateItem(glass_Effect_CreateItem_item_type_id[fx_id], glass_Effect_CreateItem_x[fx_id], glass_Effect_CreateItem_y[fx_id])
+        elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then
+            call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])
+        elseif fx_tag == glass_TAG_Effect_CreateUnitCallback then
+            set t2 = CreateTimer()
+            set u = CreateUnit(Player(glass_Effect_CreateUnitCallback_owner[fx_id]), glass_Effect_CreateUnitCallback_type_id[fx_id], glass_Effect_CreateUnitCallback_x[fx_id], glass_Effect_CreateUnitCallback_y[fx_id], glass_Effect_CreateUnitCallback_facing[fx_id])
+            call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_CreateUnitCallback_callback[fx_id])
+            call SaveUnitHandle(glass_timer_ht, GetHandleId(t2), 1, u)
+            call SaveInteger(glass_timer_ht, GetHandleId(t2), 2, 1)
+            call TimerStart(t2, 0.0, false, function glass_timer_callback)
+            set u = null
+            set t2 = null
+        elseif fx_tag == glass_TAG_Effect_ForUnitsInRange then
+            set glass_group_temp = CreateGroup()
+            call GroupEnumUnitsInRange(glass_group_temp, glass_Effect_ForUnitsInRange_x[fx_id], glass_Effect_ForUnitsInRange_y[fx_id], glass_Effect_ForUnitsInRange_radius[fx_id], null)
+            loop
+                set u = FirstOfGroup(glass_group_temp)
+                exitwhen u == null
+                set t2 = CreateTimer()
+                call SaveInteger(glass_timer_ht, GetHandleId(t2), 0, glass_Effect_ForUnitsInRange_callback[fx_id])
+                call SaveUnitHandle(glass_timer_ht, GetHandleId(t2), 1, u)
+                call SaveInteger(glass_timer_ht, GetHandleId(t2), 2, 1)
+                call TimerStart(t2, 0.0, false, function glass_timer_callback)
+                call GroupRemoveUnit(glass_group_temp, u)
+                set t2 = null
+            endloop
+            call DestroyGroup(glass_group_temp)
+            set glass_group_temp = null
+        elseif fx_tag == glass_TAG_Effect_PlaySound then
+            set snd = CreateSound(glass_Effect_PlaySound_path[fx_id], false, false, false, 10, 10, "DefaultEAXON")
+            call SetSoundVolume(snd, 127)
+            call StartSound(snd)
+            call KillSoundWhenDone(snd)
+            set snd = null
+        elseif fx_tag == glass_TAG_Effect_UpdateBoard then
+            set row_count = 0
+            set row_cur = glass_Effect_UpdateBoard_rows[fx_id]
+            loop
+                exitwhen row_cur == -1
+                set row_count = row_count + 1
+                set row_cur = glass_List_integer_tail[row_cur]
+            endloop
+            if glass_multiboard == null then
+                set glass_multiboard = CreateMultiboard()
+            endif
+            call MultiboardSetColumnCount(glass_multiboard, 2)
+            call MultiboardSetRowCount(glass_multiboard, row_count)
+            call MultiboardSetTitleText(glass_multiboard, glass_Effect_UpdateBoard_title[fx_id])
+            call MultiboardDisplay(glass_multiboard, true)
+            set row_cur = glass_Effect_UpdateBoard_rows[fx_id]
+            set ri = 0
+            loop
+                exitwhen row_cur == -1
+                set row_data = glass_List_integer_head[row_cur]
+                set mbi = MultiboardGetItem(glass_multiboard, ri, 0)
+                call MultiboardSetItemValue(mbi, glass_BoardRow_label[row_data])
+                call MultiboardSetItemWidth(mbi, 0.10)
+                call MultiboardReleaseItem(mbi)
+                set mbi = MultiboardGetItem(glass_multiboard, ri, 1)
+                call MultiboardSetItemValue(mbi, glass_BoardRow_value[row_data])
+                call MultiboardSetItemWidth(mbi, 0.08)
+                call MultiboardReleaseItem(mbi)
+                set ri = ri + 1
+                set row_cur = glass_List_integer_tail[row_cur]
+            endloop
+            set mbi = null
+        endif
+        call glass_Effect_dealloc(fx_id)
+        set current = glass_List_integer_tail[current]
+    endloop
+endfunction
+
+function glass_exec_effect takes integer fx_id returns nothing
+    local integer fx_tag = glass_Effect_tag[fx_id]
+    local timer t
+    local unit u
+    local effect sfx
+    local texttag tt
+    local sound snd
+    local integer row_count
+    local integer row_cur
+    local integer row_data
+    local multiboarditem mbi
+    local integer ri
+    if fx_tag == glass_TAG_Effect_After then
+        set t = CreateTimer()
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_After_callback[fx_id])
+        call TimerStart(t, glass_Effect_After_duration[fx_id], false, function glass_timer_callback)
+        set t = null
+    elseif fx_tag == glass_TAG_Effect_DisplayText then
+        call DisplayTimedTextToPlayer(Player(glass_Effect_DisplayText_player_id[fx_id]), 0, 0, glass_Effect_DisplayText_duration[fx_id], glass_Effect_DisplayText_text[fx_id])
+    elseif fx_tag == glass_TAG_Effect_DamageUnit then
+        call UnitDamageTarget(glass_Effect_DamageUnit_source[fx_id], glass_Effect_DamageUnit_target[fx_id], glass_Effect_DamageUnit_amount[fx_id], true, false, glass_Effect_DamageUnit_attack_type[fx_id], glass_Effect_DamageUnit_damage_type[fx_id], 0)
+    elseif fx_tag == glass_TAG_Effect_CreateUnit then
+        set u = CreateUnit(Player(glass_Effect_CreateUnit_owner[fx_id]), glass_Effect_CreateUnit_type_id[fx_id], glass_Effect_CreateUnit_x[fx_id], glass_Effect_CreateUnit_y[fx_id], glass_Effect_CreateUnit_facing[fx_id])
+        set u = null
+    elseif fx_tag == glass_TAG_Effect_RemoveUnit then
+        call RemoveUnit(glass_Effect_RemoveUnit_unit[fx_id])
+    elseif fx_tag == glass_TAG_Effect_MoveUnit then
+        call SetUnitPosition(glass_Effect_MoveUnit_unit[fx_id], glass_Effect_MoveUnit_x[fx_id], glass_Effect_MoveUnit_y[fx_id])
+    elseif fx_tag == glass_TAG_Effect_PlayAnimation then
+        call SetUnitAnimation(glass_Effect_PlayAnimation_unit[fx_id], glass_Effect_PlayAnimation_anim[fx_id])
+    elseif fx_tag == glass_TAG_Effect_AddAbility then
+        call UnitAddAbility(glass_Effect_AddAbility_unit[fx_id], glass_Effect_AddAbility_ability_id[fx_id])
+    elseif fx_tag == glass_TAG_Effect_AddSfx then
+        set sfx = AddSpecialEffect(glass_Effect_AddSfx_model[fx_id], glass_Effect_AddSfx_x[fx_id], glass_Effect_AddSfx_y[fx_id])
+        call DestroyEffect(sfx)
+        set sfx = null
+    elseif fx_tag == glass_TAG_Effect_SetUnitHp then
+        call SetUnitState(glass_Effect_SetUnitHp_unit[fx_id], UNIT_STATE_LIFE, glass_Effect_SetUnitHp_hp[fx_id])
+    elseif fx_tag == glass_TAG_Effect_SetUnitMana then
+        call SetUnitState(glass_Effect_SetUnitMana_unit[fx_id], UNIT_STATE_MANA, glass_Effect_SetUnitMana_mana[fx_id])
+    elseif fx_tag == glass_TAG_Effect_PanCamera then
+        if GetLocalPlayer() == Player(glass_Effect_PanCamera_player_id[fx_id]) then
+            call PanCameraTo(glass_Effect_PanCamera_x[fx_id], glass_Effect_PanCamera_y[fx_id])
+        endif
+    elseif fx_tag == glass_TAG_Effect_ShowFloatingText then
+        set tt = CreateTextTag()
+        call SetTextTagText(tt, glass_Effect_ShowFloatingText_text[fx_id], glass_Effect_ShowFloatingText_size[fx_id])
+        call SetTextTagPos(tt, glass_Effect_ShowFloatingText_x[fx_id], glass_Effect_ShowFloatingText_y[fx_id], 0.0)
+        call SetTextTagLifespan(tt, 3.0)
+        call SetTextTagPermanent(tt, false)
+        call SetTextTagVelocity(tt, 0.0, 0.04)
+        set tt = null
+    elseif fx_tag == glass_TAG_Effect_GiveGold then
+        call SetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD, GetPlayerState(Player(glass_Effect_GiveGold_player_id[fx_id]), PLAYER_STATE_RESOURCE_GOLD) + glass_Effect_GiveGold_gold_amount[fx_id])
+    elseif fx_tag == glass_TAG_Effect_GiveLumber then
+        call SetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER, GetPlayerState(Player(glass_Effect_GiveLumber_player_id[fx_id]), PLAYER_STATE_RESOURCE_LUMBER) + glass_Effect_GiveLumber_lumber_amount[fx_id])
+    elseif fx_tag == glass_TAG_Effect_KillUnit then
+        call KillUnit(glass_Effect_KillUnit_unit[fx_id])
+    elseif fx_tag == glass_TAG_Effect_RemoveAbility then
+        call UnitRemoveAbility(glass_Effect_RemoveAbility_unit[fx_id], glass_Effect_RemoveAbility_ability_id[fx_id])
+    elseif fx_tag == glass_TAG_Effect_SetUnitOwner then
+        call SetUnitOwner(glass_Effect_SetUnitOwner_unit[fx_id], Player(glass_Effect_SetUnitOwner_player_id[fx_id]), true)
+    elseif fx_tag == glass_TAG_Effect_PauseUnit then
+        call PauseUnit(glass_Effect_PauseUnit_unit[fx_id], glass_Effect_PauseUnit_paused[fx_id])
+    elseif fx_tag == glass_TAG_Effect_ShowUnit then
+        call ShowUnit(glass_Effect_ShowUnit_unit[fx_id], glass_Effect_ShowUnit_shown[fx_id])
+    elseif fx_tag == glass_TAG_Effect_SetInvulnerable then
+        call SetUnitInvulnerable(glass_Effect_SetInvulnerable_unit[fx_id], glass_Effect_SetInvulnerable_invulnerable[fx_id])
+    elseif fx_tag == glass_TAG_Effect_IssueOrder then
+        call IssueImmediateOrder(glass_Effect_IssueOrder_unit[fx_id], glass_Effect_IssueOrder_order[fx_id])
+    elseif fx_tag == glass_TAG_Effect_IssuePointOrder then
+        call IssuePointOrder(glass_Effect_IssuePointOrder_unit[fx_id], glass_Effect_IssuePointOrder_order[fx_id], glass_Effect_IssuePointOrder_x[fx_id], glass_Effect_IssuePointOrder_y[fx_id])
+    elseif fx_tag == glass_TAG_Effect_IssueTargetOrder then
+        call IssueTargetOrder(glass_Effect_IssueTargetOrder_unit[fx_id], glass_Effect_IssueTargetOrder_order[fx_id], glass_Effect_IssueTargetOrder_target[fx_id])
+    elseif fx_tag == glass_TAG_Effect_AddSfxTarget then
+        set sfx = AddSpecialEffectTarget(glass_Effect_AddSfxTarget_model[fx_id], glass_Effect_AddSfxTarget_unit[fx_id], glass_Effect_AddSfxTarget_attach_point[fx_id])
+        call DestroyEffect(sfx)
+        set sfx = null
+    elseif fx_tag == glass_TAG_Effect_ReviveHero then
+        call ReviveHero(glass_Effect_ReviveHero_unit[fx_id], glass_Effect_ReviveHero_x[fx_id], glass_Effect_ReviveHero_y[fx_id], true)
+    elseif fx_tag == glass_TAG_Effect_AddHeroXp then
+        call AddHeroXP(glass_Effect_AddHeroXp_unit[fx_id], glass_Effect_AddHeroXp_xp[fx_id], true)
+    elseif fx_tag == glass_TAG_Effect_SetUnitFacing then
+        call SetUnitFacing(glass_Effect_SetUnitFacing_unit[fx_id], glass_Effect_SetUnitFacing_facing[fx_id])
+    elseif fx_tag == glass_TAG_Effect_PingMinimap then
+        call PingMinimap(glass_Effect_PingMinimap_x[fx_id], glass_Effect_PingMinimap_y[fx_id], glass_Effect_PingMinimap_duration[fx_id])
+    elseif fx_tag == glass_TAG_Effect_CreateItem then
+        call CreateItem(glass_Effect_CreateItem_item_type_id[fx_id], glass_Effect_CreateItem_x[fx_id], glass_Effect_CreateItem_y[fx_id])
+    elseif fx_tag == glass_TAG_Effect_SetUnitMoveSpeed then
+        call SetUnitMoveSpeed(glass_Effect_SetUnitMoveSpeed_unit[fx_id], glass_Effect_SetUnitMoveSpeed_speed[fx_id])
+    elseif fx_tag == glass_TAG_Effect_CreateUnitCallback then
+        set t = CreateTimer()
+        set u = CreateUnit(Player(glass_Effect_CreateUnitCallback_owner[fx_id]), glass_Effect_CreateUnitCallback_type_id[fx_id], glass_Effect_CreateUnitCallback_x[fx_id], glass_Effect_CreateUnitCallback_y[fx_id], glass_Effect_CreateUnitCallback_facing[fx_id])
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_CreateUnitCallback_callback[fx_id])
+        call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 1)
+        call TimerStart(t, 0.0, false, function glass_timer_callback)
+        set u = null
+        set t = null
+    elseif fx_tag == glass_TAG_Effect_ForUnitsInRange then
+        set glass_group_temp = CreateGroup()
+        call GroupEnumUnitsInRange(glass_group_temp, glass_Effect_ForUnitsInRange_x[fx_id], glass_Effect_ForUnitsInRange_y[fx_id], glass_Effect_ForUnitsInRange_radius[fx_id], null)
+        loop
+            set u = FirstOfGroup(glass_group_temp)
+            exitwhen u == null
+            set t = CreateTimer()
+            call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Effect_ForUnitsInRange_callback[fx_id])
+            call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)
+            call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 1)
+            call TimerStart(t, 0.0, false, function glass_timer_callback)
+            call GroupRemoveUnit(glass_group_temp, u)
+            set t = null
+        endloop
+        call DestroyGroup(glass_group_temp)
+        set glass_group_temp = null
+    elseif fx_tag == glass_TAG_Effect_PlaySound then
+        set snd = CreateSound(glass_Effect_PlaySound_path[fx_id], false, false, false, 10, 10, "DefaultEAXON")
+        call SetSoundVolume(snd, 127)
+        call StartSound(snd)
+        call KillSoundWhenDone(snd)
+        set snd = null
+    elseif fx_tag == glass_TAG_Effect_UpdateBoard then
+        set row_count = 0
+        set row_cur = glass_Effect_UpdateBoard_rows[fx_id]
+        loop
+            exitwhen row_cur == -1
+            set row_count = row_count + 1
+            set row_cur = glass_List_integer_tail[row_cur]
+        endloop
+        if glass_multiboard == null then
+            set glass_multiboard = CreateMultiboard()
+        endif
+        call MultiboardSetColumnCount(glass_multiboard, 2)
+        call MultiboardSetRowCount(glass_multiboard, row_count)
+        call MultiboardSetTitleText(glass_multiboard, glass_Effect_UpdateBoard_title[fx_id])
+        call MultiboardDisplay(glass_multiboard, true)
+        set row_cur = glass_Effect_UpdateBoard_rows[fx_id]
+        set ri = 0
+        loop
+            exitwhen row_cur == -1
+            set row_data = glass_List_integer_head[row_cur]
+            set mbi = MultiboardGetItem(glass_multiboard, ri, 0)
+            call MultiboardSetItemValue(mbi, glass_BoardRow_label[row_data])
+            call MultiboardSetItemWidth(mbi, 0.10)
+            call MultiboardReleaseItem(mbi)
+            set mbi = MultiboardGetItem(glass_multiboard, ri, 1)
+            call MultiboardSetItemValue(mbi, glass_BoardRow_value[row_data])
+            call MultiboardSetItemWidth(mbi, 0.08)
+            call MultiboardReleaseItem(mbi)
+            set ri = ri + 1
+            set row_cur = glass_List_integer_tail[row_cur]
+        endloop
+        set mbi = null
+    endif
+    call glass_Effect_dealloc(fx_id)
+endfunction
+
+function glass_process_effects takes integer effect_list returns nothing
+    local integer current = effect_list
+    loop
+        exitwhen current == -1
+        call glass_exec_effect(glass_List_integer_head[current])
+        set current = glass_List_integer_tail[current]
+    endloop
+endfunction
+
+function glass_send_msg takes integer tag, integer p0, integer p1 returns nothing
+    local integer glass_result
+    local integer glass_new_model
+    local integer glass_effects
+    set glass_msg_tag = tag
+    set glass_msg_p0 = p0
+    set glass_msg_p1 = p1
+    set glass_result = glass_dispatch_update()
+    set glass_new_model = glass_rt_tuple_0(glass_result)
+    set glass_effects = glass_rt_tuple_1(glass_result)
+    set glass_model = glass_new_model
+    call glass_process_effects(glass_effects)
+    call glass_reconcile_subs()
+endfunction
+
+function glass_sub_cb_OnAttack takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetAttacker(), GetTriggerUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnDeath takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetTriggerUnit(), GetKillingUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnTimer takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_void(closure_id), 0, 0)
+endfunction
+
+function glass_sub_cb_OnSpellEffect takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_3_unit_integer_unit(closure_id, GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnItemPickup takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())), 0, 0)
+endfunction
+
+function glass_sub_cb_OnSpellCast takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetSpellAbilityId()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnSpellChannel takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetSpellAbilityId()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnDamage takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_3_unit_unit_real(closure_id, GetEventDamageSource(), GetTriggerUnit(), GetEventDamage()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnItemUse takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())), 0, 0)
+endfunction
+
+function glass_sub_cb_OnItemDrop takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())), 0, 0)
+endfunction
+
+function glass_sub_cb_OnChat takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_integer_string(closure_id, GetPlayerId(GetTriggerPlayer()), GetEventPlayerChatString()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnPlayerLeave takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_1_integer(closure_id, GetPlayerId(GetTriggerPlayer())), 0, 0)
+endfunction
+
+function glass_sub_cb_OnHeroLevelUp takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_1_unit(closure_id, GetTriggerUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnConstructionFinish takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_1_unit(closure_id, GetTriggerUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnSpellGround takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_4_unit_integer_real_real(closure_id, GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetX(), GetSpellTargetY()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnSummon takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetTriggerUnit(), GetSummonedUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnUnitSold takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetTriggerUnit(), GetSoldUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnItemSold takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetItemTypeId(GetSoldItem())), 0, 0)
+endfunction
+
+function glass_sub_cb_OnUnitTrained takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_unit(closure_id, GetTriggerUnit(), GetTrainedUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnResearchFinish takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetResearched()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnConstructionStart takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_1_unit(closure_id, GetTriggerUnit()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnSpellFinish takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetSpellAbilityId()), 0, 0)
+endfunction
+
+function glass_sub_cb_OnOrderIssued takes nothing returns nothing
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)
+    call glass_send_msg(glass_dispatch_2_unit_integer(closure_id, GetTriggerUnit(), GetIssuedOrderId()), 0, 0)
+endfunction
+
+function glass_sub_timer_cb takes nothing returns nothing
+    local timer t = GetExpiredTimer()
+    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(t), 0)
+    call glass_send_msg(glass_dispatch_void(closure_id), 0, 0)
+    set t = null
+endfunction
+
+function glass_register_one_sub takes integer sub_id, integer idx returns nothing
+    local integer sub_tag = glass_Subscription_tag[sub_id]
+    local trigger t = null
+    local timer tm = null
+    local integer i = 0
+    if sub_tag == glass_TAG_Subscription_OnAttack then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_ATTACKED, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnAttack_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnAttack)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnDeath then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DEATH, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnDeath_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnDeath)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnTimer then
+        set tm = CreateTimer()
+        call SaveInteger(glass_timer_ht, GetHandleId(tm), 0, glass_Subscription_OnTimer_handler[sub_id])
+        call TimerStart(tm, glass_Subscription_OnTimer_interval[sub_id], true, function glass_sub_timer_cb)
+        set glass_sub_timers[idx] = tm
+        set tm = null
+    elseif sub_tag == glass_TAG_Subscription_OnSpellEffect then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_EFFECT, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellEffect_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnSpellEffect)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnItemPickup then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_PICKUP_ITEM, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnItemPickup_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnItemPickup)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnSpellCast then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_CAST, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellCast_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnSpellCast)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnSpellChannel then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_CHANNEL, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellChannel_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnSpellChannel)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnDamage then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DAMAGED, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnDamage_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnDamage)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnItemUse then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_USE_ITEM, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnItemUse_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnItemUse)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnItemDrop then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_DROP_ITEM, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnItemDrop_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnItemDrop)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnChat then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerChatEvent(t, Player(i), "", false)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnChat_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnChat)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnPlayerLeave then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerEvent(t, Player(i), EVENT_PLAYER_LEAVE)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnPlayerLeave_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnPlayerLeave)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnHeroLevelUp then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_HERO_LEVEL, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnHeroLevelUp_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnHeroLevelUp)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnConstructionFinish then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_CONSTRUCT_FINISH, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnConstructionFinish_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnConstructionFinish)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnSpellGround then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_EFFECT, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellGround_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnSpellGround)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnSummon then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SUMMON, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSummon_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnSummon)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnUnitSold then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SELL, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnUnitSold_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnUnitSold)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnItemSold then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SELL_ITEM, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnItemSold_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnItemSold)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnUnitTrained then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_TRAIN_FINISH, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnUnitTrained_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnUnitTrained)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnResearchFinish then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_RESEARCH_FINISH, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnResearchFinish_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnResearchFinish)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnConstructionStart then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_CONSTRUCT_START, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnConstructionStart_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnConstructionStart)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnSpellFinish then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_SPELL_FINISH, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnSpellFinish_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnSpellFinish)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    elseif sub_tag == glass_TAG_Subscription_OnOrderIssued then
+        set t = CreateTrigger()
+        set i = 0
+        loop
+            exitwhen i >= bj_MAX_PLAYER_SLOTS
+            call TriggerRegisterPlayerUnitEvent(t, Player(i), EVENT_PLAYER_UNIT_ISSUED_ORDER, null)
+            set i = i + 1
+        endloop
+        call SaveInteger(glass_timer_ht, GetHandleId(t), 0, glass_Subscription_OnOrderIssued_handler[sub_id])
+        call TriggerAddAction(t, function glass_sub_cb_OnOrderIssued)
+        set glass_sub_triggers[idx] = t
+        set t = null
+    endif
+    set glass_sub_tags[idx] = sub_tag
+endfunction
+
+function glass_unregister_one_sub takes integer idx returns nothing
+    if glass_sub_timers[idx] != null then
+        call PauseTimer(glass_sub_timers[idx])
+        call FlushChildHashtable(glass_timer_ht, GetHandleId(glass_sub_timers[idx]))
+        call DestroyTimer(glass_sub_timers[idx])
+        set glass_sub_timers[idx] = null
+    endif
+    if glass_sub_triggers[idx] != null then
+        call DisableTrigger(glass_sub_triggers[idx])
+        call FlushChildHashtable(glass_timer_ht, GetHandleId(glass_sub_triggers[idx]))
+        call DestroyTrigger(glass_sub_triggers[idx])
+        set glass_sub_triggers[idx] = null
+    endif
+    set glass_sub_tags[idx] = 0
+endfunction
+
+function glass_reconcile_subs takes nothing returns nothing
+    local integer new_list = glass_subscriptions(glass_model)
+    local integer current = new_list
+    local integer new_count = 0
+    local integer idx = 0
+    local integer new_tag = 0
+    local integer new_sub_id = 0
+    loop
+        exitwhen current == -1
+        set new_count = new_count + 1
+        set current = glass_List_integer_tail[current]
+    endloop
+    set idx = new_count
+    loop
+        exitwhen idx >= glass_sub_count
+        call glass_unregister_one_sub(idx)
+        set idx = idx + 1
+    endloop
+    set current = new_list
+    set idx = 0
+    loop
+        exitwhen current == -1
+        set new_sub_id = glass_List_integer_head[current]
+        set new_tag = glass_Subscription_tag[new_sub_id]
+        if idx >= glass_sub_count then
+            call glass_register_one_sub(new_sub_id, idx)
+        elseif glass_sub_tags[idx] != new_tag then
+            call glass_unregister_one_sub(idx)
+            call glass_register_one_sub(new_sub_id, idx)
+        endif
+        set idx = idx + 1
+        set current = glass_List_integer_tail[current]
+    endloop
+    set glass_sub_count = new_count
+endfunction
+
+function glass_runtime_init takes nothing returns nothing
+    local integer glass_result
+    local integer glass_effects
+    set glass_timer_ht = InitHashtable()
+    set glass_result = glass_init()
+    set glass_model = glass_rt_tuple_0(glass_result)
+    set glass_effects = glass_rt_tuple_1(glass_result)
+    call glass_process_effects(glass_effects)
+    call glass_reconcile_subs()
+endfunction
+
+function InitTrig_GlassInit takes nothing returns nothing
+    local trigger t = CreateTrigger()
+    call TriggerRegisterTimerEvent(t, 0.00, false)
+    call TriggerAddAction(t, function glass_runtime_init)
+endfunction
