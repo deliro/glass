@@ -1,6 +1,6 @@
 use std::io::{BufReader, Cursor, Read, Seek};
 
-use mpq_rs::{Archive, Creator, FileOptions, MpqError};
+use mpq::{Archive, Creator, FileOptions, MpqError};
 
 /// The HM3W magic bytes that identify a Warcraft 3 map header.
 const HM3W_MAGIC: &[u8; 4] = b"HM3W";
@@ -149,14 +149,10 @@ pub fn patch_w3x(
             eprintln!("[patch] target script file found: {script_name}");
         }
         Some(path) => {
-            eprintln!(
-                "[patch] target '{script_name}' not found, but found alternate: {path}"
-            );
+            eprintln!("[patch] target '{script_name}' not found, but found alternate: {path}");
         }
         None => {
-            eprintln!(
-                "[patch] script file not found in archive, will add as new: {script_name}"
-            );
+            eprintln!("[patch] script file not found in archive, will add as new: {script_name}");
         }
     }
 
@@ -226,9 +222,7 @@ pub fn patch_w3x(
 
     // Write new MPQ archive
     let mut mpq_buf = Cursor::new(Vec::new());
-    creator
-        .write(&mut mpq_buf)
-        .map_err(PatchError::Io)?;
+    creator.write(&mut mpq_buf).map_err(PatchError::Io)?;
     let new_mpq_data = mpq_buf.into_inner();
     eprintln!("[patch] new MPQ archive size: {} bytes", new_mpq_data.len());
 
@@ -301,7 +295,12 @@ fn resolve_script_path(target_name: &str, file_list: &[String]) -> Option<String
     let candidates = match target_name {
         "war3map.j" => JASS_SCRIPT_PATHS,
         "war3map.lua" => LUA_SCRIPT_PATHS,
-        _ => return file_list.iter().find(|f| f.as_str() == target_name).cloned(),
+        _ => {
+            return file_list
+                .iter()
+                .find(|f| f.as_str() == target_name)
+                .cloned();
+        }
     };
     for candidate in candidates {
         if file_list.iter().any(|f| f == candidate) {

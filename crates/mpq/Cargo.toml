@@ -1,0 +1,17 @@
+[package]
+name = "mpq"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Pure Rust reader/writer for Blizzard MPQ archives (Warcraft III)"
+
+[dependencies]
+byteorder = "1.5"
+lazy_static = "1.5"
+byte-slice-cast = "1.2"
+flate2 = "1.1"
+bzip2 = "0.6"
+indexmap = "2"
+
+[lints.clippy]
+all = "warn"
