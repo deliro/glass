@@ -84,12 +84,12 @@ impl super::JassCodegen {
                     && ti.variants.first().is_some_and(|v| v.fields.len() == arity)
             })
             .collect();
-        if candidates.len() == 1 {
-            candidates[0].variants[0]
-                .fields
-                .iter()
-                .map(|f| f.jass_type.clone())
-                .collect()
+        if let [candidate] = candidates.as_slice() {
+            candidate
+                .variants
+                .first()
+                .map(|v| v.fields.iter().map(|f| f.jass_type.clone()).collect())
+                .unwrap_or_else(|| vec!["integer".to_string(); arity])
         } else {
             vec!["integer".to_string(); arity]
         }

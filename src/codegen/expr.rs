@@ -568,11 +568,12 @@ impl super::JassCodegen {
             }
 
             Expr::List(elems) => {
-                if elems.is_empty() {
+                let Some(first_elem) = elems.first() else {
                     // nil = -1
-                    "-1".to_string()
-                } else {
-                    let raw_type = self.lookup_full_type(elems[0].span);
+                    return "-1".to_string();
+                };
+                {
+                    let raw_type = self.lookup_full_type(first_elem.span);
                     let elem_type = raw_type
                         .as_ref()
                         .filter(|ty| !matches!(ty, Type::Var(_)))
@@ -580,7 +581,7 @@ impl super::JassCodegen {
                         .filter(|jt| self.types.list_types.contains(jt.as_str()))
                         .or_else(|| self.current_list_elem_type.clone())
                         .or_else(|| {
-                            if let Expr::Var(name) = &elems[0].node {
+                            if let Expr::Var(name) = &first_elem.node {
                                 self.var_list_elem_types
                                     .get(name)
                                     .cloned()
@@ -589,7 +590,7 @@ impl super::JassCodegen {
                                 None
                             }
                         })
-                        .unwrap_or_else(|| self.lookup_type(elems[0].span).to_string());
+                        .unwrap_or_else(|| self.lookup_type(first_elem.span).to_string());
                     let lt = crate::types::TypeRegistry::list_type_name(&elem_type);
 
                     let mut result = "-1".to_string();
