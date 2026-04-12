@@ -792,7 +792,7 @@ dependencies = [
 [[package]]
 name = "mpq-rs"
 version = "0.1.0"
-source = "git+https://github.com/WarRaft/mpq-rs#6deaea239d2dfa23429535e93d75226b65b3cd0e"
+source = "git+https://github.com/WarRaft/mpq-rs?rev=6deaea23#6deaea239d2dfa23429535e93d75226b65b3cd0e"
 dependencies = [
  "byte-slice-cast",
  "byteorder",
