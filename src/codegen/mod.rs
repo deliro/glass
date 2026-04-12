@@ -1,5 +1,4 @@
 mod closure;
-mod dce;
 mod expr;
 mod mono;
 mod pattern;
@@ -261,8 +260,8 @@ impl JassCodegen {
         // Lambda collection must use the SAME order as codegen (sorted_defs) to keep
         // lambda_counter in sync between collection and codegen visitation.
         let imported_count: usize = imports.iter().map(|i| i.definitions.len()).sum();
-        let live_defs = dce::dead_code_eliminate(&module.definitions, imported_count);
-        let sorted_defs = dce::topo_sort_definitions(&live_defs);
+        let live_defs = crate::dce::dead_code_eliminate(&module.definitions, imported_count);
+        let sorted_defs = crate::dce::topo_sort_definitions(&live_defs);
 
         // Re-collect lambdas from sorted definitions (same order as codegen)
         {

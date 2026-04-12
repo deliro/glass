@@ -5,6 +5,7 @@ mod codegen;
 #[cfg(test)]
 mod codegen_tests;
 mod const_prop;
+mod dce;
 mod exhaustive;
 mod free_vars;
 mod infer;
