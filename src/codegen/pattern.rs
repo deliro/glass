@@ -22,13 +22,20 @@ impl super::JassCodegen {
         if name.contains("::") {
             let before = name.split("::").next().unwrap_or("");
             let type_part = before.rsplit('.').next().unwrap_or(before);
-            if type_part.is_empty() { None } else { Some(type_part) }
+            if type_part.is_empty() {
+                None
+            } else {
+                Some(type_part)
+            }
         } else {
             None
         }
     }
 
-    pub(super) fn extract_tuple_field_types_from_subject(&self, subject: &Spanned<Expr>) -> Option<Vec<String>> {
+    pub(super) fn extract_tuple_field_types_from_subject(
+        &self,
+        subject: &Spanned<Expr>,
+    ) -> Option<Vec<String>> {
         let ty = self.lookup_full_type(subject.span)?;
         match ty {
             Type::App(con, args) => {
@@ -41,18 +48,14 @@ impl super::JassCodegen {
                 }
                 None
             }
-            Type::Tuple(elems) => {
-                Some(elems.iter().map(|e| e.to_jass().to_string()).collect())
-            }
+            Type::Tuple(elems) => Some(elems.iter().map(|e| e.to_jass().to_string()).collect()),
             _ => None,
         }
     }
 
     pub(super) fn tuple_field_types_from_type(&self, ty: &Type) -> Option<Vec<String>> {
         match ty {
-            Type::Tuple(elems) => {
-                Some(elems.iter().map(|e| e.to_jass().to_string()).collect())
-            }
+            Type::Tuple(elems) => Some(elems.iter().map(|e| e.to_jass().to_string()).collect()),
             Type::App(con, args) => {
                 if let Type::Con(name) = con.as_ref() {
                     if name.starts_with("Tuple") {
@@ -82,8 +85,7 @@ impl super::JassCodegen {
             })
             .collect();
         if candidates.len() == 1 {
-            candidates[0]
-                .variants[0]
+            candidates[0].variants[0]
                 .fields
                 .iter()
                 .map(|f| f.jass_type.clone())
@@ -93,16 +95,24 @@ impl super::JassCodegen {
         }
     }
 
-    pub(super) fn resolve_variant<'a>(&'a self, name: &str) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
+    pub(super) fn resolve_variant<'a>(
+        &'a self,
+        name: &str,
+    ) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
         let bare = Self::full_bare_name(name);
         match Self::type_hint_from_ctor_name(name) {
-            Some(tn) => self.types.get_variant_of_type(bare, tn)
+            Some(tn) => self
+                .types
+                .get_variant_of_type(bare, tn)
                 .or_else(|| self.types.get_variant(bare)),
             None => self.types.get_variant(bare),
         }
     }
 
-    pub(super) fn resolve_variant_in_case<'a>(&'a self, name: &str) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
+    pub(super) fn resolve_variant_in_case<'a>(
+        &'a self,
+        name: &str,
+    ) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
         let bare = Self::full_bare_name(name);
         if let Some(tn) = &self.current_case_type_name {
             if let Some(result) = self.types.get_variant_of_type(bare, tn) {
@@ -132,7 +142,9 @@ impl super::JassCodegen {
                         format!("({} == {})", subject, value)
                     } else {
                         let variant_info = match type_name {
-                            Some(tn) => self.types.get_variant_of_type(bare, tn)
+                            Some(tn) => self
+                                .types
+                                .get_variant_of_type(bare, tn)
                                 .or_else(|| self.resolve_variant(name)),
                             None => self.resolve_variant(name),
                         };
@@ -147,12 +159,14 @@ impl super::JassCodegen {
                         None => format!("glass_tag({})", subject),
                     };
                     let qualified = match type_name {
-                        Some(tn) => self.types.get_variant_of_type(bare, tn)
+                        Some(tn) => self
+                            .types
+                            .get_variant_of_type(bare, tn)
                             .or_else(|| self.resolve_variant(name)),
                         None => self.resolve_variant(name),
                     }
-                        .map(|(ti, _)| format!("{}_{}", ti.name, bare))
-                        .unwrap_or_else(|| bare.to_string());
+                    .map(|(ti, _)| format!("{}_{}", ti.name, bare))
+                    .unwrap_or_else(|| bare.to_string());
                     format!("({} == glass_TAG_{})", tag_access, qualified)
                 }
             }
@@ -163,12 +177,14 @@ impl super::JassCodegen {
                     None => format!("glass_tag({})", subject),
                 };
                 let qualified = match type_name {
-                    Some(tn) => self.types.get_variant_of_type(bare, tn)
+                    Some(tn) => self
+                        .types
+                        .get_variant_of_type(bare, tn)
                         .or_else(|| self.resolve_variant(name)),
                     None => self.resolve_variant(name),
                 }
-                    .map(|(ti, _)| format!("{}_{}", ti.name, bare))
-                    .unwrap_or_else(|| bare.to_string());
+                .map(|(ti, _)| format!("{}_{}", ti.name, bare))
+                .unwrap_or_else(|| bare.to_string());
                 format!("({} == glass_TAG_{})", tag_access, qualified)
             }
             Pattern::Or(alternatives) => {
@@ -194,7 +210,12 @@ impl super::JassCodegen {
         }
     }
 
-    pub(super) fn gen_let_pattern_binding(&mut self, pattern: &Pattern, val: &str, value_expr: &Expr) {
+    pub(super) fn gen_let_pattern_binding(
+        &mut self,
+        pattern: &Pattern,
+        val: &str,
+        value_expr: &Expr,
+    ) {
         match pattern {
             Pattern::Var(name) => {
                 self.emit(&format!("set {} = {}", safe_jass_name(name), val));
@@ -376,7 +397,8 @@ impl super::JassCodegen {
                                 let ann_type = self.type_to_jass(t);
                                 if ann_type == "integer" {
                                     if let Expr::Var(ref vname) = value.node {
-                                        self.local_var_jass_types.get(vname)
+                                        self.local_var_jass_types
+                                            .get(vname)
                                             .filter(|jt| *jt != "integer")
                                             .cloned()
                                             .unwrap_or(ann_type)
@@ -393,7 +415,8 @@ impl super::JassCodegen {
                                     "real".to_string()
                                 } else if lt == "integer" {
                                     if let Expr::Var(ref vname) = value.node {
-                                        self.local_var_jass_types.get(vname)
+                                        self.local_var_jass_types
+                                            .get(vname)
                                             .cloned()
                                             .unwrap_or_else(|| lt.to_string())
                                     } else {
@@ -404,7 +427,8 @@ impl super::JassCodegen {
                                 }
                             }
                         };
-                        self.local_var_jass_types.insert(name.clone(), jass_type.clone());
+                        self.local_var_jass_types
+                            .insert(name.clone(), jass_type.clone());
                         locals.push((name.clone(), jass_type));
                     }
                     Pattern::Tuple(elems) => {
@@ -509,7 +533,11 @@ impl super::JassCodegen {
         }
     }
 
-    pub(super) fn collect_pattern_locals(&self, pattern: &Pattern, locals: &mut Vec<(String, String)>) {
+    pub(super) fn collect_pattern_locals(
+        &self,
+        pattern: &Pattern,
+        locals: &mut Vec<(String, String)>,
+    ) {
         match pattern {
             Pattern::Var(name) if name != "_" => {
                 locals.push((name.clone(), "integer".to_string()));
@@ -599,5 +627,4 @@ impl super::JassCodegen {
             _ => {}
         }
     }
-
 }

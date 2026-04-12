@@ -1,7 +1,7 @@
 use crate::ast::*;
 use crate::type_repr::Type;
 
-use super::{safe_jass_name, format_float};
+use super::{format_float, safe_jass_name};
 
 impl super::JassCodegen {
     pub(super) fn handle_destroy_fn(ty: &TypeExpr) -> Option<String> {
@@ -210,7 +210,8 @@ impl super::JassCodegen {
                     }
                     _ => self.gen_spanned_expr(&function),
                 };
-                let args_str: Vec<String> = args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                let args_str: Vec<String> =
+                    args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
                 format!("{}({})", func_name, args_str.join(", "))
             }
 
@@ -276,9 +277,7 @@ impl super::JassCodegen {
                         let struct_match = || {
                             candidates
                                 .iter()
-                                .find(|c| {
-                                    self.types.types.get(*c).is_some_and(|ti| !ti.is_enum)
-                                })
+                                .find(|c| self.types.types.get(*c).is_some_and(|ti| !ti.is_enum))
                                 .cloned()
                         };
                         let param_match = || {
@@ -442,10 +441,7 @@ impl super::JassCodegen {
                         if has_compound_arm || has_integer_var_arm {
                             return "integer".to_string();
                         }
-                        if jt == "integer"
-                            && arms
-                                .iter()
-                                .any(|a| self.expr_has_float(&a.body.node))
+                        if jt == "integer" && arms.iter().any(|a| self.expr_has_float(&a.body.node))
                         {
                             return "real".to_string();
                         }
@@ -467,21 +463,21 @@ impl super::JassCodegen {
                     .unwrap_or_else(|| self.infer_case_jass_type(arms));
                 let result_var = self.fresh_temp_typed(&case_jass_type);
 
-                let subject_type_name =
-                    self.lookup_full_type(subject.span)
-                        .and_then(|ty| self.resolve_type_name_from_app(&ty))
-                        .or_else(|| {
-                            for arm in arms.iter() {
-                                if let Pattern::Constructor { name: pname, .. }
-                                    | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
-                                {
-                                    if let Some((ti, _)) = self.resolve_variant(pname) {
-                                        return Some(ti.name.clone());
-                                    }
+                let subject_type_name = self
+                    .lookup_full_type(subject.span)
+                    .and_then(|ty| self.resolve_type_name_from_app(&ty))
+                    .or_else(|| {
+                        for arm in arms.iter() {
+                            if let Pattern::Constructor { name: pname, .. }
+                            | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
+                            {
+                                if let Some((ti, _)) = self.resolve_variant(pname) {
+                                    return Some(ti.name.clone());
                                 }
                             }
-                            None
-                        });
+                        }
+                        None
+                    });
 
                 let subj = if subject_type_name.as_deref() == Some("Bool")
                     && subj.contains("glass_dispatch_")
@@ -560,7 +556,8 @@ impl super::JassCodegen {
                     .collect();
                 let tuple_type = crate::types::TypeRegistry::tuple_type_name(&shape);
 
-                let arg_strs: Vec<String> = elems.iter().map(|e| self.gen_spanned_expr(&e)).collect();
+                let arg_strs: Vec<String> =
+                    elems.iter().map(|e| self.gen_spanned_expr(&e)).collect();
 
                 format!(
                     "glass_new_{}_{}({})",
@@ -757,14 +754,17 @@ impl super::JassCodegen {
                     return value.clone();
                 }
 
-                let mono_tname = self.resolve_mono_ctor_type_from_span(name)
+                let mono_tname = self
+                    .resolve_mono_ctor_type_from_span(name)
                     .or_else(|| self.resolve_mono_ctor_type(name, args));
 
                 let variant_info = match &mono_tname {
-                    Some(mn) => self.types.get_variant_of_type(
-                        Self::full_bare_name(name), mn,
-                    ).map(|(ti, v)| (ti.name.clone(), v.name.clone())),
-                    None => self.resolve_variant(name)
+                    Some(mn) => self
+                        .types
+                        .get_variant_of_type(Self::full_bare_name(name), mn)
+                        .map(|(ti, v)| (ti.name.clone(), v.name.clone())),
+                    None => self
+                        .resolve_variant(name)
                         .map(|(ti, v)| (ti.name.clone(), v.name.clone())),
                 };
 
@@ -911,9 +911,10 @@ impl super::JassCodegen {
             Expr::Let { body, .. } => self.expr_has_float(&body.node),
             Expr::Block(exprs) => exprs.last().is_some_and(|e| self.expr_has_float(&e.node)),
             Expr::Case { arms, .. } => arms.iter().any(|a| self.expr_has_float(&a.body.node)),
-            Expr::Var(name) => {
-                self.local_var_jass_types.get(name).is_some_and(|jt| jt == "real")
-            }
+            Expr::Var(name) => self
+                .local_var_jass_types
+                .get(name)
+                .is_some_and(|jt| jt == "real"),
             _ => false,
         }
     }
@@ -955,7 +956,6 @@ impl super::JassCodegen {
         }
         "integer".to_string()
     }
-
 }
 
 pub(super) fn const_fold_binop(op: &BinOp, left: &Expr, right: &Expr) -> Option<String> {
@@ -992,4 +992,3 @@ pub(super) fn const_fold_binop(op: &BinOp, left: &Expr, right: &Expr) -> Option<
         _ => None,
     }
 }
-

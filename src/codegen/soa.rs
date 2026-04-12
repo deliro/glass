@@ -262,5 +262,4 @@ impl super::JassCodegen {
         self.indent -= 1;
         self.emit("endfunction");
     }
-
 }

@@ -4,7 +4,6 @@ use crate::ast::*;
 use crate::type_repr::{Substitution, Type};
 use crate::types::TypeRegistry;
 
-
 impl super::JassCodegen {
     // === Type mapping ===
 
@@ -66,7 +65,12 @@ impl super::JassCodegen {
         }
     }
 
-    pub(super) fn gen_mono_function(&mut self, orig_name: &str, mono_name: &str, subst: Substitution) {
+    pub(super) fn gen_mono_function(
+        &mut self,
+        orig_name: &str,
+        mono_name: &str,
+        subst: Substitution,
+    ) {
         let fdef = match self.fn_defs.get(orig_name).cloned() {
             Some(f) => f,
             None => return,
@@ -253,7 +257,11 @@ impl super::JassCodegen {
             .join("_")
     }
 
-    pub(super) fn build_mono_subst(&self, fn_name: &str, concrete_arg_types: &[Type]) -> Substitution {
+    pub(super) fn build_mono_subst(
+        &self,
+        fn_name: &str,
+        concrete_arg_types: &[Type],
+    ) -> Substitution {
         let mut subst = Substitution::new();
         if let Some(tvars) = self.type_param_vars.get(fn_name) {
             // tvars: {"k" → VarId(42), "v" → VarId(43)}
@@ -452,7 +460,11 @@ impl super::JassCodegen {
         self.resolve_type_name_from_app(&ty)
     }
 
-    pub(super) fn resolve_mono_ctor_type(&self, ctor_name: &str, args: &[ConstructorArg]) -> Option<String> {
+    pub(super) fn resolve_mono_ctor_type(
+        &self,
+        ctor_name: &str,
+        args: &[ConstructorArg],
+    ) -> Option<String> {
         let type_hint = Self::type_hint_from_ctor_name(ctor_name)?;
         if self.types.mono_map.is_empty() {
             return None;
@@ -497,7 +509,10 @@ impl super::JassCodegen {
         None
     }
 
-    pub(super) fn extract_list_elem_type_from_subject(&self, subject: &Spanned<Expr>) -> Option<String> {
+    pub(super) fn extract_list_elem_type_from_subject(
+        &self,
+        subject: &Spanned<Expr>,
+    ) -> Option<String> {
         if let Expr::Var(name) = &subject.node {
             if let Some(elem) = self.var_list_elem_types.get(name) {
                 return Some(elem.clone());
@@ -539,5 +554,4 @@ impl super::JassCodegen {
             _ => None,
         }
     }
-
 }

@@ -184,10 +184,12 @@ impl JassCodegen {
             if let Definition::External(e) = def {
                 if let Some(ref src) = e.source_module {
                     let qualified = format!("{}.{}", src, e.fn_name);
-                    self.externals.entry(qualified).or_insert_with(|| ExternalInfo {
-                        jass_name: e.name_in_module.clone(),
-                        module: e.module.clone(),
-                    });
+                    self.externals
+                        .entry(qualified)
+                        .or_insert_with(|| ExternalInfo {
+                            jass_name: e.name_in_module.clone(),
+                            module: e.module.clone(),
+                        });
                 }
             }
         }
@@ -429,7 +431,8 @@ impl JassCodegen {
             self.local_var_jass_types
                 .insert(p.name.clone(), self.type_to_jass(&p.type_expr));
             if let Some(glass_type) = Self::extract_inner_type_name(&p.type_expr) {
-                self.local_var_glass_types.insert(p.name.clone(), glass_type);
+                self.local_var_glass_types
+                    .insert(p.name.clone(), glass_type);
             }
         }
 
@@ -536,21 +539,21 @@ impl JassCodegen {
             Expr::Case { subject, arms } => {
                 let subj = self.gen_spanned_expr(&subject);
 
-                let subject_type_name =
-                    self.lookup_full_type(subject.span)
-                        .and_then(|ty| self.resolve_type_name_from_app(&ty))
-                        .or_else(|| {
-                            for arm in arms.iter() {
-                                if let Pattern::Constructor { name: pname, .. }
-                                    | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
-                                {
-                                    if let Some((ti, _)) = self.resolve_variant(pname) {
-                                        return Some(ti.name.clone());
-                                    }
+                let subject_type_name = self
+                    .lookup_full_type(subject.span)
+                    .and_then(|ty| self.resolve_type_name_from_app(&ty))
+                    .or_else(|| {
+                        for arm in arms.iter() {
+                            if let Pattern::Constructor { name: pname, .. }
+                            | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
+                            {
+                                if let Some((ti, _)) = self.resolve_variant(pname) {
+                                    return Some(ti.name.clone());
                                 }
                             }
-                            None
-                        });
+                        }
+                        None
+                    });
 
                 let new_list_type = self.extract_list_elem_type_from_subject(subject);
                 let prev_list_type = match new_list_type {
@@ -636,6 +639,4 @@ impl JassCodegen {
             }
         }
     }
-
 }
-

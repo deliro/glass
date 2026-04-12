@@ -777,5 +777,4 @@ impl super::Inferencer {
             }
         }
     }
-
 }

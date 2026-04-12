@@ -2182,7 +2182,8 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_at_struct_sync_point() {
-        let tokens = Lexer::tokenize("fn bad( struct Point { x: Int, y: Int }").expect("lex failed");
+        let tokens =
+            Lexer::tokenize("fn bad( struct Point { x: Int, y: Int }").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 1);
@@ -2209,7 +2210,8 @@ pub fn update(model: Model, msg: Msg) -> (Model, List(Effect(Msg))) {
 
     #[test]
     fn recovers_at_pub_sync_point() {
-        let tokens = Lexer::tokenize("fn bad( pub fn good(x: Int) -> Int { x }").expect("lex failed");
+        let tokens =
+            Lexer::tokenize("fn bad( pub fn good(x: Int) -> Int { x }").expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
         assert_eq!(output.errors.len(), 1);

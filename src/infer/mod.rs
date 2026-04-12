@@ -564,8 +564,6 @@ impl Inferencer {
         self.record_type(expr.span, &ty);
         ty
     }
-
-
 }
 
 #[cfg(test)]

@@ -63,7 +63,10 @@ fn const_to_pattern(val: &ConstValue) -> Pattern {
     }
 }
 
-fn resolve_pattern(pat: Spanned<Pattern>, consts: &HashMap<String, ConstValue>) -> Spanned<Pattern> {
+fn resolve_pattern(
+    pat: Spanned<Pattern>,
+    consts: &HashMap<String, ConstValue>,
+) -> Spanned<Pattern> {
     let span = pat.span;
     match pat.node {
         Pattern::Var(ref name) if consts.contains_key(name) => {
@@ -77,11 +80,21 @@ fn resolve_pattern(pat: Spanned<Pattern>, consts: &HashMap<String, ConstValue>) 
             }
         }
         Pattern::Tuple(elems) => Spanned::new(
-            Pattern::Tuple(elems.into_iter().map(|p| resolve_pattern(p, consts)).collect()),
+            Pattern::Tuple(
+                elems
+                    .into_iter()
+                    .map(|p| resolve_pattern(p, consts))
+                    .collect(),
+            ),
             span,
         ),
         Pattern::List(elems) => Spanned::new(
-            Pattern::List(elems.into_iter().map(|p| resolve_pattern(p, consts)).collect()),
+            Pattern::List(
+                elems
+                    .into_iter()
+                    .map(|p| resolve_pattern(p, consts))
+                    .collect(),
+            ),
             span,
         ),
         Pattern::ListCons { head, tail } => Spanned::new(
@@ -92,7 +105,11 @@ fn resolve_pattern(pat: Spanned<Pattern>, consts: &HashMap<String, ConstValue>) 
             span,
         ),
         Pattern::Or(alts) => Spanned::new(
-            Pattern::Or(alts.into_iter().map(|p| resolve_pattern(p, consts)).collect()),
+            Pattern::Or(
+                alts.into_iter()
+                    .map(|p| resolve_pattern(p, consts))
+                    .collect(),
+            ),
             span,
         ),
         Pattern::As { pattern, name } => Spanned::new(
@@ -105,7 +122,10 @@ fn resolve_pattern(pat: Spanned<Pattern>, consts: &HashMap<String, ConstValue>) 
         Pattern::Constructor { name, args } => Spanned::new(
             Pattern::Constructor {
                 name,
-                args: args.into_iter().map(|p| resolve_pattern(p, consts)).collect(),
+                args: args
+                    .into_iter()
+                    .map(|p| resolve_pattern(p, consts))
+                    .collect(),
             },
             span,
         ),
@@ -275,10 +295,9 @@ fn resolve_expr(expr: Spanned<Expr>, consts: &HashMap<String, ConstValue>) -> Sp
             },
             span,
         ),
-        Expr::Clone(inner) => Spanned::new(
-            Expr::Clone(Box::new(resolve_expr(*inner, consts))),
-            span,
-        ),
+        Expr::Clone(inner) => {
+            Spanned::new(Expr::Clone(Box::new(resolve_expr(*inner, consts))), span)
+        }
         Expr::TcoLoop { body } => Spanned::new(
             Expr::TcoLoop {
                 body: Box::new(resolve_expr(*body, consts)),
