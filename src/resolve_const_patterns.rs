@@ -35,10 +35,10 @@ enum ConstValue {
 fn collect_constants(definitions: &[Definition]) -> HashMap<String, ConstValue> {
     let mut consts = HashMap::new();
     for def in definitions {
-        if let Definition::Const(c) = def {
-            if let Some(val) = expr_to_const_value(&c.value.node) {
-                consts.insert(c.name.clone(), val);
-            }
+        if let Definition::Const(c) = def
+            && let Some(val) = expr_to_const_value(&c.value.node)
+        {
+            consts.insert(c.name.clone(), val);
         }
     }
     consts

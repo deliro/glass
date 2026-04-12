@@ -100,9 +100,9 @@ impl ModuleResolver {
 
         let has_effect_import = imports
             .iter()
-            .any(|imp| imp.path.last().map_or(false, |s| s == "effect"));
+            .any(|imp| imp.path.last().is_some_and(|s| s == "effect"));
 
-        let mut all_imports = imports.clone();
+        let mut all_imports = imports;
         if has_effect_import {
             all_imports.push(ImportDef {
                 path: vec!["effect_exec".to_string()],
@@ -127,7 +127,7 @@ impl ModuleResolver {
                         } else if let Definition::External(e) = def {
                             if let Some(ref src) = e.source_module {
                                 let src_key = name.map(|n| format!("{}.{}", src, n));
-                                src_key.map_or(false, |k| seen_defs.insert(k))
+                                src_key.is_some_and(|k| seen_defs.insert(k))
                             } else {
                                 false
                             }
@@ -139,12 +139,11 @@ impl ModuleResolver {
                                 def_module_map.insert(all_imported_defs.len(), module_name.clone());
                             }
                             let mut def = def.clone();
-                            if resolved.qualified {
-                                if let Definition::External(ref mut e) = def {
-                                    if e.source_module.is_none() {
-                                        e.source_module = Some(module_name.clone());
-                                    }
-                                }
+                            if resolved.qualified
+                                && let Definition::External(ref mut e) = def
+                                && e.source_module.is_none()
+                            {
+                                e.source_module = Some(module_name.clone());
                             }
                             all_imported_defs.push(def);
                         }

@@ -72,8 +72,7 @@ impl TypeRegistry {
             if concrete.is_empty() {
                 let info = Self::collect_type(gdef);
                 types.insert(info.name.clone(), info);
-            } else if concrete.len() == 1 {
-                let jass_args = concrete[0];
+            } else if let [jass_args] = concrete.as_slice() {
                 let subst: HashMap<&str, &str> = gdef
                     .type_params
                     .iter()
@@ -343,12 +342,12 @@ impl TypeRegistry {
 
     fn discover_list_in_type_expr(ty: &TypeExpr, elem_types: &mut HashSet<String>) {
         if let TypeExpr::Named { name, args } = ty {
-            if name == "List" {
-                if let Some(arg) = args.first() {
-                    let jass_type = Self::type_expr_to_jass(arg);
-                    if jass_type != "integer" {
-                        elem_types.insert(jass_type);
-                    }
+            if name == "List"
+                && let Some(arg) = args.first()
+            {
+                let jass_type = Self::type_expr_to_jass(arg);
+                if jass_type != "integer" {
+                    elem_types.insert(jass_type);
                 }
             }
             for arg in args {
@@ -599,7 +598,7 @@ impl TypeRegistry {
     fn analyze_callback_type(ty: &crate::ast::TypeExpr) -> (bool, Vec<String>) {
         match ty {
             TypeExpr::Fn { params, .. } => {
-                let param_types = params.iter().map(|p| Self::type_expr_to_jass(p)).collect();
+                let param_types = params.iter().map(Self::type_expr_to_jass).collect();
                 (true, param_types)
             }
             _ => (false, Vec::new()),

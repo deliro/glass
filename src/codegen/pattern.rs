@@ -39,12 +39,11 @@ impl super::JassCodegen {
         let ty = self.lookup_full_type(subject.span)?;
         match ty {
             Type::App(con, args) => {
-                if let Type::Con(name) = *con {
-                    if name == "List" {
-                        if let Some(elem_ty) = args.into_iter().next() {
-                            return self.tuple_field_types_from_type(&elem_ty);
-                        }
-                    }
+                if let Type::Con(name) = *con
+                    && name == "List"
+                    && let Some(elem_ty) = args.into_iter().next()
+                {
+                    return self.tuple_field_types_from_type(&elem_ty);
                 }
                 None
             }
@@ -57,10 +56,10 @@ impl super::JassCodegen {
         match ty {
             Type::Tuple(elems) => Some(elems.iter().map(|e| e.to_jass().to_string()).collect()),
             Type::App(con, args) => {
-                if let Type::Con(name) = con.as_ref() {
-                    if name.starts_with("Tuple") {
-                        return Some(args.iter().map(|a| a.to_jass().to_string()).collect());
-                    }
+                if let Type::Con(name) = con.as_ref()
+                    && name.starts_with("Tuple")
+                {
+                    return Some(args.iter().map(|a| a.to_jass().to_string()).collect());
                 }
                 None
             }
@@ -69,10 +68,10 @@ impl super::JassCodegen {
     }
 
     pub(super) fn lookup_tuple_field_types(&self, arity: usize) -> Vec<String> {
-        if let Some(ref types) = self.current_tuple_field_types {
-            if types.len() == arity {
-                return types.clone();
-            }
+        if let Some(ref types) = self.current_tuple_field_types
+            && types.len() == arity
+        {
+            return types.clone();
         }
         let prefix = format!("Tuple{}_", arity);
         let candidates: Vec<&TypeInfo> = self
@@ -114,10 +113,10 @@ impl super::JassCodegen {
         name: &str,
     ) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
         let bare = Self::full_bare_name(name);
-        if let Some(tn) = &self.current_case_type_name {
-            if let Some(result) = self.types.get_variant_of_type(bare, tn) {
-                return Some(result);
-            }
+        if let Some(tn) = &self.current_case_type_name
+            && let Some(result) = self.types.get_variant_of_type(bare, tn)
+        {
+            return Some(result);
         }
         self.resolve_variant(name)
     }

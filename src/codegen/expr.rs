@@ -69,8 +69,8 @@ impl super::JassCodegen {
                 if let Some(result) = const_fold_binop(op, &left.node, &right.node) {
                     return result;
                 }
-                let l = self.gen_spanned_expr(&left);
-                let r = self.gen_spanned_expr(&right);
+                let l = self.gen_spanned_expr(left);
+                let r = self.gen_spanned_expr(right);
                 let op_str = match op {
                     BinOp::Add | BinOp::StringConcat => "+",
                     BinOp::Sub => "-",
@@ -93,7 +93,7 @@ impl super::JassCodegen {
             }
 
             Expr::UnaryOp { op, operand } => {
-                let o = self.gen_spanned_expr(&operand);
+                let o = self.gen_spanned_expr(operand);
                 match op {
                     UnaryOp::Negate => format!("-({})", o),
                     UnaryOp::Not => format!("not ({})", o),
@@ -113,7 +113,7 @@ impl super::JassCodegen {
 
                 if let Some(ext) = ext_info {
                     let args_str: Vec<String> =
-                        args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                        args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                     if ext.module == "glass" {
                         // For dict_load: we need the return type of this call.
                         // Pass the function var span as a hint — the type checker
@@ -137,7 +137,7 @@ impl super::JassCodegen {
 
                         if is_closure_var {
                             let args_str: Vec<String> =
-                                args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                                args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                             let param_jass_types: Vec<String> = args
                                 .iter()
                                 .map(|a| {
@@ -166,7 +166,7 @@ impl super::JassCodegen {
                                 self.gen_mono_function(name, &mono_name, subst);
                             }
                             let args_str: Vec<String> =
-                                args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                                args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                             return format!("{}({})", mono_name, args_str.join(", "));
                         }
                         format!("glass_{}", name)
@@ -189,7 +189,7 @@ impl super::JassCodegen {
                                 .cloned()
                             {
                                 let args_str: Vec<String> =
-                                    args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                                    args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                                 if ext.module == "glass" {
                                     return self.gen_intrinsic_call(
                                         &ext.jass_name,
@@ -202,16 +202,15 @@ impl super::JassCodegen {
                             }
                             if self.fn_defs.contains_key(field.as_str()) {
                                 let args_str: Vec<String> =
-                                    args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                                    args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                                 return format!("glass_{}({})", field, args_str.join(", "));
                             }
                         }
-                        self.gen_spanned_expr(&function)
+                        self.gen_spanned_expr(function)
                     }
-                    _ => self.gen_spanned_expr(&function),
+                    _ => self.gen_spanned_expr(function),
                 };
-                let args_str: Vec<String> =
-                    args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                let args_str: Vec<String> = args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                 format!("{}({})", func_name, args_str.join(", "))
             }
 
@@ -226,7 +225,7 @@ impl super::JassCodegen {
                     return value.clone();
                 }
 
-                let obj = self.gen_spanned_expr(&object);
+                let obj = self.gen_spanned_expr(object);
                 let mut type_name = self
                     .lookup_full_type(object.span)
                     .or_else(|| {
@@ -335,7 +334,7 @@ impl super::JassCodegen {
                         .cloned();
                     if let Some(ext) = ext_info {
                         let args_str: Vec<String> =
-                            args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                            args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                         if ext.module == "glass" {
                             return self.gen_intrinsic_call(
                                 &ext.jass_name,
@@ -348,17 +347,17 @@ impl super::JassCodegen {
                     }
 
                     if let Some(prefixed) = self.extend_methods.get(method.as_str()).cloned() {
-                        let obj = self.gen_spanned_expr(&object);
+                        let obj = self.gen_spanned_expr(object);
                         let mut all_args = vec![obj];
                         for a in args {
-                            all_args.push(self.gen_spanned_expr(&a));
+                            all_args.push(self.gen_spanned_expr(a));
                         }
                         return format!("glass_{}({})", prefixed, all_args.join(", "));
                     }
 
                     if self.fn_defs.contains_key(method.as_str()) {
                         let args_str: Vec<String> =
-                            args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                            args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                         return format!("glass_{}({})", method, args_str.join(", "));
                     }
 
@@ -379,21 +378,21 @@ impl super::JassCodegen {
                         }
 
                         let args_str: Vec<String> =
-                            args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                            args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                         return format!("{}({})", mono_name, args_str.join(", "));
                     }
 
                     let args_str: Vec<String> =
-                        args.iter().map(|a| self.gen_spanned_expr(&a)).collect();
+                        args.iter().map(|a| self.gen_spanned_expr(a)).collect();
                     return format!("glass_{}({})", method, args_str.join(", "));
                 }
 
                 let resolved = self.extend_methods.get(method.as_str()).cloned();
                 let name = resolved.as_deref().unwrap_or(method.as_str());
-                let obj = self.gen_spanned_expr(&object);
+                let obj = self.gen_spanned_expr(object);
                 let mut all_args = vec![obj];
                 for a in args {
-                    all_args.push(self.gen_spanned_expr(&a));
+                    all_args.push(self.gen_spanned_expr(a));
                 }
                 format!("glass_{}({})", name, all_args.join(", "))
             }
@@ -404,13 +403,13 @@ impl super::JassCodegen {
                 pattern,
                 ..
             } => {
-                let val = self.gen_spanned_expr(&value);
+                let val = self.gen_spanned_expr(value);
                 self.gen_let_pattern_binding(&pattern.node, &val, &value.node);
-                self.gen_spanned_expr(&body)
+                self.gen_spanned_expr(body)
             }
 
             Expr::Case { subject, arms } => {
-                let subj = self.gen_spanned_expr(&subject);
+                let subj = self.gen_spanned_expr(subject);
                 let has_compound_arm = arms.iter().any(|a| {
                     matches!(
                         &a.body.node,
@@ -445,18 +444,17 @@ impl super::JassCodegen {
                         {
                             return "real".to_string();
                         }
-                        if let Some(arm) = arms.first() {
-                            if jt == "string"
-                                && matches!(
-                                    &arm.body.node,
-                                    Expr::Call { .. }
-                                        | Expr::Constructor { .. }
-                                        | Expr::List(_)
-                                        | Expr::ListCons { .. }
-                                )
-                            {
-                                return "integer".to_string();
-                            }
+                        if let Some(arm) = arms.first()
+                            && jt == "string"
+                            && matches!(
+                                &arm.body.node,
+                                Expr::Call { .. }
+                                    | Expr::Constructor { .. }
+                                    | Expr::List(_)
+                                    | Expr::ListCons { .. }
+                            )
+                        {
+                            return "integer".to_string();
                         }
                         jt
                     })
@@ -467,13 +465,12 @@ impl super::JassCodegen {
                     .lookup_full_type(subject.span)
                     .and_then(|ty| self.resolve_type_name_from_app(&ty))
                     .or_else(|| {
-                        for arm in arms.iter() {
+                        for arm in arms {
                             if let Pattern::Constructor { name: pname, .. }
                             | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
+                                && let Some((ti, _)) = self.resolve_variant(pname)
                             {
-                                if let Some((ti, _)) = self.resolve_variant(pname) {
-                                    return Some(ti.name.clone());
-                                }
+                                return Some(ti.name.clone());
                             }
                         }
                         None
@@ -510,7 +507,7 @@ impl super::JassCodegen {
                     let guard = arm
                         .guard
                         .as_ref()
-                        .map(|g| format!(" and ({})", self.gen_spanned_expr(&g)))
+                        .map(|g| format!(" and ({})", self.gen_spanned_expr(g)))
                         .unwrap_or_default();
 
                     if i == 0 {
@@ -543,7 +540,7 @@ impl super::JassCodegen {
             Expr::Block(exprs) => {
                 let mut last = String::from("null");
                 for expr in exprs {
-                    last = self.gen_spanned_expr(&expr);
+                    last = self.gen_spanned_expr(expr);
                 }
                 last
             }
@@ -557,7 +554,7 @@ impl super::JassCodegen {
                 let tuple_type = crate::types::TypeRegistry::tuple_type_name(&shape);
 
                 let arg_strs: Vec<String> =
-                    elems.iter().map(|e| self.gen_spanned_expr(&e)).collect();
+                    elems.iter().map(|e| self.gen_spanned_expr(e)).collect();
 
                 format!(
                     "glass_new_{}_{}({})",
@@ -595,7 +592,7 @@ impl super::JassCodegen {
 
                     let mut result = "-1".to_string();
                     for elem in elems.iter().rev() {
-                        let val = self.gen_spanned_expr(&elem);
+                        let val = self.gen_spanned_expr(elem);
                         result = format!("glass_{}_cons({}, {})", lt, val, result);
                     }
                     result
@@ -603,8 +600,8 @@ impl super::JassCodegen {
             }
 
             Expr::ListCons { head, tail } => {
-                let h = self.gen_spanned_expr(&head);
-                let t = self.gen_spanned_expr(&tail);
+                let h = self.gen_spanned_expr(head);
+                let t = self.gen_spanned_expr(tail);
                 let head_type = self.lookup_full_type(head.span);
                 let elem_type = head_type
                     .as_ref()
@@ -629,13 +626,13 @@ impl super::JassCodegen {
             }
 
             Expr::Pipe { left, right } => {
-                let l = self.gen_spanned_expr(&left);
+                let l = self.gen_spanned_expr(left);
                 // Pipe: a |> f(b, _) → f(b, a), a |> f(b) → f(a, b), a |> f → f(a)
                 match &right.node {
                     Expr::Call { function, args } => {
                         let func_name = match &function.node {
                             Expr::Var(name) => format!("glass_{}", name),
-                            _ => self.gen_spanned_expr(&function),
+                            _ => self.gen_spanned_expr(function),
                         };
                         // Check if any arg is `_` (capture/placeholder)
                         let has_placeholder = args
@@ -648,7 +645,7 @@ impl super::JassCodegen {
                                     if matches!(&a.node, Expr::Var(n) if n == "_") {
                                         l.clone()
                                     } else {
-                                        self.gen_spanned_expr(&a)
+                                        self.gen_spanned_expr(a)
                                     }
                                 })
                                 .collect()
@@ -656,7 +653,7 @@ impl super::JassCodegen {
                             // No placeholder: insert as first arg
                             let mut all = vec![l];
                             for a in args {
-                                all.push(self.gen_spanned_expr(&a));
+                                all.push(self.gen_spanned_expr(a));
                             }
                             all
                         };
@@ -699,14 +696,14 @@ impl super::JassCodegen {
                                         if matches!(&a.node, Expr::Var(n) if n == "_") {
                                             l.clone()
                                         } else {
-                                            self.gen_spanned_expr(&a)
+                                            self.gen_spanned_expr(a)
                                         }
                                     })
                                     .collect()
                             } else {
                                 let mut all = vec![l];
                                 for a in args {
-                                    all.push(self.gen_spanned_expr(&a));
+                                    all.push(self.gen_spanned_expr(a));
                                 }
                                 all
                             };
@@ -736,12 +733,12 @@ impl super::JassCodegen {
                         let func_name = if self.fn_defs.contains_key(field.as_str()) {
                             format!("glass_{}", field)
                         } else {
-                            self.gen_spanned_expr(&right)
+                            self.gen_spanned_expr(right)
                         };
                         format!("{}({})", func_name, l)
                     }
                     _ => {
-                        let r = self.gen_spanned_expr(&right);
+                        let r = self.gen_spanned_expr(right);
                         format!("{}({})", r, l)
                     }
                 }
@@ -778,7 +775,7 @@ impl super::JassCodegen {
                                         ConstructorArg::Positional(e)
                                         | ConstructorArg::Named(_, e) => e,
                                     };
-                                    self.gen_spanned_expr(&e)
+                                    self.gen_spanned_expr(e)
                                 })
                                 .collect();
                         if arg_strs.is_empty() {
@@ -816,14 +813,14 @@ impl super::JassCodegen {
 
                 match record_info {
                     Some((variant_name, fields)) => {
-                        let base_val = self.gen_spanned_expr(&base);
+                        let base_val = self.gen_spanned_expr(base);
                         let tmp = self.fresh_temp();
                         self.emit(&format!("set {} = glass_{}_alloc()", tmp, name));
                         for (fname, _ftype) in &fields {
                             let updated = updates.iter().find(|(n, _)| n == fname);
                             match updated {
                                 Some((_, val)) => {
-                                    let v = self.gen_spanned_expr(&val);
+                                    let v = self.gen_spanned_expr(val);
                                     self.emit(&format!(
                                         "set glass_{}_{}_{} [{}] = {}",
                                         name, variant_name, fname, tmp, v
@@ -887,7 +884,7 @@ impl super::JassCodegen {
                 }
             }
 
-            Expr::Clone(inner) => self.gen_spanned_expr(&inner),
+            Expr::Clone(inner) => self.gen_spanned_expr(inner),
 
             Expr::Todo(msg) => {
                 let msg_str = msg

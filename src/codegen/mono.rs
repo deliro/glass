@@ -441,8 +441,6 @@ impl super::JassCodegen {
                 let jass_args: Vec<String> = args.iter().map(|a| a.to_jass().to_string()).collect();
                 if let Some(mono_name) = self.types.resolve_mono_name(base, &jass_args) {
                     Some(mono_name.to_string())
-                } else if self.types.types.contains_key(base) {
-                    Some(base.clone())
                 } else {
                     Some(base.clone())
                 }
@@ -496,14 +494,13 @@ impl super::JassCodegen {
     }
 
     pub(super) fn extract_list_elem_jass_type(ty: &TypeExpr) -> Option<String> {
-        if let TypeExpr::Named { name, args } = ty {
-            if name == "List" {
-                if let Some(arg) = args.first() {
-                    let jass = TypeRegistry::type_expr_to_jass_public(arg);
-                    if jass != "integer" {
-                        return Some(jass);
-                    }
-                }
+        if let TypeExpr::Named { name, args } = ty
+            && name == "List"
+            && let Some(arg) = args.first()
+        {
+            let jass = TypeRegistry::type_expr_to_jass_public(arg);
+            if jass != "integer" {
+                return Some(jass);
             }
         }
         None
@@ -513,23 +510,20 @@ impl super::JassCodegen {
         &self,
         subject: &Spanned<Expr>,
     ) -> Option<String> {
-        if let Expr::Var(name) = &subject.node {
-            if let Some(elem) = self.var_list_elem_types.get(name) {
-                return Some(elem.clone());
-            }
+        if let Expr::Var(name) = &subject.node
+            && let Some(elem) = self.var_list_elem_types.get(name)
+        {
+            return Some(elem.clone());
         }
-        if let Some(ty) = self.lookup_full_type(subject.span) {
-            if let Type::App(con, args) = ty {
-                if let Type::Con(name) = *con {
-                    if name == "List" {
-                        if let Some(elem) = args.first() {
-                            let jass = elem.to_jass();
-                            if jass != "integer" && self.types.list_types.contains(jass) {
-                                return Some(jass.to_string());
-                            }
-                        }
-                    }
-                }
+        if let Some(ty) = self.lookup_full_type(subject.span)
+            && let Type::App(con, args) = ty
+            && let Type::Con(name) = *con
+            && name == "List"
+            && let Some(elem) = args.first()
+        {
+            let jass = elem.to_jass();
+            if jass != "integer" && self.types.list_types.contains(jass) {
+                return Some(jass.to_string());
             }
         }
         None
@@ -539,14 +533,13 @@ impl super::JassCodegen {
         let ty = self.lookup_full_type(tail.span)?;
         match ty {
             Type::App(con, args) => {
-                if let Type::Con(name) = *con {
-                    if name == "List" {
-                        if let Some(elem) = args.first() {
-                            let jass = elem.to_jass();
-                            if self.types.list_types.contains(jass) {
-                                return Some(jass.to_string());
-                            }
-                        }
+                if let Type::Con(name) = *con
+                    && name == "List"
+                    && let Some(elem) = args.first()
+                {
+                    let jass = elem.to_jass();
+                    if self.types.list_types.contains(jass) {
+                        return Some(jass.to_string());
                     }
                 }
                 None

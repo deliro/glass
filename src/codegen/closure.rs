@@ -15,10 +15,10 @@ impl super::JassCodegen {
         if ty != "integer" {
             return ty.to_string();
         }
-        if let Some(usage_ty) = self.find_capture_usage_type(&capture.name, &body.node) {
-            if usage_ty != "integer" {
-                return usage_ty;
-            }
+        if let Some(usage_ty) = self.find_capture_usage_type(&capture.name, &body.node)
+            && usage_ty != "integer"
+        {
+            return usage_ty;
         }
         if let Some(ann) = Self::find_capture_annotation(&capture.name, &body.node) {
             let resolved = self.type_to_jass(&ann);
@@ -26,10 +26,10 @@ impl super::JassCodegen {
                 return resolved;
             }
         }
-        if let Some(jt) = self.pattern_var_types.get(&capture.name) {
-            if jt != "integer" {
-                return jt.clone();
-            }
+        if let Some(jt) = self.pattern_var_types.get(&capture.name)
+            && jt != "integer"
+        {
+            return jt.clone();
         }
         ty.to_string()
     }
@@ -42,12 +42,11 @@ impl super::JassCodegen {
                 pattern,
                 ..
             } => {
-                if let Expr::Var(ref v) = value.node {
-                    if v == name {
-                        if let Pattern::Var(ref bound) = pattern.node {
-                            return self.find_capture_usage_type(bound, &body.node);
-                        }
-                    }
+                if let Expr::Var(ref v) = value.node
+                    && v == name
+                    && let Pattern::Var(ref bound) = pattern.node
+                {
+                    return self.find_capture_usage_type(bound, &body.node);
                 }
                 self.find_capture_usage_type(name, &body.node)
             }
@@ -56,12 +55,12 @@ impl super::JassCodegen {
                     let e = match arg {
                         ConstructorArg::Positional(e) | ConstructorArg::Named(_, e) => e,
                     };
-                    if let Expr::Var(ref v) = e.node {
-                        if v == name {
-                            let ty = self.lookup_type(e.span);
-                            if ty != "integer" {
-                                return Some(ty.to_string());
-                            }
+                    if let Expr::Var(ref v) = e.node
+                        && v == name
+                    {
+                        let ty = self.lookup_type(e.span);
+                        if ty != "integer" {
+                            return Some(ty.to_string());
                         }
                     }
                 }
@@ -69,12 +68,12 @@ impl super::JassCodegen {
             }
             Expr::Call { args, .. } => {
                 for a in args {
-                    if let Expr::Var(ref v) = a.node {
-                        if v == name {
-                            let ty = self.lookup_type(a.span);
-                            if ty != "integer" {
-                                return Some(ty.to_string());
-                            }
+                    if let Expr::Var(ref v) = a.node
+                        && v == name
+                    {
+                        let ty = self.lookup_type(a.span);
+                        if ty != "integer" {
+                            return Some(ty.to_string());
                         }
                     }
                 }
@@ -161,7 +160,7 @@ impl super::JassCodegen {
                     self.scan_pattern_vars_in_expr(&e.node);
                 }
             }
-            Expr::Lambda { body, .. } => {
+            Expr::Lambda { body, .. } | Expr::TcoLoop { body } => {
                 self.scan_pattern_vars_in_expr(&body.node);
             }
             Expr::Call { function, args } => {
@@ -177,9 +176,6 @@ impl super::JassCodegen {
             Expr::UnaryOp { operand, .. } | Expr::Clone(operand) => {
                 self.scan_pattern_vars_in_expr(&operand.node);
             }
-            Expr::TcoLoop { body } => {
-                self.scan_pattern_vars_in_expr(&body.node);
-            }
             _ => {}
         }
     }
@@ -193,10 +189,10 @@ impl super::JassCodegen {
                     .unwrap_or_default();
                 for (i, arg) in args.iter().enumerate() {
                     if let Pattern::Var(vname) = &arg.node {
-                        if vname != "_" {
-                            if let Some(jt) = field_types.get(i) {
-                                self.pattern_var_types.insert(vname.clone(), jt.clone());
-                            }
+                        if vname != "_"
+                            && let Some(jt) = field_types.get(i)
+                        {
+                            self.pattern_var_types.insert(vname.clone(), jt.clone());
                         }
                     } else {
                         self.scan_pattern_var_bindings(&arg.node);
@@ -227,10 +223,10 @@ impl super::JassCodegen {
                 let field_types = self.lookup_tuple_field_types(elems.len());
                 for (i, elem) in elems.iter().enumerate() {
                     if let Pattern::Var(vname) = &elem.node {
-                        if vname != "_" {
-                            if let Some(jt) = field_types.get(i) {
-                                self.pattern_var_types.insert(vname.clone(), jt.clone());
-                            }
+                        if vname != "_"
+                            && let Some(jt) = field_types.get(i)
+                        {
+                            self.pattern_var_types.insert(vname.clone(), jt.clone());
                         }
                     } else {
                         self.scan_pattern_var_bindings(&elem.node);
@@ -368,7 +364,7 @@ impl super::JassCodegen {
             let saved_indent = self.indent;
             self.indent = 1;
 
-            let result = self.gen_spanned_expr(&body);
+            let result = self.gen_spanned_expr(body);
             self.local_var_jass_types = saved_local_types;
 
             let body_output = std::mem::replace(&mut self.output, saved_output);

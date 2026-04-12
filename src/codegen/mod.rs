@@ -180,16 +180,16 @@ impl JassCodegen {
         // Phase 0: Collect external bindings and identify functions needing mono
         // Register externals with both unqualified AND qualified (module.name) keys
         for def in &module.definitions {
-            if let Definition::External(e) = def {
-                if let Some(ref src) = e.source_module {
-                    let qualified = format!("{}.{}", src, e.fn_name);
-                    self.externals
-                        .entry(qualified)
-                        .or_insert_with(|| ExternalInfo {
-                            jass_name: e.name_in_module.clone(),
-                            module: e.module.clone(),
-                        });
-                }
+            if let Definition::External(e) = def
+                && let Some(ref src) = e.source_module
+            {
+                let qualified = format!("{}.{}", src, e.fn_name);
+                self.externals
+                    .entry(qualified)
+                    .or_insert_with(|| ExternalInfo {
+                        jass_name: e.name_in_module.clone(),
+                        module: e.module.clone(),
+                    });
             }
         }
         for def in &module.definitions {
@@ -379,10 +379,10 @@ impl JassCodegen {
         self.current_list_elem_type = None;
         self.var_list_elem_types.clear();
         for p in &f.params {
-            if let Some(elem) = Self::extract_list_elem_jass_type(&p.type_expr) {
-                if self.types.list_types.contains(&elem) {
-                    self.var_list_elem_types.insert(p.name.clone(), elem);
-                }
+            if let Some(elem) = Self::extract_list_elem_jass_type(&p.type_expr)
+                && self.types.list_types.contains(&elem)
+            {
+                self.var_list_elem_types.insert(p.name.clone(), elem);
             }
         }
 
@@ -523,7 +523,7 @@ impl JassCodegen {
             Expr::TcoContinue { args } => {
                 // Evaluate all new values into TCO temps (must happen before any assignment)
                 for (i, (_, value)) in args.iter().enumerate() {
-                    let val = self.gen_spanned_expr(&value);
+                    let val = self.gen_spanned_expr(value);
                     self.emit(&format!("set glass_tco_{} = {}", i, val));
                 }
                 for (i, (param_name, _)) in args.iter().enumerate() {
@@ -536,19 +536,18 @@ impl JassCodegen {
                 // No return — loop continues naturally
             }
             Expr::Case { subject, arms } => {
-                let subj = self.gen_spanned_expr(&subject);
+                let subj = self.gen_spanned_expr(subject);
 
                 let subject_type_name = self
                     .lookup_full_type(subject.span)
                     .and_then(|ty| self.resolve_type_name_from_app(&ty))
                     .or_else(|| {
-                        for arm in arms.iter() {
+                        for arm in arms {
                             if let Pattern::Constructor { name: pname, .. }
                             | Pattern::ConstructorNamed { name: pname, .. } = &arm.pattern.node
+                                && let Some((ti, _)) = self.resolve_variant(pname)
                             {
-                                if let Some((ti, _)) = self.resolve_variant(pname) {
-                                    return Some(ti.name.clone());
-                                }
+                                return Some(ti.name.clone());
                             }
                         }
                         None
@@ -585,7 +584,7 @@ impl JassCodegen {
                     let guard = arm
                         .guard
                         .as_ref()
-                        .map(|g| format!(" and ({})", self.gen_spanned_expr(&g)))
+                        .map(|g| format!(" and ({})", self.gen_spanned_expr(g)))
                         .unwrap_or_default();
 
                     if i == 0 {
@@ -618,14 +617,14 @@ impl JassCodegen {
                 body,
                 ..
             } => {
-                let val = self.gen_spanned_expr(&value);
+                let val = self.gen_spanned_expr(value);
                 self.gen_let_pattern_binding(&pattern.node, &val, &value.node);
                 self.gen_tco_body(&body.node);
             }
             Expr::Block(exprs) => {
                 for (i, e) in exprs.iter().enumerate() {
                     if i < exprs.len() - 1 {
-                        self.gen_spanned_expr(&e);
+                        self.gen_spanned_expr(e);
                     } else {
                         self.gen_tco_body(&e.node);
                     }
