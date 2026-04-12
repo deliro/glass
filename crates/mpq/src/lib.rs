@@ -16,6 +16,8 @@ mod table;
 mod util;
 
 pub use archive::Archive;
+pub use archive::RawBlock;
+pub use archive::RawHashEntry;
 pub use creator::Creator;
 pub use creator::FileOptions;
 pub use error::MpqError;

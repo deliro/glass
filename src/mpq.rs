@@ -51,8 +51,6 @@ const STANDARD_WC3_FILES: &[&str] = &[
     "(signature)",
 ];
 
-/// MPQ header offset for block_table_entries field (u32 LE at MPQ_header + 28).
-const BLOCK_TABLE_ENTRIES_OFFSET: usize = 28;
 
 /// Errors that can occur during w3x patching.
 #[derive(Debug)]
@@ -107,14 +105,8 @@ pub fn patch_w3x(
         eprintln!("[patch] MPQ data starts at offset 0x{mpq_offset:X}");
     }
 
-    // Read total file count from MPQ header (block_table_entries at offset +28)
-    let mpq_data = map_data.get(mpq_offset..).unwrap_or(&[]);
-    let total_block_entries = read_block_table_entries(mpq_data);
-    if let Some(total) = total_block_entries {
-        eprintln!("[patch] MPQ block_table_entries: {total}");
-    }
-
     // Open the MPQ archive from the MPQ portion
+    let mpq_data = map_data.get(mpq_offset..).unwrap_or(&[]);
     let cursor = Cursor::new(mpq_data);
     let mut archive = Archive::open(BufReader::new(cursor))?;
     eprintln!("[patch] MPQ archive opened successfully");
@@ -124,22 +116,12 @@ pub fn patch_w3x(
     let found_count = file_list.len();
     eprintln!("[patch] enumerated files: {found_count}");
 
-    // Warn about missing files when using fallback probing
-    if let Some(total) = total_block_entries {
-        let total_usize = total as usize;
-        if found_count < total_usize {
-            let missing = total_usize - found_count;
-            eprintln!(
-                "[patch] WARNING: archive has {total} files but only {found_count} were found"
-            );
-            eprintln!(
-                "[patch] WARNING: {missing} files with unknown names will be LOST (imported assets, custom models, sounds)"
-            );
-            eprintln!(
-                "[patch] WARNING: this is a protected map without (listfile) — unknown filenames cannot be recovered"
-            );
-        }
-    }
+    // Identify block indices with unknown filenames
+    let total_blocks = archive.block_count();
+    let known_indices = archive.known_block_indices(&file_list);
+    let unknown_count = total_blocks - known_indices.len();
+    eprintln!("[patch] block table: {total_blocks} total, {} known, {unknown_count} unknown",
+        known_indices.len());
 
     // Resolve the actual script path in the archive.
     // Protected maps may store JASS at "Scripts\war3map.j" instead of "war3map.j".
@@ -220,6 +202,34 @@ pub fn patch_w3x(
 
     eprintln!("[patch] copied {copied} files, replaced: {replaced}");
 
+    // Copy unknown blocks (files without known names) as raw data
+    let mut raw_copied = 0usize;
+    for block_idx in 0..total_blocks {
+        if known_indices.contains(&block_idx) {
+            continue;
+        }
+        match archive.read_raw_block(block_idx) {
+            Ok(raw_block) => {
+                if let Some(hash_entry) = archive.hash_entry_for_block(block_idx) {
+                    let size = raw_block.compressed_size;
+                    creator.add_raw_entry(&hash_entry, raw_block);
+                    eprintln!("[patch] raw-copied block #{block_idx} ({size} bytes compressed)");
+                    raw_copied += 1;
+                } else {
+                    eprintln!(
+                        "[patch] WARNING: block #{block_idx} has no hash entry — skipping"
+                    );
+                }
+            }
+            Err(_) => {
+                // Empty/deleted block entry, skip silently
+            }
+        }
+    }
+    if raw_copied > 0 {
+        eprintln!("[patch] raw-copied {raw_copied} unknown blocks");
+    }
+
     // Write new MPQ archive
     let mut mpq_buf = Cursor::new(Vec::new());
     creator.write(&mut mpq_buf).map_err(PatchError::Io)?;
@@ -267,21 +277,6 @@ fn detect_pre_header(data: &[u8]) -> &[u8] {
 
     // No MPQ magic found, return empty (treat entire file as MPQ)
     &[]
-}
-
-/// Read block_table_entries (u32 LE) from the MPQ header.
-/// MPQ header layout: magic(4) + header_size(4) + archive_size(4) + format(2) +
-/// block_size(2) + hash_table_off(4) + block_table_off(4) + hash_entries(4) + block_entries(4)
-/// So block_table_entries is at byte offset 28 from the start of the MPQ data.
-fn read_block_table_entries(mpq_data: &[u8]) -> Option<u32> {
-    let offset = BLOCK_TABLE_ENTRIES_OFFSET;
-    let bytes = mpq_data.get(offset..offset + 4)?;
-    Some(u32::from_le_bytes([
-        *bytes.first()?,
-        *bytes.get(1)?,
-        *bytes.get(2)?,
-        *bytes.get(3)?,
-    ]))
 }
 
 /// Alternate paths where WC3 maps store script files.

@@ -32,6 +32,20 @@ impl FileHashTable {
         Ok(FileHashTable { entries })
     }
 
+    pub fn find_by_block_index(&self, block_index: usize) -> Option<crate::archive::RawHashEntry> {
+        for entry in &self.entries {
+            if !entry.is_blank() && entry.block_index as usize == block_index {
+                return Some(crate::archive::RawHashEntry {
+                    hash_a: entry.hash_a,
+                    hash_b: entry.hash_b,
+                    locale: entry.locale,
+                    platform: entry.platform,
+                });
+            }
+        }
+        None
+    }
+
     pub fn find_entry(&self, name: &str) -> Option<&HashEntry> {
         let hash_mask = self.entries.len() - 1;
         let part_a = hash_string(name.as_bytes(), MPQ_HASH_NAME_A);
@@ -149,6 +163,10 @@ impl FileBlockTable {
 
     pub fn get(&self, index: usize) -> Option<&BlockEntry> {
         self.entries.get(index)
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
     }
 }
 

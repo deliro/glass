@@ -167,4 +167,85 @@ impl<R: Read + Seek> Archive<R> {
     pub fn reader(&mut self) -> &mut R {
         self.seeker.reader()
     }
+
+    /// Returns the total number of entries in the block table.
+    /// This is the true file count in the archive, regardless of whether
+    /// filenames are known (via listfile) or not.
+    pub fn block_count(&self) -> usize {
+        self.block_table.len()
+    }
+
+    /// Read the raw (compressed and possibly encrypted) data for a block by index.
+    /// Returns the raw bytes exactly as stored in the archive — no decompression
+    /// or decryption is performed. This allows copying blocks between archives
+    /// even when the filename is unknown.
+    ///
+    /// Also returns the block entry metadata (compressed_size, uncompressed_size, flags).
+    pub fn read_raw_block(&mut self, block_index: usize) -> Result<RawBlock, MpqError> {
+        let block_entry = self
+            .block_table
+            .get(block_index)
+            .ok_or(MpqError::FileNotFound)?;
+
+        // Skip blocks that don't exist (deleted/empty entries)
+        if block_entry.flags & crate::consts::MPQ_FILE_EXISTS == 0 {
+            return Err(MpqError::FileNotFound);
+        }
+
+        let raw_data = self
+            .seeker
+            .read(block_entry.file_pos, block_entry.compressed_size)?;
+
+        Ok(RawBlock {
+            data: raw_data,
+            compressed_size: block_entry.compressed_size,
+            uncompressed_size: block_entry.uncompressed_size,
+            flags: block_entry.flags,
+        })
+    }
+
+    /// Find the hash entry that points to the given block index.
+    /// Returns (hash_a, hash_b, locale, platform) if found.
+    /// This is needed to copy unknown files between archives while
+    /// preserving their hash table entries.
+    pub fn hash_entry_for_block(&self, block_index: usize) -> Option<RawHashEntry> {
+        self.hash_table.find_by_block_index(block_index)
+    }
+
+    /// Returns the set of block indices that are referenced by known files
+    /// (files that can be found by name via the hash table).
+    /// Used together with `block_count()` to identify which blocks have
+    /// unknown filenames.
+    pub fn known_block_indices(&self, names: &[String]) -> Vec<usize> {
+        let mut indices = Vec::new();
+        for name in names {
+            if let Some(entry) = self.hash_table.find_entry(name) {
+                indices.push(entry.block_index as usize);
+            }
+        }
+        indices
+    }
+}
+
+/// Raw block data read from an archive, preserving the original
+/// compression and encryption state.
+#[derive(Debug)]
+pub struct RawBlock {
+    /// The raw bytes as stored in the archive (compressed, possibly encrypted).
+    pub data: Vec<u8>,
+    /// Compressed size as recorded in the block table.
+    pub compressed_size: u64,
+    /// Uncompressed size as recorded in the block table.
+    pub uncompressed_size: u64,
+    /// Block flags (MPQ_FILE_EXISTS, MPQ_FILE_ENCRYPTED, MPQ_FILE_COMPRESS, etc.)
+    pub flags: u32,
+}
+
+/// Hash entry data for a block, used for raw block copying.
+#[derive(Debug, Clone, Copy)]
+pub struct RawHashEntry {
+    pub hash_a: u32,
+    pub hash_b: u32,
+    pub locale: u16,
+    pub platform: u16,
 }

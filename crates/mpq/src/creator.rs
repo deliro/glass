@@ -103,6 +103,22 @@ impl FileOptions {
     }
 }
 
+/// A raw block entry to be written verbatim (no compression/encryption applied).
+/// Used for copying blocks from one archive to another when the filename is unknown.
+#[derive(Debug)]
+struct RawEntry {
+    hash_a: u32,
+    hash_b: u32,
+    hash_index: u32,
+    locale: u16,
+    platform: u16,
+    raw_data: Vec<u8>,
+    compressed_size: u64,
+    uncompressed_size: u64,
+    flags: u32,
+    offset: u64,
+}
+
 #[derive(Debug)]
 /// Creator capable of creating MPQ Version 1 archives.
 ///
@@ -112,6 +128,7 @@ impl FileOptions {
 /// When writing, a `(listfile)` will be automatically appended to the archive.
 pub struct Creator {
     added_files: IndexMap<FileKey, FileRecord>,
+    raw_entries: Vec<RawEntry>,
 
     sector_size: u64,
 }
@@ -120,6 +137,7 @@ impl Default for Creator {
     fn default() -> Creator {
         Creator {
             added_files: IndexMap::new(),
+            raw_entries: Vec::new(),
             sector_size: 0x10000,
         }
     }
@@ -142,6 +160,35 @@ impl Creator {
             .insert(key, FileRecord::new(file_name, contents, options));
     }
 
+    /// Adds a raw pre-encoded block to the archive.
+    /// The data is written as-is — no compression or encryption is applied.
+    /// Hash table entries use the provided hash values directly.
+    ///
+    /// This is used to copy blocks from one archive to another when the
+    /// filename is unknown (e.g. protected maps without a listfile).
+    pub fn add_raw_entry(
+        &mut self,
+        hash_entry: &crate::archive::RawHashEntry,
+        raw_block: crate::archive::RawBlock,
+    ) {
+        // Compute a hash_index from hash_a for hash table placement.
+        // This doesn't need to match the original — quadratic probing will find a slot.
+        let hash_index = hash_entry.hash_a;
+
+        self.raw_entries.push(RawEntry {
+            hash_a: hash_entry.hash_a,
+            hash_b: hash_entry.hash_b,
+            hash_index,
+            locale: hash_entry.locale,
+            platform: hash_entry.platform,
+            raw_data: raw_block.data,
+            compressed_size: raw_block.compressed_size,
+            uncompressed_size: raw_block.uncompressed_size,
+            flags: raw_block.flags,
+            offset: 0,
+        });
+    }
+
     /// Writes out the entire archive to the specified writer.
     ///
     /// The archive start position is calculated as follows:
@@ -157,11 +204,12 @@ impl Creator {
     where
         W: Write + Seek,
     {
-        let (added_files, sector_size) = match self {
+        let (added_files, raw_entries, sector_size) = match self {
             Creator {
                 added_files,
+                raw_entries,
                 sector_size,
-            } => (added_files, *sector_size),
+            } => (added_files, raw_entries, *sector_size),
         };
 
         let current_pos = writer.seek(SeekFrom::Current(0))?;
@@ -173,7 +221,7 @@ impl Creator {
         // skip writing the header for now
         writer.seek(SeekFrom::Current(HEADER_MPQ_SIZE as i64))?;
 
-        // create a listfile
+        // create a listfile (only includes named files, not raw entries)
         let mut listfile = String::new();
         for file in added_files.values() {
             listfile += &file.file_name;
@@ -197,21 +245,30 @@ impl Creator {
             );
         }
 
-        // write out all the files back-to-back
+        // write out all named files back-to-back
         for file in added_files.values_mut() {
             write_file(sector_size, archive_start, &mut writer, file)?;
         }
 
+        // write out all raw entries (verbatim, no compression/encryption)
+        for entry in raw_entries.iter_mut() {
+            let file_start = writer.seek(SeekFrom::Current(0))?;
+            writer.write_all(&entry.raw_data)?;
+            entry.offset = file_start - archive_start;
+        }
+
+        let total_entries = added_files.len() + raw_entries.len();
         let mut hashtable_size = MIN_HASH_TABLE_SIZE;
-        while hashtable_size < added_files.len() {
+        while hashtable_size < total_entries {
             hashtable_size *= 2;
         }
 
         // write hash table and remember its position
-        let hashtable_pos = write_hashtable(&mut writer, hashtable_size, added_files)?;
+        let hashtable_pos =
+            write_hashtable(&mut writer, hashtable_size, added_files, raw_entries)?;
 
         // write block table and remember its position
-        let blocktable_pos = write_blocktable(&mut writer, added_files)?;
+        let blocktable_pos = write_blocktable(&mut writer, added_files, raw_entries)?;
 
         // write header
         let archive_end = writer.seek(SeekFrom::Current(0))?;
@@ -219,7 +276,7 @@ impl Creator {
             &mut writer,
             (archive_start, archive_end),
             (hashtable_pos, hashtable_size),
-            (blocktable_pos, added_files.len()),
+            (blocktable_pos, total_entries),
             sector_size,
         )?;
 
@@ -231,6 +288,7 @@ fn write_hashtable<W>(
     mut writer: W,
     hashtable_size: usize,
     added_files: &IndexMap<FileKey, FileRecord>,
+    raw_entries: &[RawEntry],
 ) -> Result<u64, IoError>
 where
     W: Write + Seek,
@@ -239,9 +297,29 @@ where
     let mut hashtable = vec![HashEntry::blank(); hashtable_size];
     let hash_index_mask = hashtable_size - 1;
 
+    // Insert named files
     for (block_index, (key, _)) in added_files.iter().enumerate() {
         let mut hash_index = (key.index as usize) & hash_index_mask;
         let hash_entry = HashEntry::new(key.hash_a, key.hash_b, block_index as u32);
+
+        while !hashtable[hash_index].is_blank() {
+            hash_index += 1;
+            if hash_index == hashtable_size {
+                hash_index = 0;
+            }
+        }
+
+        hashtable[hash_index] = hash_entry;
+    }
+
+    // Insert raw entries (block indices continue after named files)
+    let raw_block_start = added_files.len();
+    for (i, entry) in raw_entries.iter().enumerate() {
+        let block_index = (raw_block_start + i) as u32;
+        let mut hash_index = (entry.hash_index as usize) & hash_index_mask;
+        let mut hash_entry = HashEntry::new(entry.hash_a, entry.hash_b, block_index);
+        hash_entry.locale = entry.locale;
+        hash_entry.platform = entry.platform;
 
         while !hashtable[hash_index].is_blank() {
             hash_index += 1;
@@ -269,15 +347,19 @@ where
 fn write_blocktable<W>(
     mut writer: W,
     added_files: &IndexMap<FileKey, FileRecord>,
+    raw_entries: &[RawEntry],
 ) -> Result<u64, IoError>
 where
     W: Write + Seek,
 {
     let blocktable_pos = writer.seek(SeekFrom::Current(0))?;
+    let total = added_files.len() + raw_entries.len();
 
-    let mut buf = vec![0u8; added_files.len() * BLOCK_TABLE_ENTRY_SIZE as usize];
+    let mut buf = vec![0u8; total * BLOCK_TABLE_ENTRY_SIZE as usize];
 
     let mut cursor = buf.as_mut_slice();
+
+    // Named files
     for file in added_files.values() {
         let flags = file.options.flags();
 
@@ -286,6 +368,18 @@ where
             file.compressed_size,
             file.contents.len() as u64,
             flags,
+        );
+
+        block_entry.write(&mut cursor)?;
+    }
+
+    // Raw entries
+    for entry in raw_entries {
+        let block_entry = BlockEntry::new(
+            entry.offset,
+            entry.compressed_size,
+            entry.uncompressed_size,
+            entry.flags,
         );
 
         block_entry.write(&mut cursor)?;
