@@ -9,7 +9,7 @@ use crate::runtime::ElmEntryPoints;
 use crate::type_repr::{Substitution, Type, TypeVarId};
 use crate::types::{TypeRegistry, TypeInfo, VariantInfo};
 
-fn is_jass_type_keyword(name: &str) -> bool {
+pub(super) fn is_jass_type_keyword(name: &str) -> bool {
     matches!(
         name,
         "integer"
@@ -49,7 +49,7 @@ fn is_jass_type_keyword(name: &str) -> bool {
     )
 }
 
-fn safe_jass_name(name: &str) -> String {
+pub(super) fn safe_jass_name(name: &str) -> String {
     if is_jass_type_keyword(name) {
         format!("v_{}", name)
     } else {
@@ -57,7 +57,7 @@ fn safe_jass_name(name: &str) -> String {
     }
 }
 
-fn format_float(n: f64) -> String {
+pub(super) fn format_float(n: f64) -> String {
     let s = format!("{}", n);
     if s.contains('.') {
         s
@@ -68,65 +68,65 @@ fn format_float(n: f64) -> String {
 
 pub struct JassCodegen {
     /// Accumulated global declarations (emitted as one globals block)
-    globals: Vec<String>,
+    pub(super) globals: Vec<String>,
     /// Function bodies and other non-global output
-    output: String,
-    indent: usize,
-    temp_counter: usize,
-    temp_types: Vec<String>,
-    lambda_counter: usize,
-    types: TypeRegistry,
-    lambdas: Vec<LambdaInfo>,
+    pub(super) output: String,
+    pub(super) indent: usize,
+    pub(super) temp_counter: usize,
+    pub(super) temp_types: Vec<String>,
+    pub(super) lambda_counter: usize,
+    pub(super) types: TypeRegistry,
+    pub(super) lambdas: Vec<LambdaInfo>,
     /// Map from AST node span (start, end) to its resolved type.
     /// Populated by the type checker; used for type-directed codegen.
-    type_map: HashMap<(usize, usize), Type>,
+    pub(super) type_map: HashMap<(usize, usize), Type>,
     /// Map from Glass function name → external JASS native name.
     /// e.g. "save_integer" → "SaveInteger"
-    externals: HashMap<String, ExternalInfo>,
+    pub(super) externals: HashMap<String, ExternalInfo>,
     /// Functions that contain intrinsic calls and need monomorphization.
-    mono_needed: HashSet<String>,
+    pub(super) mono_needed: HashSet<String>,
     /// Type param vars from inferencer: fn_name → {param_name → TypeVarId}
-    type_param_vars: HashMap<String, HashMap<String, TypeVarId>>,
+    pub(super) type_param_vars: HashMap<String, HashMap<String, TypeVarId>>,
     /// Active type substitution for monomorphization (VarId → concrete Type).
     /// Set when generating a specialized function copy.
-    mono_subst: Substitution,
+    pub(super) mono_subst: Substitution,
     /// During mono function generation: maps parameter names to their concrete types.
-    mono_param_types: HashMap<String, Type>,
+    pub(super) mono_param_types: HashMap<String, Type>,
     /// Already-generated specializations: (fn_name, mangled_suffix) → mangled_name
-    mono_generated: HashSet<String>,
+    pub(super) mono_generated: HashSet<String>,
     /// Function definitions by name (for generating specialized copies)
-    fn_defs: HashMap<String, FnDef>,
+    pub(super) fn_defs: HashMap<String, FnDef>,
     /// Glass type names from the current function's parameters (for fallback type resolution).
     /// E.g. for `fn find(xs: List(PudgeState), uid: Int)` → ["PudgeState", "Int"]
-    current_fn_param_type_names: Vec<String>,
+    pub(super) current_fn_param_type_names: Vec<String>,
     /// Known constants: name → inlined JASS value (e.g. "ROT_SPELL" → "'AUau'").
     /// Constants are fully inlined — no globals emitted.
-    const_values: HashMap<String, String>,
-    dispatch_sigs: HashSet<String>,
-    current_list_elem_type: Option<String>,
-    current_tuple_field_types: Option<Vec<String>>,
-    var_list_elem_types: HashMap<String, String>,
-    local_var_jass_types: HashMap<String, String>,
-    local_var_glass_types: HashMap<String, String>,
-    pattern_var_types: HashMap<String, String>,
-    extend_methods: HashMap<String, String>,
-    current_expr_span: Option<crate::token::Span>,
-    current_case_type_name: Option<String>,
+    pub(super) const_values: HashMap<String, String>,
+    pub(super) dispatch_sigs: HashSet<String>,
+    pub(super) current_list_elem_type: Option<String>,
+    pub(super) current_tuple_field_types: Option<Vec<String>>,
+    pub(super) var_list_elem_types: HashMap<String, String>,
+    pub(super) local_var_jass_types: HashMap<String, String>,
+    pub(super) local_var_glass_types: HashMap<String, String>,
+    pub(super) pattern_var_types: HashMap<String, String>,
+    pub(super) extend_methods: HashMap<String, String>,
+    pub(super) current_expr_span: Option<crate::token::Span>,
+    pub(super) current_case_type_name: Option<String>,
 }
 
-struct ClosureEmitInfo {
-    id: usize,
-    captures: Vec<(String, String)>,
-    param_names: Vec<String>,
-    param_types: Vec<String>,
-    has_captures: bool,
+pub(super) struct ClosureEmitInfo {
+    pub(super) id: usize,
+    pub(super) captures: Vec<(String, String)>,
+    pub(super) param_names: Vec<String>,
+    pub(super) param_types: Vec<String>,
+    pub(super) has_captures: bool,
 }
 
 #[derive(Clone)]
-struct ExternalInfo {
-    jass_name: String,
+pub(super) struct ExternalInfo {
+    pub(super) jass_name: String,
     /// "jass" for native JASS functions, "glass" for compiler intrinsics
-    module: String,
+    pub(super) module: String,
 }
 
 impl JassCodegen {
@@ -3487,7 +3487,7 @@ impl JassCodegen {
 }
 
 /// Constant folding: evaluate binary operations on literals at compile time.
-fn const_fold_binop(op: &BinOp, left: &Expr, right: &Expr) -> Option<String> {
+pub(super) fn const_fold_binop(op: &BinOp, left: &Expr, right: &Expr) -> Option<String> {
     match (op, left, right) {
         // Int arithmetic
         (BinOp::Add, Expr::Int(a), Expr::Int(b)) => Some(format!("{}", a + b)),
