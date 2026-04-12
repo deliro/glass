@@ -48,7 +48,6 @@ const STANDARD_WC3_FILES: &[&str] = &[
 pub enum PatchError {
     Io(std::io::Error),
     Mpq(MpqError),
-    NoScriptFile,
 }
 
 impl std::fmt::Display for PatchError {
@@ -56,10 +55,6 @@ impl std::fmt::Display for PatchError {
         match self {
             Self::Io(e) => write!(f, "I/O error: {e}"),
             Self::Mpq(e) => write!(f, "MPQ error: {e}"),
-            Self::NoScriptFile => write!(
-                f,
-                "no script file (war3map.j or war3map.lua) found in archive"
-            ),
         }
     }
 }
@@ -111,21 +106,33 @@ pub fn patch_w3x(
     let file_list = get_file_list(&mut archive);
     eprintln!("[patch] files in archive: {}", file_list.len());
 
-    // Verify that the target script file exists in the archive
-    let script_found = file_list.iter().any(|f| f == script_name);
-    if !script_found {
-        eprintln!("[patch] ERROR: script file '{script_name}' not found in archive");
-        return Err(PatchError::NoScriptFile);
+    // Resolve the actual script path in the archive.
+    // Protected maps may store JASS at "Scripts\war3map.j" instead of "war3map.j".
+    let actual_script_path = resolve_script_path(script_name, &file_list);
+    match &actual_script_path {
+        Some(path) if path == script_name => {
+            eprintln!("[patch] target script file found: {script_name}");
+        }
+        Some(path) => {
+            eprintln!(
+                "[patch] target '{script_name}' not found, but found alternate: {path}"
+            );
+        }
+        None => {
+            eprintln!(
+                "[patch] script file not found in archive, will add as new: {script_name}"
+            );
+        }
     }
-    eprintln!("[patch] target script file found: {script_name}");
 
     // Create new archive, copying all files and replacing the script
     let mut creator = Creator::default();
     let mut copied = 0usize;
     let mut replaced = false;
+    let replace_target = actual_script_path.as_deref().unwrap_or(script_name);
 
     for file_name in &file_list {
-        if file_name == script_name {
+        if file_name == replace_target {
             eprintln!(
                 "[patch] replacing '{file_name}' ({} bytes)",
                 script_content.len()
@@ -157,10 +164,27 @@ pub fn patch_w3x(
                     copied += 1;
                 }
                 Err(e) => {
-                    eprintln!("[patch] skipping '{file_name}': {e}");
+                    eprintln!("[patch] WARNING: failed to read '{file_name}': {e} — skipping");
                 }
             }
         }
+    }
+
+    // If script wasn't found in the archive, add it as a new file
+    if !replaced {
+        eprintln!(
+            "[patch] adding new file '{script_name}' ({} bytes)",
+            script_content.len()
+        );
+        creator.add_file(
+            script_name,
+            script_content.as_bytes().to_vec(),
+            FileOptions {
+                encrypt: false,
+                compress: true,
+                adjust_key: false,
+            },
+        );
     }
 
     eprintln!("[patch] copied {copied} files, replaced: {replaced}");
@@ -214,6 +238,27 @@ fn detect_pre_header(data: &[u8]) -> &[u8] {
 
     // No MPQ magic found, return empty (treat entire file as MPQ)
     &[]
+}
+
+/// Alternate paths where WC3 maps store script files.
+/// Protected maps often use "Scripts\war3map.j" instead of "war3map.j".
+const JASS_SCRIPT_PATHS: &[&str] = &["war3map.j", r"Scripts\war3map.j"];
+const LUA_SCRIPT_PATHS: &[&str] = &["war3map.lua"];
+
+/// Find the actual script file path in the archive.
+/// Some protected maps store JASS at "Scripts\war3map.j" instead of "war3map.j".
+fn resolve_script_path(target_name: &str, file_list: &[String]) -> Option<String> {
+    let candidates = match target_name {
+        "war3map.j" => JASS_SCRIPT_PATHS,
+        "war3map.lua" => LUA_SCRIPT_PATHS,
+        _ => return file_list.iter().find(|f| f.as_str() == target_name).cloned(),
+    };
+    for candidate in candidates {
+        if file_list.iter().any(|f| f == candidate) {
+            return Some((*candidate).to_string());
+        }
+    }
+    None
 }
 
 /// Get the list of files in the archive, using (listfile) or fallback probing.
