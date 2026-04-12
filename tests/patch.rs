@@ -15,11 +15,7 @@ fn unique_id() -> u64 {
 fn pw_w3x_path() -> Option<PathBuf> {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = manifest.join("pw").join("pw.w3x");
-    if path.exists() {
-        Some(path)
-    } else {
-        None
-    }
+    if path.exists() { Some(path) } else { None }
 }
 
 fn pudge_wars_main() -> PathBuf {
@@ -72,7 +68,9 @@ fn assert_w3x_structure(path: &Path) {
     assert_eq!(hm3w, b"HM3W", "expected HM3W header at offset 0");
 
     // MPQ signature at offset 0x200
-    let mpq_sig = data.get(0x200..0x204).expect("file shorter than 0x204 bytes");
+    let mpq_sig = data
+        .get(0x200..0x204)
+        .expect("file shorter than 0x204 bytes");
     assert_eq!(
         mpq_sig, b"MPQ\x1a",
         "expected MPQ signature at offset 0x200"
