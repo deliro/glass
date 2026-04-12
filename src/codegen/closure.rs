@@ -3,10 +3,14 @@ use std::collections::HashMap;
 use crate::ast::*;
 use crate::closures::CapturedVar;
 
-use super::{safe_jass_name, ClosureEmitInfo};
+use super::{ClosureEmitInfo, safe_jass_name};
 
 impl super::JassCodegen {
-    pub(super) fn resolve_capture_type(&self, capture: &CapturedVar, body: &Spanned<Expr>) -> String {
+    pub(super) fn resolve_capture_type(
+        &self,
+        capture: &CapturedVar,
+        body: &Spanned<Expr>,
+    ) -> String {
         let ty = self.lookup_type(capture.span);
         if ty != "integer" {
             return ty.to_string();
@@ -202,13 +206,19 @@ impl super::JassCodegen {
             Pattern::ConstructorNamed { name, fields, .. } => {
                 let field_type_map: HashMap<String, String> = self
                     .resolve_variant(name)
-                    .map(|(_, v)| v.fields.iter().map(|f| (f.name.clone(), f.jass_type.clone())).collect())
+                    .map(|(_, v)| {
+                        v.fields
+                            .iter()
+                            .map(|f| (f.name.clone(), f.jass_type.clone()))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 for fp in fields {
                     if let Some(jt) = field_type_map.get(&fp.field_name) {
                         let binding = fp.binding_name();
                         if binding != "_" {
-                            self.pattern_var_types.insert(binding.to_string(), jt.clone());
+                            self.pattern_var_types
+                                .insert(binding.to_string(), jt.clone());
                         }
                     }
                 }
@@ -343,7 +353,8 @@ impl super::JassCodegen {
             // Pre-populate capture types so collect_locals can resolve value types
             let saved_local_types = self.local_var_jass_types.clone();
             for (cname, ctype) in &info.captures {
-                self.local_var_jass_types.insert(cname.clone(), ctype.clone());
+                self.local_var_jass_types
+                    .insert(cname.clone(), ctype.clone());
             }
 
             // Collect user locals, then generate body with fresh temp counter
@@ -494,5 +505,4 @@ impl super::JassCodegen {
             self.output.push('\n');
         }
     }
-
 }

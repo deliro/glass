@@ -83,10 +83,7 @@ impl TypeRegistry {
                 let info = Self::collect_type_with_subst(gdef, type_name, &subst);
                 types.insert(type_name.clone(), info);
                 let suffix = jass_args.join("_");
-                mono_map.insert(
-                    (type_name.clone(), suffix),
-                    type_name.clone(),
-                );
+                mono_map.insert((type_name.clone(), suffix), type_name.clone());
             } else {
                 let info = Self::collect_type(gdef);
                 types.insert(type_name.clone(), info);
@@ -102,10 +99,7 @@ impl TypeRegistry {
                         .collect();
                     let info = Self::collect_type_with_subst(gdef, &mono_name, &subst);
                     types.insert(mono_name.clone(), info);
-                    mono_map.insert(
-                        (type_name.clone(), suffix),
-                        mono_name,
-                    );
+                    mono_map.insert((type_name.clone(), suffix), mono_name);
                 }
             }
         }

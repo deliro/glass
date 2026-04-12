@@ -8,7 +8,13 @@ use crate::unify;
 use super::TypeError;
 
 impl super::Inferencer {
-    pub(super) fn check_pattern(&mut self, pat: &Pattern, expected: &Type, env: &mut TypeEnv, span: Span) {
+    pub(super) fn check_pattern(
+        &mut self,
+        pat: &Pattern,
+        expected: &Type,
+        env: &mut TypeEnv,
+        span: Span,
+    ) {
         match pat {
             Pattern::Var(name) => {
                 env.bind(name.clone(), TypeScheme::mono(expected.apply(&self.subst)));
@@ -181,5 +187,4 @@ impl super::Inferencer {
     pub(super) fn bind_pattern(&mut self, pat: &Pattern, ty: &Type, env: &mut TypeEnv, span: Span) {
         self.check_pattern(pat, ty, env, span);
     }
-
 }

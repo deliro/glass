@@ -131,5 +131,4 @@ impl super::Inferencer {
         }
         subst
     }
-
 }

@@ -132,139 +132,116 @@ const SUB_DEFS: &[SubDef] = &[
         name: "OnAttack",
         dispatch: "glass_dispatch_2_unit_unit",
         event_args: "GetAttacker(), GetTriggerUnit()",
-
     },
     SubDef {
         name: "OnDeath",
         dispatch: "glass_dispatch_2_unit_unit",
         event_args: "GetTriggerUnit(), GetKillingUnit()",
-
     },
     SubDef {
         name: "OnTimer",
         dispatch: "glass_dispatch_void",
         event_args: "",
-
     },
     SubDef {
         name: "OnSpellEffect",
         dispatch: "glass_dispatch_3_unit_integer_unit",
         event_args: "GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetUnit()",
-
     },
     SubDef {
         name: "OnSpellCast",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetSpellAbilityId()",
-
     },
     SubDef {
         name: "OnSpellChannel",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetSpellAbilityId()",
-
     },
     SubDef {
         name: "OnDamage",
         dispatch: "glass_dispatch_3_unit_unit_real",
         event_args: "GetEventDamageSource(), GetTriggerUnit(), GetEventDamage()",
-
     },
     SubDef {
         name: "OnItemPickup",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())",
-
     },
     SubDef {
         name: "OnItemUse",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())",
-
     },
     SubDef {
         name: "OnItemDrop",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetItemTypeId(GetManipulatedItem())",
-
     },
     SubDef {
         name: "OnChat",
         dispatch: "glass_dispatch_2_integer_string",
         event_args: "GetPlayerId(GetTriggerPlayer()), GetEventPlayerChatString()",
-
     },
     SubDef {
         name: "OnPlayerLeave",
         dispatch: "glass_dispatch_1_integer",
         event_args: "GetPlayerId(GetTriggerPlayer())",
-
     },
     SubDef {
         name: "OnHeroLevelUp",
         dispatch: "glass_dispatch_1_unit",
         event_args: "GetTriggerUnit()",
-
     },
     SubDef {
         name: "OnConstructionFinish",
         dispatch: "glass_dispatch_1_unit",
         event_args: "GetTriggerUnit()",
-
     },
     SubDef {
         name: "OnSpellGround",
         dispatch: "glass_dispatch_4_unit_integer_real_real",
         event_args: "GetTriggerUnit(), GetSpellAbilityId(), GetSpellTargetX(), GetSpellTargetY()",
-
     },
     SubDef {
         name: "OnSummon",
         dispatch: "glass_dispatch_2_unit_unit",
         event_args: "GetTriggerUnit(), GetSummonedUnit()",
-
     },
     SubDef {
         name: "OnUnitSold",
         dispatch: "glass_dispatch_2_unit_unit",
         event_args: "GetTriggerUnit(), GetSoldUnit()",
-
     },
     SubDef {
         name: "OnItemSold",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetItemTypeId(GetSoldItem())",
-
     },
     SubDef {
         name: "OnUnitTrained",
         dispatch: "glass_dispatch_2_unit_unit",
         event_args: "GetTriggerUnit(), GetTrainedUnit()",
-
     },
     SubDef {
         name: "OnResearchFinish",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetResearched()",
-
     },
     SubDef {
         name: "OnConstructionStart",
         dispatch: "glass_dispatch_1_unit",
         event_args: "GetTriggerUnit()",
-
     },
     SubDef {
         name: "OnSpellFinish",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetSpellAbilityId()",
-
     },
     SubDef {
         name: "OnOrderIssued",
         dispatch: "glass_dispatch_2_unit_integer",
         event_args: "GetTriggerUnit(), GetIssuedOrderId()",
-
     },
 ];
 
@@ -380,9 +357,7 @@ fn gen_subscription_callbacks(dispatch_sigs: &HashSet<String>, output: &mut Stri
 }
 
 fn jass_field_access(variant_name: &str, field_name: &str) -> String {
-    format!(
-        "glass_Effect_{}_{}", variant_name, field_name
-    )
+    format!("glass_Effect_{}_{}", variant_name, field_name)
 }
 
 fn gen_jass_exec_call(variant: &EffectVariantDef, indent: &str, output: &mut String) {
@@ -430,10 +405,7 @@ fn gen_jass_callback_unit_effect(variant: &EffectVariantDef, indent: &str, outpu
         let create_args: Vec<String> = non_cb
             .iter()
             .map(|f| {
-                let access = format!(
-                    "{}[fx_id]",
-                    jass_field_access(&variant.name, &f.name)
-                );
+                let access = format!("{}[fx_id]", jass_field_access(&variant.name, &f.name));
                 if f.name == "owner" {
                     format!("Player({})", access)
                 } else {
@@ -485,15 +457,12 @@ fn gen_jass_find_nearest_enemy(variant_name: &str, indent: &str, output: &mut St
         jass_field_access(variant_name, "y"),
         jass_field_access(variant_name, "radius"),
     ));
-    output.push_str(&format!("{}set u = FirstOfGroup(glass_group_temp)\n", indent));
     output.push_str(&format!(
-        "{}call DestroyGroup(glass_group_temp)\n",
+        "{}set u = FirstOfGroup(glass_group_temp)\n",
         indent
     ));
-    output.push_str(&format!(
-        "{}set glass_group_temp = null\n",
-        indent
-    ));
+    output.push_str(&format!("{}call DestroyGroup(glass_group_temp)\n", indent));
+    output.push_str(&format!("{}set glass_group_temp = null\n", indent));
     output.push_str(&format!("{}if u != null then\n", indent));
     output.push_str(&format!("{}    set t = CreateTimer()\n", indent));
     output.push_str(&format!(
@@ -557,10 +526,7 @@ fn gen_jass_for_units_in_range(variant_name: &str, indent: &str, output: &mut St
     ));
     output.push_str(&format!("{}    set t = null\n", indent));
     output.push_str(&format!("{}endloop\n", indent));
-    output.push_str(&format!(
-        "{}call DestroyGroup(glass_group_temp)\n",
-        indent
-    ));
+    output.push_str(&format!("{}call DestroyGroup(glass_group_temp)\n", indent));
     output.push_str(&format!("{}set glass_group_temp = null\n", indent));
 }
 
@@ -579,10 +545,7 @@ fn gen_jass_update_board(variant_name: &str, indent: &str, output: &mut String) 
         indent
     ));
     output.push_str(&format!("{}endloop\n", indent));
-    output.push_str(&format!(
-        "{}if glass_multiboard == null then\n",
-        indent
-    ));
+    output.push_str(&format!("{}if glass_multiboard == null then\n", indent));
     output.push_str(&format!(
         "{}    set glass_multiboard = CreateMultiboard()\n",
         indent
@@ -629,10 +592,7 @@ fn gen_jass_update_board(variant_name: &str, indent: &str, output: &mut String) 
         "{}    call MultiboardSetItemWidth(mbi, 0.10)\n",
         indent
     ));
-    output.push_str(&format!(
-        "{}    call MultiboardReleaseItem(mbi)\n",
-        indent
-    ));
+    output.push_str(&format!("{}    call MultiboardReleaseItem(mbi)\n", indent));
     output.push_str(&format!(
         "{}    set mbi = MultiboardGetItem(glass_multiboard, ri, 1)\n",
         indent
@@ -645,10 +605,7 @@ fn gen_jass_update_board(variant_name: &str, indent: &str, output: &mut String) 
         "{}    call MultiboardSetItemWidth(mbi, 0.08)\n",
         indent
     ));
-    output.push_str(&format!(
-        "{}    call MultiboardReleaseItem(mbi)\n",
-        indent
-    ));
+    output.push_str(&format!("{}    call MultiboardReleaseItem(mbi)\n", indent));
     output.push_str(&format!("{}    set ri = ri + 1\n", indent));
     output.push_str(&format!(
         "{}    set row_cur = glass_List_integer_tail[row_cur]\n",
@@ -690,11 +647,7 @@ fn gen_jass_create_unit_callback(variant_name: &str, indent: &str, output: &mut 
     output.push_str(&format!("{}set t = null\n", indent));
 }
 
-fn gen_jass_effect_variant_body(
-    variant: &EffectVariantDef,
-    indent: &str,
-    output: &mut String,
-) {
+fn gen_jass_effect_variant_body(variant: &EffectVariantDef, indent: &str, output: &mut String) {
     match variant.name.as_str() {
         "After" => gen_jass_after_effect(&variant.name, indent, output),
         "FindNearestEnemy" => gen_jass_find_nearest_enemy(&variant.name, indent, output),
@@ -827,9 +780,7 @@ fn gen_msg_dispatch(_entry: &ElmEntryPoints, output: &mut String) {
 }
 
 fn gen_send_msg(entry: &ElmEntryPoints, output: &mut String) {
-    output.push_str(
-        "function glass_send_msg takes integer msg returns nothing\n",
-    );
+    output.push_str("function glass_send_msg takes integer msg returns nothing\n");
     output.push_str("    local integer glass_result\n");
     output.push_str("    local integer glass_new_model\n");
     output.push_str("    local integer glass_effects\n");
@@ -1001,10 +952,7 @@ fn gen_sub_callbacks(dispatch_sigs: &HashSet<String>, output: &mut String) {
             sub.tag
         ));
         output.push_str("    local integer closure_id = LoadInteger(glass_timer_ht, GetHandleId(GetTriggeringTrigger()), 0)\n");
-        output.push_str(&format!(
-            "    call glass_send_msg({})\n",
-            sub.dispatch_call
-        ));
+        output.push_str(&format!("    call glass_send_msg({})\n", sub.dispatch_call));
         output.push_str("endfunction\n\n");
     }
 }

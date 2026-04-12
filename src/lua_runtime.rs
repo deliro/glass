@@ -5,7 +5,7 @@
 // - Tables replace SoA arrays (no tuple extraction functions)
 // - Local variables in any scope (no forward declaration issues)
 
-use crate::runtime::{to_snake_case, EffectVariantDef, ElmEntryPoints};
+use crate::runtime::{EffectVariantDef, ElmEntryPoints, to_snake_case};
 use crate::types::FieldInfo;
 
 /// Generate the Elm runtime Lua code (after user functions).
@@ -46,7 +46,9 @@ fn gen_lua_exec_call(variant: &EffectVariantDef, indent: &str, output: &mut Stri
     let args: Vec<String> = non_cb.iter().map(|f| format!("fx.{}", f.name)).collect();
     output.push_str(&format!(
         "{}glass_exec_{}({})\n",
-        indent, snake, args.join(", ")
+        indent,
+        snake,
+        args.join(", ")
     ));
 }
 
@@ -166,11 +168,7 @@ fn gen_lua_update_board(indent: &str, output: &mut String) {
     output.push_str(&format!("{}end\n", indent));
 }
 
-fn gen_lua_effect_variant_body(
-    variant: &EffectVariantDef,
-    indent: &str,
-    output: &mut String,
-) {
+fn gen_lua_effect_variant_body(variant: &EffectVariantDef, indent: &str, output: &mut String) {
     match variant.name.as_str() {
         "After" => gen_lua_after_effect(indent, output),
         "FindNearestEnemy" => gen_lua_find_nearest_enemy(indent, output),

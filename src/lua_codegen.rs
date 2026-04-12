@@ -4,7 +4,7 @@ use crate::ast::*;
 use crate::closures::LambdaInfo;
 use crate::modules::ResolvedImport;
 use crate::type_repr::{Substitution, Type, TypeVarId};
-use crate::types::{TypeRegistry, TypeInfo, VariantInfo};
+use crate::types::{TypeInfo, TypeRegistry, VariantInfo};
 
 fn format_float(n: f64) -> String {
     let s = format!("{}", n);
@@ -1245,16 +1245,24 @@ fn type_hint_from_ctor_name(name: &str) -> Option<&str> {
     if name.contains("::") {
         let before = name.split("::").next().unwrap_or("");
         let type_part = before.rsplit('.').next().unwrap_or(before);
-        if type_part.is_empty() { None } else { Some(type_part) }
+        if type_part.is_empty() {
+            None
+        } else {
+            Some(type_part)
+        }
     } else {
         None
     }
 }
 
-fn resolve_variant_in<'a>(types: &'a TypeRegistry, name: &str) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
+fn resolve_variant_in<'a>(
+    types: &'a TypeRegistry,
+    name: &str,
+) -> Option<(&'a TypeInfo, &'a VariantInfo)> {
     let bare = bare_ctor_name(name);
     match type_hint_from_ctor_name(name) {
-        Some(tn) => types.get_variant_of_type(bare, tn)
+        Some(tn) => types
+            .get_variant_of_type(bare, tn)
             .or_else(|| types.get_variant(bare)),
         None => types.get_variant(bare),
     }

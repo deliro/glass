@@ -679,7 +679,11 @@ mod tests {
         let tokens = Lexer::tokenize(source).expect("lex failed");
         let mut parser = Parser::new(tokens);
         let output = parser.parse_module();
-        assert!(output.errors.is_empty(), "parse errors: {:?}", output.errors);
+        assert!(
+            output.errors.is_empty(),
+            "parse errors: {:?}",
+            output.errors
+        );
         LinearityChecker::new(test_handle_types()).check_module(&output.module)
     }
 
