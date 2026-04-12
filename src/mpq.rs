@@ -7,8 +7,11 @@ const HM3W_MAGIC: &[u8; 4] = b"HM3W";
 
 /// Standard WC3 filenames to probe when (listfile) is missing (protected maps).
 const STANDARD_WC3_FILES: &[&str] = &[
+    // Script files
     "war3map.j",
     "war3map.lua",
+    r"Scripts\war3map.j",
+    // Core map data
     "war3map.w3e",
     "war3map.w3i",
     "war3map.wtg",
@@ -17,6 +20,7 @@ const STANDARD_WC3_FILES: &[&str] = &[
     "war3map.w3r",
     "war3map.w3c",
     "war3map.w3s",
+    // Object data
     "war3map.w3u",
     "war3map.w3t",
     "war3map.w3a",
@@ -24,8 +28,12 @@ const STANDARD_WC3_FILES: &[&str] = &[
     "war3map.w3d",
     "war3map.w3q",
     "war3map.w3h",
+    // Geometry and terrain
     "war3map.doo",
     "war3map.shd",
+    "war3map.wpm",
+    "war3mapUnits.doo",
+    // Preview and minimap
     "war3mapMap.blp",
     "war3mapMap.b00",
     "war3mapMap.tga",
@@ -33,15 +41,18 @@ const STANDARD_WC3_FILES: &[&str] = &[
     "war3mapPreview.tga",
     "war3mapPreview.blp",
     "war3map.mmp",
+    // Config files
     "war3mapMisc.txt",
     "war3mapSkin.txt",
     "war3mapExtra.txt",
-    "war3mapUnits.doo",
-    r"Scripts\war3map.j",
+    // MPQ metadata
     "(listfile)",
     "(attributes)",
     "(signature)",
 ];
+
+/// MPQ header offset for block_table_entries field (u32 LE at MPQ_header + 28).
+const BLOCK_TABLE_ENTRIES_OFFSET: usize = 28;
 
 /// Errors that can occur during w3x patching.
 #[derive(Debug)]
@@ -96,15 +107,39 @@ pub fn patch_w3x(
         eprintln!("[patch] MPQ data starts at offset 0x{mpq_offset:X}");
     }
 
-    // Open the MPQ archive from the MPQ portion
+    // Read total file count from MPQ header (block_table_entries at offset +28)
     let mpq_data = map_data.get(mpq_offset..).unwrap_or(&[]);
+    let total_block_entries = read_block_table_entries(mpq_data);
+    if let Some(total) = total_block_entries {
+        eprintln!("[patch] MPQ block_table_entries: {total}");
+    }
+
+    // Open the MPQ archive from the MPQ portion
     let cursor = Cursor::new(mpq_data);
     let mut archive = Archive::open(BufReader::new(cursor))?;
     eprintln!("[patch] MPQ archive opened successfully");
 
     // Get file list
     let file_list = get_file_list(&mut archive);
-    eprintln!("[patch] files in archive: {}", file_list.len());
+    let found_count = file_list.len();
+    eprintln!("[patch] enumerated files: {found_count}");
+
+    // Warn about missing files when using fallback probing
+    if let Some(total) = total_block_entries {
+        let total_usize = total as usize;
+        if found_count < total_usize {
+            let missing = total_usize - found_count;
+            eprintln!(
+                "[patch] WARNING: archive has {total} files but only {found_count} were found"
+            );
+            eprintln!(
+                "[patch] WARNING: {missing} files with unknown names will be LOST (imported assets, custom models, sounds)"
+            );
+            eprintln!(
+                "[patch] WARNING: this is a protected map without (listfile) — unknown filenames cannot be recovered"
+            );
+        }
+    }
 
     // Resolve the actual script path in the archive.
     // Protected maps may store JASS at "Scripts\war3map.j" instead of "war3map.j".
@@ -238,6 +273,21 @@ fn detect_pre_header(data: &[u8]) -> &[u8] {
 
     // No MPQ magic found, return empty (treat entire file as MPQ)
     &[]
+}
+
+/// Read block_table_entries (u32 LE) from the MPQ header.
+/// MPQ header layout: magic(4) + header_size(4) + archive_size(4) + format(2) +
+/// block_size(2) + hash_table_off(4) + block_table_off(4) + hash_entries(4) + block_entries(4)
+/// So block_table_entries is at byte offset 28 from the start of the MPQ data.
+fn read_block_table_entries(mpq_data: &[u8]) -> Option<u32> {
+    let offset = BLOCK_TABLE_ENTRIES_OFFSET;
+    let bytes = mpq_data.get(offset..offset + 4)?;
+    Some(u32::from_le_bytes([
+        *bytes.first()?,
+        *bytes.get(1)?,
+        *bytes.get(2)?,
+        *bytes.get(3)?,
+    ]))
 }
 
 /// Alternate paths where WC3 maps store script files.

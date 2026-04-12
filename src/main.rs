@@ -186,10 +186,8 @@ fn main() {
         }
         None => {
             let Some(input) = cli.input else {
-                eprintln!("Usage: glass <INPUT> [-o OUTPUT]");
-                eprintln!("       glass gen-bindings <COMMON_J>");
-                eprintln!("       glass check <INPUT>");
-                std::process::exit(1);
+                Cli::parse_from(["glass", "--help"]);
+                std::process::exit(0);
             };
             let opt = optimize::OptFlags {
                 mangle: !cli.no_mangle,
