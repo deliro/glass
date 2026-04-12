@@ -116,6 +116,42 @@ enum Command {
     },
     /// Start LSP server on stdin/stdout
     Lsp,
+    /// Patch a .w3x map file with compiled Glass code
+    Patch {
+        /// Path to the .w3x map file
+        #[arg(value_name = "MAP")]
+        map: String,
+        /// Input .glass file to compile
+        #[arg(value_name = "INPUT")]
+        input: String,
+        /// Output .w3x file path
+        #[arg(value_name = "OUTPUT")]
+        output: String,
+        /// Compilation target
+        #[arg(long, value_enum, default_value_t = Target::Jass)]
+        target: Target,
+        /// Disable name mangling (emit readable glass_* names)
+        #[arg(long)]
+        no_mangle: bool,
+        /// Keep blank lines and comments in output
+        #[arg(long)]
+        no_strip: bool,
+        /// Disable tail call optimization
+        #[arg(long)]
+        no_tco: bool,
+        /// Disable lambda lifting
+        #[arg(long)]
+        no_lift: bool,
+        /// Disable function inlining
+        #[arg(long)]
+        no_inline: bool,
+        /// Disable beta reduction (inline immediately-applied lambdas)
+        #[arg(long)]
+        no_beta: bool,
+        /// Disable constant propagation for let bindings
+        #[arg(long)]
+        no_const_prop: bool,
+    },
 }
 
 fn main() {
@@ -125,6 +161,30 @@ fn main() {
         Some(Command::GenBindings { jass_file }) => cmd_gen_bindings(&jass_file),
         Some(Command::Check { input }) => cmd_check(&input),
         Some(Command::Lsp) => lsp::run_lsp(),
+        Some(Command::Patch {
+            map,
+            input,
+            output,
+            target,
+            no_mangle,
+            no_strip,
+            no_tco,
+            no_lift,
+            no_inline,
+            no_beta,
+            no_const_prop,
+        }) => {
+            let opt = optimize::OptFlags {
+                mangle: !no_mangle,
+                strip: !no_strip,
+                tco: !no_tco,
+                lift: !no_lift,
+                inline: !no_inline,
+                beta: !no_beta,
+                const_prop: !no_const_prop,
+            };
+            cmd_patch(&map, &input, &output, target, &opt);
+        }
         None => {
             let Some(input) = cli.input else {
                 eprintln!("Usage: glass <INPUT> [-o OUTPUT]");
@@ -178,29 +238,112 @@ fn cmd_compile(
     target: Target,
     opt: &optimize::OptFlags,
 ) {
+    let result = if no_check {
+        // no_check path: skip type checking but still run inference for codegen
+        let source = read_file(input);
+        let module = parse_source(input, &source);
+        let (mut module, imports, _imported_count, def_module_map) =
+            resolve_imports(input, module);
+
+        resolve_const_patterns::resolve_const_patterns(&mut module);
+
+        let mut inferencer = infer::Inferencer::new();
+        let infer_result =
+            inferencer.infer_module_with_imports(&module, &imports, &def_module_map);
+
+        // Optimizations
+        if opt.tco {
+            tco::apply_tco(&mut module);
+        }
+        if opt.lift {
+            lift::apply_lambda_lifting(&mut module);
+        }
+        if opt.beta {
+            beta::apply_beta_reduction(&mut module);
+        }
+        if opt.const_prop {
+            const_prop::apply_const_propagation(&mut module);
+        }
+        if opt.inline {
+            inline::apply_inlining(&mut module);
+        }
+
+        // Codegen
+        let type_registry = TypeRegistry::from_module(&module);
+        let mut lambda_collector = closures::LambdaCollector::new();
+        lambda_collector.collect_module(&module);
+
+        let name_table = if opt.mangle {
+            Some(optimize::build_name_table(
+                &module,
+                &type_registry,
+                &lambda_collector.lambdas,
+            ))
+        } else {
+            None
+        };
+
+        let mut r = match target {
+            Target::Jass => JassCodegen::new(
+                type_registry,
+                lambda_collector.lambdas,
+                infer_result.type_map,
+                inferencer.type_param_vars.clone(),
+            )
+            .generate(&module, &imports),
+            Target::Lua => LuaCodegen::new(
+                type_registry,
+                lambda_collector.lambdas,
+                infer_result.type_map,
+                inferencer.type_param_vars.clone(),
+            )
+            .generate(&module, &imports),
+        };
+
+        if let Some(table) = &name_table {
+            r = table.apply(&r);
+        }
+        if opt.strip {
+            r = optimize::strip_whitespace_and_comments(&r);
+        }
+        r.replace('\n', "\r\n")
+    } else {
+        compile_to_string(input, target, opt)
+    };
+
+    match output {
+        Some(path) => {
+            if let Err(e) = std::fs::write(path, &result) {
+                eprintln!("Error writing {}: {}", path, e);
+                std::process::exit(1);
+            }
+        }
+        None => print!("{}", result),
+    }
+}
+
+fn compile_to_string(input: &str, target: Target, opt: &optimize::OptFlags) -> String {
     let source = read_file(input);
     let module = parse_source(input, &source);
     let (mut module, imports, imported_count, def_module_map) = resolve_imports(input, module);
 
     resolve_const_patterns::resolve_const_patterns(&mut module);
 
-    // Always run inference (needed for type_map in codegen)
     let mut inferencer = infer::Inferencer::new();
     let infer_result = inferencer.infer_module_with_imports(&module, &imports, &def_module_map);
 
-    if !no_check {
-        let error_count = run_checks_with_result(
-            input,
-            &source,
-            &module,
-            &imports,
-            &infer_result,
-            &inferencer,
-            imported_count,
-        );
-        if error_count > 0 {
-            std::process::exit(1);
-        }
+    // Always type-check in compile_to_string
+    let error_count = run_checks_with_result(
+        input,
+        &source,
+        &module,
+        &imports,
+        &infer_result,
+        &inferencer,
+        imported_count,
+    );
+    if error_count > 0 {
+        std::process::exit(1);
     }
 
     // Optimizations
@@ -225,7 +368,6 @@ fn cmd_compile(
     let mut lambda_collector = closures::LambdaCollector::new();
     lambda_collector.collect_module(&module);
 
-    // Build name table from AST frequency analysis (before codegen consumes the data)
     let name_table = if opt.mangle {
         Some(optimize::build_name_table(
             &module,
@@ -259,16 +401,20 @@ fn cmd_compile(
     if opt.strip {
         result = optimize::strip_whitespace_and_comments(&result);
     }
-    result = result.replace('\n', "\r\n");
+    result.replace('\n', "\r\n")
+}
 
-    match output {
-        Some(path) => {
-            if let Err(e) = std::fs::write(path, &result) {
-                eprintln!("Error writing {}: {}", path, e);
-                std::process::exit(1);
-            }
-        }
-        None => print!("{}", result),
+fn cmd_patch(map: &str, input: &str, output: &str, target: Target, opt: &optimize::OptFlags) {
+    let script_name = match target {
+        Target::Jass => "war3map.j",
+        Target::Lua => "war3map.lua",
+    };
+
+    let compiled = compile_to_string(input, target, opt);
+
+    if let Err(e) = mpq::patch_w3x(map, &compiled, script_name, output) {
+        eprintln!("Error patching map: {}", e);
+        std::process::exit(1);
     }
 }
 
