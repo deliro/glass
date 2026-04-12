@@ -731,7 +731,16 @@ mod tests {
         "pub struct Model { time: Int, kills: Int }\npub enum Action { Update(Model) }\nfn test(a: Action) -> Int { case a { Update(Model { time, .. } as m) -> time } }"
     )]
     #[case::record_update(
-        "pub struct State { timer: Timer, count: Int }\nfn test(s: State) -> Int { let s2 = State(..s, count: 5)\n s2.count }"
+        "pub struct State { timer: Timer, count: Int }\nfn test(s: State) -> Int { let s2 = State { ..s, count: 5 }\n s2.count }"
+    )]
+    #[case::record_update_option_handle(
+        "pub struct Data { hero: Option(Unit), count: Int }\nfn test(d: Data) -> Data { Data { ..d, count: 5 } }"
+    )]
+    #[case::record_update_list_handle(
+        "pub struct Data { units: List(Unit), count: Int }\nfn test(d: Data) -> Data { Data { ..d, count: 5 } }"
+    )]
+    #[case::record_update_many_fields(
+        "pub struct Big { a: Int, b: Float, c: Unit, d: Option(Unit), e: Int }\nfn test(s: Big) -> Big { Big { ..s, a: 42 } }"
     )]
     fn no_errors(#[case] source: &str) {
         let errs = errors(source);
@@ -825,7 +834,7 @@ mod tests {
         let warns = warnings(
             r#"
 pub struct State { hero: Unit, time: Int }
-fn test(s: State) -> State { State(..s, time: 5) }
+fn test(s: State) -> State { State { ..s, time: 5 } }
 "#,
         );
         assert!(

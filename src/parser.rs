@@ -1368,32 +1368,6 @@ impl Parser {
     ) -> ParseResult<Spanned<Expr>> {
         self.expect(&Token::LParen)?;
 
-        // Check for record update: Name(..expr, ...)
-        if self.at(&Token::DotDot) {
-            self.advance();
-            let base = self.parse_expr()?;
-            let mut updates = Vec::new();
-            while self.at(&Token::Comma) {
-                self.advance();
-                if self.at(&Token::RParen) {
-                    break;
-                }
-                let (field_name, _) = self.expect_lower_ident()?;
-                self.expect(&Token::Colon)?;
-                let value = self.parse_expr()?;
-                updates.push((field_name, value));
-            }
-            let end = self.expect(&Token::RParen)?;
-            return Ok(Spanned::new(
-                Expr::RecordUpdate {
-                    name,
-                    base: Box::new(base),
-                    updates,
-                },
-                start.merge(end),
-            ));
-        }
-
         // Regular constructor: Name(arg1, arg2) or Name(field: val)
         let mut args = Vec::new();
         if !self.at(&Token::RParen) {
@@ -2033,7 +2007,18 @@ mod tests {
 
     #[test]
     fn record_update() {
-        insta::assert_debug_snapshot!(parse_expr_str("Model(..old, wave: 5)"));
+        insta::assert_debug_snapshot!(parse_expr_str("Model { ..old, wave: 5 }"));
+    }
+
+    #[test]
+    fn record_update_paren_rejected() {
+        let tokens = crate::token::Lexer::tokenize("Model(..old, wave: 5)").unwrap();
+        let mut parser = super::Parser::new(tokens);
+        let result = parser.parse_module();
+        assert!(
+            !result.errors.is_empty(),
+            "parenthesized record update should be rejected"
+        );
     }
 
     #[test]
