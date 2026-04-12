@@ -17,6 +17,7 @@ mod lua_codegen;
 mod lua_runtime;
 mod modules;
 mod mono;
+mod mpq;
 mod optimize;
 mod parser;
 mod resolve_const_patterns;
