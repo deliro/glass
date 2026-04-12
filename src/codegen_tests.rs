@@ -144,6 +144,13 @@ pub struct Model { wave: Int, score: Int }
 fn bump(m: Int) -> Int { Model { ..m, wave: 5 } }
 "
 )]
+#[case::record_update_handle_fields(
+    "record_update_handle_fields",
+    "
+pub struct HookData { tip_x: Float, tip_y: Float, owner: Unit, target: Option(Unit), count: Int }
+fn update_tip(h: HookData, x: Float, y: Float) -> HookData { HookData { ..h, tip_x: x, tip_y: y } }
+"
+)]
 // --- Field access ---
 #[case::field_access(
     "field_access",
