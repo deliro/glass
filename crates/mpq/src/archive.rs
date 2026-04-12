@@ -65,8 +65,8 @@ impl<R: Read + Seek> Archive<R> {
         let encryption_key = if block_entry.is_encrypted() {
             Some(calculate_file_key(
                 name,
-                block_entry.file_pos as u32,
-                block_entry.uncompressed_size as u32,
+                u32::try_from(block_entry.file_pos).map_err(|_| MpqError::Corrupted)?,
+                u32::try_from(block_entry.uncompressed_size).map_err(|_| MpqError::Corrupted)?,
                 block_entry.is_key_adjusted(),
             ))
         } else {
@@ -81,19 +81,21 @@ impl<R: Read + Seek> Archive<R> {
         )?;
 
         // read out all the sectors
-        let sector_range = sector_offsets.all();
+        let sector_range = sector_offsets.all().ok_or(MpqError::Corrupted)?;
         let raw_data = self.seeker.read(
             block_entry.file_pos + u64::from(sector_range.0),
             u64::from(sector_range.1),
         )?;
 
-        let mut result = Vec::with_capacity(block_entry.uncompressed_size as usize);
+        let capacity =
+            usize::try_from(block_entry.uncompressed_size).map_err(|_| MpqError::Corrupted)?;
+        let mut result = Vec::with_capacity(capacity);
 
         let sector_size = self.seeker.info().sector_size;
         let sector_count = sector_offsets.count();
-        let first_sector_offset = sector_offsets.one(0).unwrap().0;
+        let first_sector_offset = sector_offsets.one(0).ok_or(MpqError::Corrupted)?.0;
         for i in 0..sector_count {
-            let sector_offset = sector_offsets.one(i).unwrap();
+            let sector_offset = sector_offsets.one(i).ok_or(MpqError::Corrupted)?;
             let slice_start = (sector_offset.0 - first_sector_offset) as usize;
             let slice_end = slice_start + sector_offset.1 as usize;
 
@@ -107,12 +109,17 @@ impl<R: Read + Seek> Archive<R> {
                 sector_size
             };
 
+            let sector_data = raw_data
+                .get(slice_start..slice_end)
+                .ok_or(MpqError::Corrupted)?;
+
+            let sector_key = encryption_key.map(|k| {
+                let idx = u32::try_from(i).unwrap_or(u32::MAX);
+                k.wrapping_add(idx)
+            });
+
             // decode the block and append it to the final result buffer
-            let decoded_sector = decode_mpq_block(
-                &raw_data[slice_start..slice_end],
-                uncompressed_size,
-                encryption_key.map(|k| k + i as u32),
-            )?;
+            let decoded_sector = decode_mpq_block(sector_data, uncompressed_size, sector_key)?;
 
             result.extend(decoded_sector.iter());
         }
@@ -127,12 +134,10 @@ impl<R: Read + Seek> Archive<R> {
 
         let mut list = Vec::new();
         let mut line_start = 0;
-        for i in 0..listfile.len() {
-            let byte = listfile[i];
-
+        for (i, &byte) in listfile.iter().enumerate() {
             if byte == b'\r' || byte == b'\n' {
                 if i - line_start > 0 {
-                    let line = &listfile[line_start..i];
+                    let line = listfile.get(line_start..i)?;
                     let line = std::str::from_utf8(line);
 
                     if let Ok(line) = line {

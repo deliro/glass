@@ -38,7 +38,8 @@ impl<R: Read + Seek> Seeker<R> {
         }
 
         self.reader.seek(SeekFrom::Start(offset))?;
-        let mut buf = vec![0u8; size as usize];
+        let buf_size = usize::try_from(size).map_err(|_| MpqError::Corrupted)?;
+        let mut buf = vec![0u8; buf_size];
         self.reader.read_exact(&mut buf)?;
 
         Ok(buf)

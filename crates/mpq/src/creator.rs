@@ -57,7 +57,7 @@ impl FileRecord {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 /// Represents various options that can be used when adding a file to an archive.
 pub struct FileOptions {
     /// Whether to encrypt the file using MPQ's encryption scheme.
@@ -71,16 +71,6 @@ pub struct FileOptions {
     /// performing some simple transformations on it. By default, this is used for
     /// "technical" files such as `(listfile)`.
     pub adjust_key: bool,
-}
-
-impl Default for FileOptions {
-    fn default() -> FileOptions {
-        FileOptions {
-            encrypt: false,
-            compress: false,
-            adjust_key: false,
-        }
-    }
 }
 
 impl FileOptions {
@@ -204,22 +194,23 @@ impl Creator {
     where
         W: Write + Seek,
     {
-        let (added_files, raw_entries, sector_size) = match self {
-            Creator {
-                added_files,
-                raw_entries,
-                sector_size,
-            } => (added_files, raw_entries, *sector_size),
-        };
+        let Creator {
+            added_files,
+            raw_entries,
+            sector_size,
+        } = self;
+        let sector_size = *sector_size;
 
-        let current_pos = writer.seek(SeekFrom::Current(0))?;
+        let current_pos = writer.stream_position()?;
         // starting from the current pos, this will find the closest valid header position
-        let archive_start =
-            ((current_pos + (HEADER_BOUNDARY - 1)) / HEADER_BOUNDARY) * HEADER_BOUNDARY;
+        let archive_start = current_pos.div_ceil(HEADER_BOUNDARY) * HEADER_BOUNDARY;
         writer.seek(SeekFrom::Start(archive_start))?;
 
         // skip writing the header for now
-        writer.seek(SeekFrom::Current(HEADER_MPQ_SIZE as i64))?;
+        let header_size = i64::try_from(HEADER_MPQ_SIZE).map_err(|_| {
+            IoError::new(std::io::ErrorKind::InvalidData, "header size overflows i64")
+        })?;
+        writer.seek(SeekFrom::Current(header_size))?;
 
         // create a listfile (only includes named files, not raw entries)
         let mut listfile = String::new();
@@ -252,7 +243,7 @@ impl Creator {
 
         // write out all raw entries (verbatim, no compression/encryption)
         for entry in raw_entries.iter_mut() {
-            let file_start = writer.seek(SeekFrom::Current(0))?;
+            let file_start = writer.stream_position()?;
             writer.write_all(&entry.raw_data)?;
             entry.offset = file_start - archive_start;
         }
@@ -271,7 +262,7 @@ impl Creator {
         let blocktable_pos = write_blocktable(&mut writer, added_files, raw_entries)?;
 
         // write header
-        let archive_end = writer.seek(SeekFrom::Current(0))?;
+        let archive_end = writer.stream_position()?;
         write_header(
             &mut writer,
             (archive_start, archive_end),
@@ -293,42 +284,57 @@ fn write_hashtable<W>(
 where
     W: Write + Seek,
 {
-    let hashtable_pos = writer.seek(SeekFrom::Current(0))?;
+    let hashtable_pos = writer.stream_position()?;
     let mut hashtable = vec![HashEntry::blank(); hashtable_size];
     let hash_index_mask = hashtable_size - 1;
 
     // Insert named files
     for (block_index, (key, _)) in added_files.iter().enumerate() {
         let mut hash_index = (key.index as usize) & hash_index_mask;
-        let hash_entry = HashEntry::new(key.hash_a, key.hash_b, block_index as u32);
+        let block_index_u32 = u32::try_from(block_index).map_err(|_| {
+            IoError::new(std::io::ErrorKind::InvalidData, "block index overflows u32")
+        })?;
+        let hash_entry = HashEntry::new(key.hash_a, key.hash_b, block_index_u32);
 
-        while !hashtable[hash_index].is_blank() {
+        while hashtable
+            .get(hash_index)
+            .is_none_or(|e| !e.is_blank())
+        {
             hash_index += 1;
             if hash_index == hashtable_size {
                 hash_index = 0;
             }
         }
 
-        hashtable[hash_index] = hash_entry;
+        if let Some(slot) = hashtable.get_mut(hash_index) {
+            *slot = hash_entry;
+        }
     }
 
     // Insert raw entries (block indices continue after named files)
     let raw_block_start = added_files.len();
     for (i, entry) in raw_entries.iter().enumerate() {
-        let block_index = (raw_block_start + i) as u32;
+        let block_index = u32::try_from(raw_block_start + i).map_err(|_| {
+            IoError::new(std::io::ErrorKind::InvalidData, "block index overflows u32")
+        })?;
         let mut hash_index = (entry.hash_index as usize) & hash_index_mask;
         let mut hash_entry = HashEntry::new(entry.hash_a, entry.hash_b, block_index);
         hash_entry.locale = entry.locale;
         hash_entry.platform = entry.platform;
 
-        while !hashtable[hash_index].is_blank() {
+        while hashtable
+            .get(hash_index)
+            .is_none_or(|e| !e.is_blank())
+        {
             hash_index += 1;
             if hash_index == hashtable_size {
                 hash_index = 0;
             }
         }
 
-        hashtable[hash_index] = hash_entry;
+        if let Some(slot) = hashtable.get_mut(hash_index) {
+            *slot = hash_entry;
+        }
     }
 
     let mut buf = vec![0u8; hashtable_size * HASH_TABLE_ENTRY_SIZE as usize];
@@ -352,7 +358,7 @@ fn write_blocktable<W>(
 where
     W: Write + Seek,
 {
-    let blocktable_pos = writer.seek(SeekFrom::Current(0))?;
+    let blocktable_pos = writer.stream_position()?;
     let total = added_files.len() + raw_entries.len();
 
     let mut buf = vec![0u8; total * BLOCK_TABLE_ENTRY_SIZE as usize];
@@ -401,13 +407,18 @@ fn write_header<W>(
 where
     W: Write + Seek,
 {
+    let to_u32 = |val: u64, name: &str| -> Result<u32, IoError> {
+        u32::try_from(val)
+            .map_err(|_| IoError::new(std::io::ErrorKind::InvalidData, format!("{name} overflows u32")))
+    };
+
     let header = FileHeader::new_v1(
-        (archive_end - archive_start) as u32,
-        sector_size as u32,
-        (hashtable_pos - archive_start) as u32,
-        (blocktable_pos - archive_start) as u32,
-        hashtable_size as u32,
-        blocktable_size as u32,
+        to_u32(archive_end - archive_start, "archive_size")?,
+        to_u32(sector_size, "sector_size")?,
+        to_u32(hashtable_pos - archive_start, "hash_table_offset")?,
+        to_u32(blocktable_pos - archive_start, "block_table_offset")?,
+        to_u32(hashtable_size as u64, "hash_table_entries")?,
+        to_u32(blocktable_size as u64, "block_table_entries")?,
     );
 
     writer.seek(SeekFrom::Start(archive_start))?;
@@ -431,14 +442,19 @@ where
 {
     let options = file.options;
     let sector_count = sector_count_from_size(file.contents.len() as u64, sector_size);
-    let file_start = writer.seek(SeekFrom::Current(0))?;
+    let file_start = writer.stream_position()?;
+
+    let to_u32 = |val: u64, name: &str| -> Result<u32, IoError> {
+        u32::try_from(val)
+            .map_err(|_| IoError::new(std::io::ErrorKind::InvalidData, format!("{name} overflows u32")))
+    };
 
     // calculate the encryption key if encryption was requested
     let encryption_key = if options.encrypt {
         Some(calculate_file_key(
             &file.file_name,
-            (file_start - archive_start) as u32,
-            file.contents.len() as u32,
+            to_u32(file_start - archive_start, "file_offset")?,
+            to_u32(file.contents.len() as u64, "file_size")?,
             options.adjust_key,
         ))
     } else {
@@ -449,19 +465,30 @@ where
         let mut offsets: Vec<u32> = Vec::new();
 
         // store the start of the first sector and prepare to write there
-        let first_sector_start = ((sector_count + 1) * 4) as u32;
+        let first_sector_start = to_u32((sector_count + 1) * 4, "first_sector_start")?;
         writer.seek(SeekFrom::Current(i64::from(first_sector_start)))?;
         offsets.push(first_sector_start);
         // write each sector and the offset of its end
         for i in 0..sector_count {
             let sector_start = i * sector_size;
             let sector_end = min((i + 1) * sector_size, file.contents.len() as u64);
-            let data = &file.contents[sector_start as usize..sector_end as usize];
+            let start_usize = usize::try_from(sector_start).map_err(|_| {
+                IoError::new(std::io::ErrorKind::InvalidData, "sector_start overflows usize")
+            })?;
+            let end_usize = usize::try_from(sector_end).map_err(|_| {
+                IoError::new(std::io::ErrorKind::InvalidData, "sector_end overflows usize")
+            })?;
+            let data = file.contents.get(start_usize..end_usize).ok_or_else(|| {
+                IoError::new(std::io::ErrorKind::InvalidData, "sector slice out of bounds")
+            })?;
 
             let mut compressed = compress_mpq_block(data);
 
             // encrypt the block if encryption was requested
-            if let Some(key) = encryption_key.map(|k| k + i as u32) {
+            if let Some(key) = encryption_key.map(|k| {
+                let sector_idx = u32::try_from(i).unwrap_or(u32::MAX);
+                k.wrapping_add(sector_idx)
+            }) {
                 encrypt_mpq_block(compressed.to_mut(), key);
             }
 
@@ -470,11 +497,11 @@ where
             // store the end of the current sector
             // which is also the start of the next sector if there is one
 
-            let current_offset = writer.seek(SeekFrom::Current(0))?;
-            offsets.push((current_offset - file_start) as u32);
+            let current_offset = writer.stream_position()?;
+            offsets.push(to_u32(current_offset - file_start, "sector_offset")?);
         }
 
-        let file_end = writer.seek(SeekFrom::Current(0))?;
+        let file_end = writer.stream_position()?;
 
         // write the sector offset table
         {
@@ -505,18 +532,29 @@ where
         for i in 0..sector_count {
             let sector_start = i * sector_size;
             let sector_end = min((i + 1) * sector_size, file.contents.len() as u64);
-            let data = &file.contents[sector_start as usize..sector_end as usize];
+            let start_usize = usize::try_from(sector_start).map_err(|_| {
+                IoError::new(std::io::ErrorKind::InvalidData, "sector_start overflows usize")
+            })?;
+            let end_usize = usize::try_from(sector_end).map_err(|_| {
+                IoError::new(std::io::ErrorKind::InvalidData, "sector_end overflows usize")
+            })?;
+            let data = file.contents.get(start_usize..end_usize).ok_or_else(|| {
+                IoError::new(std::io::ErrorKind::InvalidData, "sector slice out of bounds")
+            })?;
             let mut buf = Cow::Borrowed(data);
 
             // encrypt the block if encryption was requested
-            if let Some(key) = encryption_key.map(|k| k + i as u32) {
+            if let Some(key) = encryption_key.map(|k| {
+                let sector_idx = u32::try_from(i).unwrap_or(u32::MAX);
+                k.wrapping_add(sector_idx)
+            }) {
                 encrypt_mpq_block(buf.to_mut(), key);
             }
 
             writer.write_all(&buf)?;
         }
 
-        let file_end = writer.seek(SeekFrom::Current(0))?;
+        let file_end = writer.stream_position()?;
 
         file.offset = file_start - archive_start;
         file.compressed_size = file_end - file_start;

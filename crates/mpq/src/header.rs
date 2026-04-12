@@ -36,7 +36,7 @@ impl FileHeader {
 
         FileHeader {
             format_version: 0,
-            header_size: HEADER_MPQ_SIZE as u32,
+            header_size: HEADER_MPQ_SIZE_U32,
             archive_size,
             block_size: pow,
             hash_table_offset,

@@ -1,6 +1,7 @@
 pub const HEADER_BOUNDARY: u64 = 512;
 pub const HEADER_MPQ_MAGIC: u32 = 0x1A51_504D;
 pub const HEADER_MPQ_SIZE: u64 = 32;
+pub const HEADER_MPQ_SIZE_U32: u32 = 32;
 pub const HEADER_USER_MAGIC: u32 = 0x1B51_504D;
 
 pub const MIN_HASH_TABLE_SIZE: usize = 32;

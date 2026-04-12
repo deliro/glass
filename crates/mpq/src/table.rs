@@ -23,7 +23,8 @@ impl FileHashTable {
         let raw_data = seeker.read(info.offset, info.size)?;
         let decoded_data = decode_mpq_block(&raw_data, expected_size, Some(HASH_TABLE_KEY))?;
 
-        let mut entries = Vec::with_capacity(info.entries as usize);
+        let entries_count = usize::try_from(info.entries).map_err(|_| MpqError::Corrupted)?;
+        let mut entries = Vec::with_capacity(entries_count);
         let mut slice = &decoded_data[..];
         for _ in 0..info.entries {
             entries.push(HashEntry::from_reader(&mut slice)?);
@@ -47,7 +48,7 @@ impl FileHashTable {
     }
 
     pub fn find_entry(&self, name: &str) -> Option<&HashEntry> {
-        let hash_mask = self.entries.len() - 1;
+        let hash_mask = self.entries.len().checked_sub(1)?;
         let part_a = hash_string(name.as_bytes(), MPQ_HASH_NAME_A);
         let part_b = hash_string(name.as_bytes(), MPQ_HASH_NAME_B);
         let index = hash_string(name.as_bytes(), MPQ_HASH_TABLE_INDEX) as usize;
@@ -56,7 +57,7 @@ impl FileHashTable {
         let mut index = start_index;
 
         loop {
-            let inspected = &self.entries[index];
+            let inspected = self.entries.get(index)?;
 
             if inspected.block_index == HASH_TABLE_EMPTY_ENTRY {
                 break;
@@ -152,7 +153,8 @@ impl FileBlockTable {
         let raw_data = seeker.read(info.offset, info.size)?;
         let decoded_data = decode_mpq_block(&raw_data, expected_size, Some(BLOCK_TABLE_KEY))?;
 
-        let mut entries = Vec::with_capacity(info.entries as usize);
+        let entries_count = usize::try_from(info.entries).map_err(|_| MpqError::Corrupted)?;
+        let mut entries = Vec::with_capacity(entries_count);
         let mut slice = &decoded_data[..];
         for _ in 0..info.entries {
             entries.push(BlockEntry::from_reader(&mut slice)?);
@@ -208,10 +210,22 @@ impl BlockEntry {
     }
 
     pub fn write<W: Write>(&self, mut writer: W) -> Result<(), IoError> {
-        writer.write_u32::<LE>(self.file_pos as u32)?;
-        writer.write_u32::<LE>(self.compressed_size as u32)?;
-        writer.write_u32::<LE>(self.uncompressed_size as u32)?;
-        writer.write_u32::<LE>(self.flags as u32)?;
+        writer.write_u32::<LE>(u32::try_from(self.file_pos).map_err(|_| {
+            IoError::new(std::io::ErrorKind::InvalidData, "file_pos overflows u32")
+        })?)?;
+        writer.write_u32::<LE>(u32::try_from(self.compressed_size).map_err(|_| {
+            IoError::new(
+                std::io::ErrorKind::InvalidData,
+                "compressed_size overflows u32",
+            )
+        })?)?;
+        writer.write_u32::<LE>(u32::try_from(self.uncompressed_size).map_err(|_| {
+            IoError::new(
+                std::io::ErrorKind::InvalidData,
+                "uncompressed_size overflows u32",
+            )
+        })?)?;
+        writer.write_u32::<LE>(self.flags)?;
 
         Ok(())
     }
@@ -256,32 +270,29 @@ impl SectorOffsets {
         }
 
         let mut slice = &raw_data[..];
-        let mut offsets = vec![0u32; (sector_count + 1) as usize];
-        for i in 0..=sector_count {
-            offsets[i as usize] = slice.read_u32::<LE>()?;
+        let offsets_count =
+            usize::try_from(sector_count + 1).map_err(|_| MpqError::Corrupted)?;
+        let mut offsets = vec![0u32; offsets_count];
+        for offset in &mut offsets {
+            *offset = slice.read_u32::<LE>()?;
         }
 
         Ok(SectorOffsets { offsets })
     }
 
     pub fn one(&self, index: usize) -> Option<(u32, u32)> {
-        if index >= (self.offsets.len() - 1) {
-            None
-        } else {
-            Some((
-                self.offsets[index],
-                self.offsets[index + 1] - self.offsets[index],
-            ))
-        }
+        let current = self.offsets.get(index).copied()?;
+        let next = self.offsets.get(index + 1).copied()?;
+        Some((current, next - current))
     }
 
-    pub fn all(&self) -> (u32, u32) {
-        let len = self.offsets.len();
-
-        (self.offsets[0], self.offsets[len - 1] - self.offsets[0])
+    pub fn all(&self) -> Option<(u32, u32)> {
+        let first = self.offsets.first().copied()?;
+        let last = self.offsets.last().copied()?;
+        Some((first, last - first))
     }
 
     pub fn count(&self) -> usize {
-        self.offsets.len() - 1
+        self.offsets.len().saturating_sub(1)
     }
 }
