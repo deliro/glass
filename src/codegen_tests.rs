@@ -1026,3 +1026,136 @@ fn data_driven_custom_effect_variant() {
         "Lua must dispatch custom effect to exec function"
     );
 }
+
+fn compile_jass_with_sdk(source: &str) -> String {
+    let tokens = Lexer::tokenize(source).expect("lex failed");
+    let mut parser = Parser::new(tokens);
+    let module = {
+        let _o = parser.parse_module();
+        assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+        _o.module
+    };
+    // Use a dummy path — ModuleResolver falls back to cwd which has sdk/
+    let input_path = std::path::Path::new("dummy.glass");
+    let mut resolver = crate::modules::ModuleResolver::new(input_path);
+    let (merged, imports, _, _) = resolver
+        .resolve_module(&module)
+        .expect("SDK import resolution failed");
+    let types = TypeRegistry::from_module(&merged);
+    let mut collector = LambdaCollector::new();
+    collector.collect_module(&merged);
+    let mut inferencer = crate::infer::Inferencer::new();
+    let infer_result = inferencer.infer_module(&merged);
+    JassCodegen::new(
+        types,
+        collector.lambdas,
+        infer_result.type_map,
+        inferencer.type_param_vars.clone(),
+    )
+    .generate(&merged, &imports)
+}
+
+fn compile_lua_with_sdk(source: &str) -> String {
+    let tokens = Lexer::tokenize(source).expect("lex failed");
+    let mut parser = Parser::new(tokens);
+    let module = {
+        let _o = parser.parse_module();
+        assert!(_o.errors.is_empty(), "parse errors: {:?}", _o.errors);
+        _o.module
+    };
+    let input_path = std::path::Path::new("dummy.glass");
+    let mut resolver = crate::modules::ModuleResolver::new(input_path);
+    let (merged, imports, _, _) = resolver
+        .resolve_module(&module)
+        .expect("SDK import resolution failed");
+    let types = TypeRegistry::from_module(&merged);
+    let mut collector = LambdaCollector::new();
+    collector.collect_module(&merged);
+    let mut inferencer = crate::infer::Inferencer::new();
+    let infer_result = inferencer.infer_module(&merged);
+    LuaCodegen::new(
+        types,
+        collector.lambdas,
+        infer_result.type_map,
+        inferencer.type_param_vars.clone(),
+    )
+    .generate(&merged, &imports)
+}
+
+#[test]
+fn create_unit_then_generates_chain_dispatch() {
+    let source = r#"
+import effect
+
+pub enum Msg { Spawned }
+pub struct Model { count: Int }
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { count: 0 }, [])
+}
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    let fx = effect.create_unit_then(0, 1148481101, 0.0, 0.0, 0.0, fn(u: Unit) -> List(effect.Effect(Msg)) {
+        [effect.kill_unit(u)]
+    })
+    (model, [fx])
+}
+"#;
+    let jass = compile_jass_with_sdk(source);
+    // CreateUnitThen should use cb_type = 3 (unit chain callback)
+    assert!(
+        jass.contains("SaveInteger(glass_timer_ht, GetHandleId(t), 2, 3)"),
+        "CreateUnitThen should use cb_type=3, got:\n{}",
+        jass
+    );
+    // Should reference the chain field, not callback
+    assert!(
+        jass.contains("glass_Effect_CreateUnitThen_chain"),
+        "should access chain field, got:\n{}",
+        jass
+    );
+
+    let lua = compile_lua_with_sdk(source);
+    // Lua should call glass_process_effects directly
+    assert!(
+        lua.contains("glass_process_effects(fx.chain(u))"),
+        "Lua CreateUnitThen should call glass_process_effects with chain result, got:\n{}",
+        lua
+    );
+}
+
+#[test]
+fn after_then_generates_chain_dispatch() {
+    let source = r#"
+import effect
+
+pub enum Msg { Tick }
+pub struct Model { count: Int }
+pub fn init() -> (Model, List(effect.Effect(Msg))) {
+    (Model { count: 0 }, [])
+}
+pub fn update(model: Model, msg: Msg) -> (Model, List(effect.Effect(Msg))) {
+    let fx = effect.after_then(2.0, fn() -> List(effect.Effect(Msg)) {
+        []
+    })
+    (model, [fx])
+}
+"#;
+    let jass = compile_jass_with_sdk(source);
+    // AfterThen should use cb_type = 2 (void chain callback)
+    assert!(
+        jass.contains("SaveInteger(glass_timer_ht, GetHandleId(t), 2, 2)"),
+        "AfterThen should use cb_type=2, got:\n{}",
+        jass
+    );
+    assert!(
+        jass.contains("glass_Effect_AfterThen_chain"),
+        "should access chain field, got:\n{}",
+        jass
+    );
+
+    let lua = compile_lua_with_sdk(source);
+    assert!(
+        lua.contains("glass_process_effects(cb())"),
+        "Lua AfterThen should call glass_process_effects in timer callback, got:\n{}",
+        lua
+    );
+}
