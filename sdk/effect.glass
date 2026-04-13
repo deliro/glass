@@ -47,6 +47,10 @@ pub enum Effect(M) {
     CreateItem { item_type_id: Int, x: Float, y: Float }
     SetUnitMoveSpeed { unit: Unit, speed: Float }
     ForUnitsInRange { x: Float, y: Float, radius: Float, callback: fn(Unit) -> M }
+    AfterThen { duration: Float, chain: fn() -> List(Effect(M)) }
+    CreateUnitThen { owner: Int, type_id: Int, x: Float, y: Float, facing: Float, chain: fn(Unit) -> List(Effect(M)) }
+    FindNearestEnemyThen { x: Float, y: Float, radius: Float, chain: fn(Unit) -> List(Effect(M)) }
+    ForUnitsInRangeThen { x: Float, y: Float, radius: Float, chain: fn(Unit) -> List(Effect(M)) }
 }
 
 pub struct BoardRow {
@@ -204,6 +208,22 @@ pub fn for_units_in_range(x: Float, y: Float, radius: Float, callback: fn(Unit) 
     Effect::ForUnitsInRange { x, y, radius, callback }
 }
 
+pub fn after_then(duration: Float, chain: fn() -> List(Effect(m))) -> Effect(m) {
+    Effect::AfterThen { duration, chain }
+}
+
+pub fn create_unit_then(owner: Int, type_id: Int, x: Float, y: Float, facing: Float, chain: fn(Unit) -> List(Effect(m))) -> Effect(m) {
+    Effect::CreateUnitThen { owner, type_id, x, y, facing, chain }
+}
+
+pub fn find_nearest_enemy_then(x: Float, y: Float, radius: Float, chain: fn(Unit) -> List(Effect(m))) -> Effect(m) {
+    Effect::FindNearestEnemyThen { x, y, radius, chain }
+}
+
+pub fn for_units_in_range_then(x: Float, y: Float, radius: Float, chain: fn(Unit) -> List(Effect(m))) -> Effect(m) {
+    Effect::ForUnitsInRangeThen { x, y, radius, chain }
+}
+
 // --- Functor: map over the message type ---
 // Transforms Effect(a) → Effect(b) by wrapping After's callback.
 // All other variants are phantom in M — reconstructed with new type.
@@ -282,6 +302,14 @@ pub fn map(fx: Effect(a), f: fn(a) -> b) -> Effect(b) {
             Effect::SetUnitMoveSpeed { unit, speed }
         ForUnitsInRange(x, y, radius, callback) ->
             Effect::ForUnitsInRange { x, y, radius, callback: fn(u: Unit) { f(callback(u)) } }
+        AfterThen(duration, chain) ->
+            Effect::AfterThen { duration, chain: fn() { map_list(chain(), f) } }
+        CreateUnitThen(owner, type_id, x, y, facing, chain) ->
+            Effect::CreateUnitThen { owner, type_id, x, y, facing, chain: fn(u: Unit) { map_list(chain(u), f) } }
+        FindNearestEnemyThen(x, y, radius, chain) ->
+            Effect::FindNearestEnemyThen { x, y, radius, chain: fn(u: Unit) { map_list(chain(u), f) } }
+        ForUnitsInRangeThen(x, y, radius, chain) ->
+            Effect::ForUnitsInRangeThen { x, y, radius, chain: fn(u: Unit) { map_list(chain(u), f) } }
     }
 }
 
