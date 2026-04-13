@@ -104,6 +104,66 @@ fn gen_lua_for_units_in_range(indent: &str, output: &mut String) {
     output.push_str(&format!("{}DestroyGroup(g)\n", indent));
 }
 
+fn gen_lua_after_then_effect(indent: &str, output: &mut String) {
+    output.push_str(&format!("{}local trig = CreateTrigger()\n", indent));
+    output.push_str(&format!("{}local cb = fx.chain\n", indent));
+    output.push_str(&format!(
+        "{}TriggerRegisterTimerEvent(trig, fx.duration, false)\n",
+        indent
+    ));
+    output.push_str(&format!("{}TriggerAddAction(trig, function()\n", indent));
+    output.push_str(&format!(
+        "{}    glass_process_effects(cb())\n",
+        indent
+    ));
+    output.push_str(&format!("{}end)\n", indent));
+}
+
+fn gen_lua_create_unit_then(indent: &str, output: &mut String) {
+    output.push_str(&format!(
+        "{}local u = CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}glass_process_effects(fx.chain(u))\n",
+        indent
+    ));
+}
+
+fn gen_lua_find_nearest_enemy_then(indent: &str, output: &mut String) {
+    output.push_str(&format!("{}local g = CreateGroup()\n", indent));
+    output.push_str(&format!(
+        "{}GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)\n",
+        indent
+    ));
+    output.push_str(&format!("{}local best = FirstOfGroup(g)\n", indent));
+    output.push_str(&format!("{}DestroyGroup(g)\n", indent));
+    output.push_str(&format!("{}if best ~= nil then\n", indent));
+    output.push_str(&format!(
+        "{}    glass_process_effects(fx.chain(best))\n",
+        indent
+    ));
+    output.push_str(&format!("{}end\n", indent));
+}
+
+fn gen_lua_for_units_in_range_then(indent: &str, output: &mut String) {
+    output.push_str(&format!("{}local g = CreateGroup()\n", indent));
+    output.push_str(&format!(
+        "{}GroupEnumUnitsInRange(g, fx.x, fx.y, fx.radius, nil)\n",
+        indent
+    ));
+    output.push_str(&format!("{}local u = FirstOfGroup(g)\n", indent));
+    output.push_str(&format!("{}while u ~= nil do\n", indent));
+    output.push_str(&format!(
+        "{}    glass_process_effects(fx.chain(u))\n",
+        indent
+    ));
+    output.push_str(&format!("{}    GroupRemoveUnit(g, u)\n", indent));
+    output.push_str(&format!("{}    u = FirstOfGroup(g)\n", indent));
+    output.push_str(&format!("{}end\n", indent));
+    output.push_str(&format!("{}DestroyGroup(g)\n", indent));
+}
+
 fn gen_lua_update_board(indent: &str, output: &mut String) {
     output.push_str(&format!("{}local row_count = 0\n", indent));
     output.push_str(&format!("{}local cur = fx.rows\n", indent));
@@ -174,6 +234,10 @@ fn gen_lua_effect_variant_body(variant: &EffectVariantDef, indent: &str, output:
         "FindNearestEnemy" => gen_lua_find_nearest_enemy(indent, output),
         "CreateUnitCallback" => gen_lua_create_unit_callback(indent, output),
         "ForUnitsInRange" => gen_lua_for_units_in_range(indent, output),
+        "AfterThen" => gen_lua_after_then_effect(indent, output),
+        "CreateUnitThen" => gen_lua_create_unit_then(indent, output),
+        "FindNearestEnemyThen" => gen_lua_find_nearest_enemy_then(indent, output),
+        "ForUnitsInRangeThen" => gen_lua_for_units_in_range_then(indent, output),
         "UpdateBoard" => gen_lua_update_board(indent, output),
         _ if variant.has_exec_fn => gen_lua_exec_call(variant, indent, output),
         _ => {}
