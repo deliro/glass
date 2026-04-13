@@ -647,12 +647,153 @@ fn gen_jass_create_unit_callback(variant_name: &str, indent: &str, output: &mut 
     output.push_str(&format!("{}set t = null\n", indent));
 }
 
+fn gen_jass_after_then_effect(variant_name: &str, indent: &str, output: &mut String) {
+    output.push_str(&format!("{}set t = CreateTimer()\n", indent));
+    output.push_str(&format!(
+        "{}call SaveInteger(glass_timer_ht, GetHandleId(t), 0, {}[fx_id])\n",
+        indent,
+        jass_field_access(variant_name, "chain")
+    ));
+    output.push_str(&format!(
+        "{}call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 2)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}call TimerStart(t, {}[fx_id], false, function glass_timer_callback)\n",
+        indent,
+        jass_field_access(variant_name, "duration")
+    ));
+    output.push_str(&format!("{}set t = null\n", indent));
+}
+
+fn gen_jass_create_unit_then_effect(variant_name: &str, indent: &str, output: &mut String) {
+    output.push_str(&format!("{}set t = CreateTimer()\n", indent));
+    output.push_str(&format!(
+        "{}set u = CreateUnit(Player({}[fx_id]), {}[fx_id], {}[fx_id], {}[fx_id], {}[fx_id])\n",
+        indent,
+        jass_field_access(variant_name, "owner"),
+        jass_field_access(variant_name, "type_id"),
+        jass_field_access(variant_name, "x"),
+        jass_field_access(variant_name, "y"),
+        jass_field_access(variant_name, "facing"),
+    ));
+    output.push_str(&format!(
+        "{}call SaveInteger(glass_timer_ht, GetHandleId(t), 0, {}[fx_id])\n",
+        indent,
+        jass_field_access(variant_name, "chain")
+    ));
+    output.push_str(&format!(
+        "{}call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 3)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}call TimerStart(t, 0.0, false, function glass_timer_callback)\n",
+        indent
+    ));
+    output.push_str(&format!("{}set u = null\n", indent));
+    output.push_str(&format!("{}set t = null\n", indent));
+}
+
+fn gen_jass_find_nearest_enemy_then(variant_name: &str, indent: &str, output: &mut String) {
+    output.push_str(&format!("{}set glass_group_temp = CreateGroup()\n", indent));
+    output.push_str(&format!(
+        "{}call GroupEnumUnitsInRange(glass_group_temp, {}[fx_id], {}[fx_id], {}[fx_id], null)\n",
+        indent,
+        jass_field_access(variant_name, "x"),
+        jass_field_access(variant_name, "y"),
+        jass_field_access(variant_name, "radius"),
+    ));
+    output.push_str(&format!(
+        "{}set u = FirstOfGroup(glass_group_temp)\n",
+        indent
+    ));
+    output.push_str(&format!("{}call DestroyGroup(glass_group_temp)\n", indent));
+    output.push_str(&format!("{}set glass_group_temp = null\n", indent));
+    output.push_str(&format!("{}if u != null then\n", indent));
+    output.push_str(&format!("{}    set t = CreateTimer()\n", indent));
+    output.push_str(&format!(
+        "{}    call SaveInteger(glass_timer_ht, GetHandleId(t), 0, {}[fx_id])\n",
+        indent,
+        jass_field_access(variant_name, "chain"),
+    ));
+    output.push_str(&format!(
+        "{}    call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 3)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    call TimerStart(t, 0.0, false, function glass_timer_callback)\n",
+        indent
+    ));
+    output.push_str(&format!("{}    set t = null\n", indent));
+    output.push_str(&format!("{}endif\n", indent));
+    output.push_str(&format!("{}set u = null\n", indent));
+}
+
+fn gen_jass_for_units_in_range_then_effect(variant_name: &str, indent: &str, output: &mut String) {
+    output.push_str(&format!("{}set glass_group_temp = CreateGroup()\n", indent));
+    output.push_str(&format!(
+        "{}call GroupEnumUnitsInRange(glass_group_temp, {}[fx_id], {}[fx_id], {}[fx_id], null)\n",
+        indent,
+        jass_field_access(variant_name, "x"),
+        jass_field_access(variant_name, "y"),
+        jass_field_access(variant_name, "radius"),
+    ));
+    output.push_str(&format!("{}loop\n", indent));
+    output.push_str(&format!(
+        "{}    set u = FirstOfGroup(glass_group_temp)\n",
+        indent
+    ));
+    output.push_str(&format!("{}    exitwhen u == null\n", indent));
+    output.push_str(&format!("{}    set t = CreateTimer()\n", indent));
+    output.push_str(&format!(
+        "{}    call SaveInteger(glass_timer_ht, GetHandleId(t), 0, {}[fx_id])\n",
+        indent,
+        jass_field_access(variant_name, "chain"),
+    ));
+    output.push_str(&format!(
+        "{}    call SaveUnitHandle(glass_timer_ht, GetHandleId(t), 1, u)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    call SaveInteger(glass_timer_ht, GetHandleId(t), 2, 3)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    call TimerStart(t, 0.0, false, function glass_timer_callback)\n",
+        indent
+    ));
+    output.push_str(&format!(
+        "{}    call GroupRemoveUnit(glass_group_temp, u)\n",
+        indent
+    ));
+    output.push_str(&format!("{}    set t = null\n", indent));
+    output.push_str(&format!("{}endloop\n", indent));
+    output.push_str(&format!("{}call DestroyGroup(glass_group_temp)\n", indent));
+    output.push_str(&format!("{}set glass_group_temp = null\n", indent));
+}
+
 fn gen_jass_effect_variant_body(variant: &EffectVariantDef, indent: &str, output: &mut String) {
     match variant.name.as_str() {
         "After" => gen_jass_after_effect(&variant.name, indent, output),
+        "AfterThen" => gen_jass_after_then_effect(&variant.name, indent, output),
         "FindNearestEnemy" => gen_jass_find_nearest_enemy(&variant.name, indent, output),
+        "FindNearestEnemyThen" => {
+            gen_jass_find_nearest_enemy_then(&variant.name, indent, output);
+        }
         "CreateUnitCallback" => gen_jass_create_unit_callback(&variant.name, indent, output),
+        "CreateUnitThen" => gen_jass_create_unit_then_effect(&variant.name, indent, output),
         "ForUnitsInRange" => gen_jass_for_units_in_range(&variant.name, indent, output),
+        "ForUnitsInRangeThen" => {
+            gen_jass_for_units_in_range_then_effect(&variant.name, indent, output);
+        }
         "UpdateBoard" => gen_jass_update_board(&variant.name, indent, output),
         _ if variant.has_exec_fn => gen_jass_exec_call(variant, indent, output),
         _ if variant.has_callback_fields() => {
@@ -735,6 +876,10 @@ fn gen_timer_callback(entry: &ElmEntryPoints, output: &mut String) {
     output.push_str("    local integer ri\n");
     output.push_str("    if cb_type == 1 then\n");
     output.push_str("        set msg_result = glass_dispatch_1_unit(closure_id, cb_unit)\n");
+    output.push_str("    elseif cb_type == 2 then\n");
+    output.push_str("        set current = glass_dispatch_void(closure_id)\n");
+    output.push_str("    elseif cb_type == 3 then\n");
+    output.push_str("        set current = glass_dispatch_1_unit(closure_id, cb_unit)\n");
     output.push_str("    else\n");
     output.push_str("        set msg_result = glass_dispatch_void(closure_id)\n");
     output.push_str("    endif\n");
@@ -742,11 +887,13 @@ fn gen_timer_callback(entry: &ElmEntryPoints, output: &mut String) {
     output.push_str("    call DestroyTimer(t)\n");
     output.push_str("    set t = null\n");
     output.push_str("    set cb_unit = null\n");
-    output.push_str("    set glass_msg_tag = msg_result\n");
-    output.push_str("    set glass_result = glass_dispatch_update()\n");
-    output.push_str("    set glass_model = glass_rt_tuple_0(glass_result)\n");
-    output.push_str("    set glass_effects = glass_rt_tuple_1(glass_result)\n");
-    output.push_str("    set current = glass_effects\n");
+    output.push_str("    if cb_type < 2 then\n");
+    output.push_str("        set glass_msg_tag = msg_result\n");
+    output.push_str("        set glass_result = glass_dispatch_update()\n");
+    output.push_str("        set glass_model = glass_rt_tuple_0(glass_result)\n");
+    output.push_str("        set glass_effects = glass_rt_tuple_1(glass_result)\n");
+    output.push_str("        set current = glass_effects\n");
+    output.push_str("    endif\n");
     output.push_str("    loop\n");
     output.push_str("        exitwhen current == -1\n");
     output.push_str("        set fx_id = glass_List_integer_head[current]\n");

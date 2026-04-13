@@ -40,6 +40,10 @@ function glass_timer_callback takes nothing returns nothing
     local integer ri
     if cb_type == 1 then
         set msg_result = glass_dispatch_1_unit(closure_id, cb_unit)
+    elseif cb_type == 2 then
+        set current = glass_dispatch_void(closure_id)
+    elseif cb_type == 3 then
+        set current = glass_dispatch_1_unit(closure_id, cb_unit)
     else
         set msg_result = glass_dispatch_void(closure_id)
     endif
@@ -47,11 +51,13 @@ function glass_timer_callback takes nothing returns nothing
     call DestroyTimer(t)
     set t = null
     set cb_unit = null
-    set glass_msg_tag = msg_result
-    set glass_result = glass_dispatch_update()
-    set glass_model = glass_rt_tuple_0(glass_result)
-    set glass_effects = glass_rt_tuple_1(glass_result)
-    set current = glass_effects
+    if cb_type < 2 then
+        set glass_msg_tag = msg_result
+        set glass_result = glass_dispatch_update()
+        set glass_model = glass_rt_tuple_0(glass_result)
+        set glass_effects = glass_rt_tuple_1(glass_result)
+        set current = glass_effects
+    endif
     loop
         exitwhen current == -1
         set fx_id = glass_List_integer_head[current]

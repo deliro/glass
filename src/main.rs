@@ -242,14 +242,12 @@ fn cmd_compile(
         // no_check path: skip type checking but still run inference for codegen
         let source = read_file(input);
         let module = parse_source(input, &source);
-        let (mut module, imports, _imported_count, def_module_map) =
-            resolve_imports(input, module);
+        let (mut module, imports, _imported_count, def_module_map) = resolve_imports(input, module);
 
         resolve_const_patterns::resolve_const_patterns(&mut module);
 
         let mut inferencer = infer::Inferencer::new();
-        let infer_result =
-            inferencer.infer_module_with_imports(&module, &imports, &def_module_map);
+        let infer_result = inferencer.infer_module_with_imports(&module, &imports, &def_module_map);
 
         // Optimizations
         if opt.tco {

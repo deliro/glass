@@ -112,10 +112,7 @@ fn gen_lua_after_then_effect(indent: &str, output: &mut String) {
         indent
     ));
     output.push_str(&format!("{}TriggerAddAction(trig, function()\n", indent));
-    output.push_str(&format!(
-        "{}    glass_process_effects(cb())\n",
-        indent
-    ));
+    output.push_str(&format!("{}    glass_process_effects(cb())\n", indent));
     output.push_str(&format!("{}end)\n", indent));
 }
 
@@ -124,10 +121,7 @@ fn gen_lua_create_unit_then(indent: &str, output: &mut String) {
         "{}local u = CreateUnit(Player(fx.owner), fx.type_id, fx.x, fx.y, fx.facing)\n",
         indent
     ));
-    output.push_str(&format!(
-        "{}glass_process_effects(fx.chain(u))\n",
-        indent
-    ));
+    output.push_str(&format!("{}glass_process_effects(fx.chain(u))\n", indent));
 }
 
 fn gen_lua_find_nearest_enemy_then(indent: &str, output: &mut String) {
